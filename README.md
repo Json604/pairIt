@@ -16,9 +16,9 @@ is required.
 - **Mac:** universal Apple Silicon/Intel app, macOS 14.2+. Distribution builds are
   Developer ID signed and notarized. The included audio-output installer needs
   administrator approval on first setup. Existing working drivers need no reinstall.
-- **Android:** Android 10+, currently distributed through Play internal testing.
+- **Android:** Android 10+, available to invited Play internal testers; build 15 has been submitted for closed testing. Public production access still requires the closed test and Google approval.
   The separate Preview APK can coexist with the Play app and uses test ads.
-- **iPhone:** iOS 17+, App Store preparation in progress. Simulator UI and transport
+- **iPhone:** iOS 17+, build 13 submitted for App Review; public release awaits approval. Simulator UI and transport
   checks are complete; physical iPhone audio validation remains pending.
 - **Windows:** x64 preview. Extract the entire ZIP before running PairIt.exe.
   Native Windows playback testing and Microsoft Store distribution remain pending.
@@ -60,7 +60,25 @@ one phone.
 ## Build
 
 Use Xcode on macOS for Apple apps, Java 21 and Android SDK/build-tools 36 for Android,
-and .NET 10 for Windows. Build scripts do not install or replace the Mac driver.
+and the pinned .NET SDK 10.0.403 for Windows. Build scripts do not install or replace the Mac driver.
+
+Clone the source first:
+
+```sh
+git clone https://github.com/Json604/pairIt.git
+cd pairIt
+```
+
+For Android, set `ANDROID_HOME` to your SDK location (or use
+`android/local.properties` with `sdk.dir=...`) and install platform/build-tools 36.
+The Gradle wrapper downloads the required Gradle version. Use the Preview package
+to keep a development build separate from an installed Play version:
+
+```sh
+PAIRIT_ANDROID_UI_PREVIEW=1 bash scripts/build-android.sh
+```
+
+Run the other commands on their supported build hosts:
 
 ```sh
 bash scripts/build-android.sh
@@ -69,6 +87,15 @@ bash scripts/build-ios.sh simulator
 bash scripts/build-ios.sh device
 bash scripts/build-windows.sh
 ```
+
+On Windows, use `powershell -File scripts/build-windows.ps1` instead of the shell
+script. On macOS, select a full Xcode installation and install its iOS simulator
+runtime before building. The `device` command produces an unsigned app, not an
+installable App Store package.
+
+Build outputs are written under `artifacts/`. Android's default output is
+`audio-relay-debug.apk`; Mac's is `PairIt.app`; iPhone outputs are labeled
+Simulator or Unsigned. Windows defaults to `artifacts/feature-preview/windows/win-x64/`.
 
 The first Android development build creates a local debug key. Release signing
 requires the owner's existing private upload key, which is not in this repository.
@@ -100,7 +127,28 @@ releases. Older copies need one manual/store update to gain this checker. See
 is in `apple/`; build and diagnostic tools are in `scripts/`. Historical utilities
 are not necessarily part of the current product workflow.
 
-Preserve the Apple audio-driver sample license, font OFL files, and Windows dependency
-notices supplied alongside their sources. This repository does not grant a separate
-project-wide open-source license. Signing keys, pairing credentials, local accounts,
-build artifacts and private rollout records are excluded.
+PairIt's original code is available under the [MIT License](LICENSE).
+Third-party files retain their own licenses: preserve the
+[Apple audio-driver sample license](mac/driver/APPLE-LICENSE.txt),
+[Chakra Petch font license](design/fonts/OFL.txt), and
+[Windows dependency notices](windows/licenses/DEPENDENCIES.md). Bundled SDKs and
+runtime dependencies remain subject to their respective terms.
+
+Signing keys, pairing credentials, local accounts, generated artifacts and private
+rollout records are excluded. Some owner release-packaging scripts expect those
+local records; they are not required for the development builds above.
+
+## Contributing and forks
+
+Open an issue describing the platform, app version and steps to reproduce. Never
+post pairing codes, private keys, device identities or raw diagnostic captures
+containing personal data. Keep audio timing changes separate from UI changes and
+explain how playback, background behavior and output switching were checked.
+
+For your own distribution, use your own package/bundle identities, signing keys,
+AdMob configuration, privacy policy and support contact. The checked-in AdMob IDs
+are public identifiers for the official app, not credentials or a monetization
+configuration for forks. Development builds use Google test ads. Replace the
+update-feed URL and official download links before distributing a fork so it
+does not direct users to incompatible official builds. See
+[update feed maintenance](release/UPDATES.md).

@@ -1,4 +1,4 @@
-# PairIt Windows preview 5
+# PairIt Windows preview
 
 PairIt sends a chosen Windows audio output over encrypted local networking to
 up to four paired phones. Its two tabs are **Audio relay** and **Listen together**.
@@ -163,7 +163,7 @@ The application targets Windows API build 19041 or later (Windows 10 2004+),
 x64, with the .NET 10 runtime bundled. This is an API/build minimum, not a claim
 that every Windows version is currently supported by Microsoft or validated by
 PairIt. Use a supported Windows installation and complete the runtime acceptance
-in `engineering/WINDOWS-IMPLEMENTATION.md` before distribution.
+on a real Windows machine before distribution.
 
 Technical references: [WASAPI loopback](https://learn.microsoft.com/en-us/windows/win32/coreaudio/loopback-recording),
 [capture timestamp contract](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudiocaptureclient-getbuffer),

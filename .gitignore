@@ -37,3 +37,30 @@ relay-identity.*
 /HANDOFF.md
 /AGENTS.md
 /release/apple/GOOGLE-SDK-PRIVACY-QUESTION.txt
+
+# Local research, acceptance evidence and generated store assets (preserved on disk).
+/EXPERIMENTS.md
+/TESTPLAN.md
+/engineering/
+/test-corpus/
+/design/*.md
+/design/AudioRelay.iconset/
+/release/*.md
+!/release/UPDATES.md
+/release/apple/*.md
+/release/apple/screenshots/
+/release/google-play/*.md
+/release/google-play/content-status.json
+/release/google-play/engine-audit.json
+/release/google-play/website-verification.json
+/release/google-play/engineering/
+/release/google-play/graphics/
+/release/google-play/listing/
+/release/google-play/screenshots/
+/release/google-play/site/
+
+# Exported signing identities and local certificates.
+*.pfx
+*.cer
+*.csr
+*.certSigningRequest
