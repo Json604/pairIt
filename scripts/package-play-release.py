@@ -9,7 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 profile = json.loads((ROOT / 'release/google-play/release.json').read_text())
 if profile.get('release_stage') == 'feature-preview':
-    raise SystemExit('Use scripts/package-feature-preview.py for this preview; historical Play screenshots/audits must not certify it.')
+    raise SystemExit('This historical packager cannot certify feature previews; prepare current artifacts and verification records as described in README.md.')
 name = 'PairIt-' + profile['version_name']
 stage = ROOT / 'artifacts' / (name + '-Google-Play')
 required = [name + '.aab', name + '-testing.apk', 'upload-certificate.pem', 'build-report.json']

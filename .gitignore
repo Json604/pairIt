@@ -46,7 +46,6 @@ relay-identity.*
 /design/*.md
 /design/AudioRelay.iconset/
 /release/*.md
-!/release/UPDATES.md
 /release/apple/*.md
 /release/apple/screenshots/
 /release/google-play/*.md
