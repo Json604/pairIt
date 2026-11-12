@@ -42,9 +42,13 @@ func save(_ image: CGImage, _ path: String) {
     let destination = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil)!
     CGImageDestinationAddImage(destination,image,nil); precondition(CGImageDestinationFinalize(destination))
 }
+if CommandLine.arguments.contains("--play-store-only") {
+    save(draw(size: 512, mac: false, insetTile: false), "design/PlayStoreIcon.png")
+    exit(0)
+}
 save(draw(size: 1024, mac: false, insetTile: false), "ios/AudioRelay/Assets.xcassets/AppIcon.appiconset/AppIcon.png")
 if CommandLine.arguments.contains("--ios-only") { exit(0) }
-save(draw(size: 512, mac: false), "design/PlayStoreIcon.png")
+save(draw(size: 512, mac: false, insetTile: false), "design/PlayStoreIcon.png")
 for size in [16,32,128,256,512] {
     save(draw(size: size,mac: true), "design/AudioRelay.iconset/icon_\(size)x\(size).png")
     save(draw(size: size * 2,mac: true), "design/AudioRelay.iconset/icon_\(size)x\(size)@2x.png")
