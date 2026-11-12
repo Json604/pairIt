@@ -14,6 +14,8 @@ internal sealed class CompanionForm : Form
     private readonly Label status = TextLabel("Sharing stopped."), counts = TextLabel("0/4 connected");
     private readonly Button startSharing = ActionButton("Start sharing");
     private readonly TextBox pairing = new() { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Height = 86, Dock = DockStyle.Top, Visible = false };
+    private readonly ReleaseUpdates updates = new();
+    private readonly Button updateButton = ActionButton("Get update");
     private bool updating;
     internal bool ExitRequested;
 
@@ -40,8 +42,9 @@ internal sealed class CompanionForm : Form
         pairing.BackColor = PairItAppearance.Paper;
         pairing.ForeColor = PairItAppearance.Ink;
 
-        var layout = new TableLayoutPanel { BackColor = Color.Transparent, Dock = DockStyle.Fill, Padding = new Padding(24, 18, 24, 16), ColumnCount = 1, RowCount = 6 };
+        var layout = new TableLayoutPanel { BackColor = Color.Transparent, Dock = DockStyle.Fill, Padding = new Padding(24, 18, 24, 16), ColumnCount = 1, RowCount = 7 };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 54));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
@@ -53,8 +56,20 @@ internal sealed class CompanionForm : Form
         header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 50));
         header.Controls.Add(new Label { BackColor = Color.Transparent, Text = "PairIt ·", Font = PairItAppearance.Heading(24), AutoSize = true, Anchor = AnchorStyles.Left }, 0, 0);
         
-        layout.Controls.Add(header, 0, 0);
-        layout.Controls.Add(TextLabel("WINDOWS  /  LOCAL AUDIO"), 0, 1);
+        updateButton.Dock = DockStyle.Fill;
+        updateButton.AutoSize = true;
+        updateButton.Click += (_, _) => { if (!updates.Open()) MessageBox.Show(this, "Couldn’t open the download. Try again.", "PairIt"); };
+        void RenderUpdate() {
+            if (IsDisposed || Disposing) return;
+            updateButton.Visible = updates.Available != null;
+            updateButton.Text = "Update available · " + updates.Available?.Version + " · Get update";
+            updateButton.AccessibleDescription = "Download the new ZIP, then quit PairIt and extract the complete folder to update.";
+        }
+        updates.Changed += RenderUpdate;
+        RenderUpdate();
+        layout.Controls.Add(updateButton, 0, 0);
+        layout.Controls.Add(header, 0, 1);
+        layout.Controls.Add(TextLabel("WINDOWS  /  LOCAL AUDIO"), 0, 2);
         var navigation = new TableLayoutPanel { BackColor = Color.Transparent, Dock = DockStyle.Fill, ColumnCount = 2, Margin = new Padding(0, 0, 0, 8) };
         var pages = new Panel { BackColor = Color.Transparent, Dock = DockStyle.Fill, Margin = new Padding(0, 14, 0, 8) };
         Control[] views = [BuildComputerTab(), BuildPairingTab()];
@@ -72,16 +87,21 @@ internal sealed class CompanionForm : Form
             };
             navigationButtons.Add(button);PairItAppearance.Select(button, index == 0);navigation.Controls.Add(button, index, 0);
         }
-        layout.Controls.Add(navigation, 0, 2);layout.Controls.Add(pages, 0, 3);
+        layout.Controls.Add(navigation, 0, 3);layout.Controls.Add(pages, 0, 4);
         status.Dock = DockStyle.Fill;status.MaximumSize = new Size(370, 0);status.AutoSize = true;status.Padding = new Padding(0, 10, 0, 10);
-        layout.Controls.Add(status, 0, 4);
+        layout.Controls.Add(status, 0, 5);
         var footer = new TableLayoutPanel { BackColor = Color.Transparent, Dock = DockStyle.Fill, ColumnCount = 2, Margin = Padding.Empty };
         footer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));footer.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         counts.Anchor = AnchorStyles.Left;counts.Margin = Padding.Empty;footer.Controls.Add(counts, 0, 0);
         var stop = ActionButton("Stop all");stop.Click += async (_, _) => await StopAllAsync();footer.Controls.Add(stop, 1, 0);
-        layout.Controls.Add(footer, 0, 5);Controls.Add(layout);
+        layout.Controls.Add(footer, 0, 6);Controls.Add(layout);
         FormClosing += (_, args) => { if (!ExitRequested) { args.Cancel = true; Hide(); } };
         VisibleChanged += (_, _) => { if (!Visible) { pairing.Clear(); pairing.Visible = false; } };
+        var updateTimer = new System.Windows.Forms.Timer { Interval = 900000, Enabled = true };
+        updateTimer.Tick += async (_, _) => { if (Visible) await updates.CheckAsync(); };
+        Disposed += (_, _) => updateTimer.Dispose();
+        Activated += async (_, _) => await updates.CheckAsync();
+        Disposed += (_, _) => updates.Dispose();
         RefreshChoices();
     }
 

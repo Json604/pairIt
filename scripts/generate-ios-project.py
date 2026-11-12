@@ -22,7 +22,7 @@ def q(value): return '"' + str(value).replace('"', '\\"') + '"'
 objects=[]
 def add(name, body):
     key=ident(name); objects.append(f'\t\t{key} = {{ {body} }};'); return key
-sources = [str(p.relative_to(root/'ios')) for p in sorted((root/'ios/AudioRelay').glob('*.swift'))] + ['../apple/RelayStyle.swift']
+sources = [str(p.relative_to(root/'ios')) for p in sorted((root/'ios/AudioRelay').glob('*.swift'))] + ['../apple/RelayStyle.swift', '../apple/ReleaseUpdates.swift']
 resources = ['AudioRelay/Assets.xcassets','AudioRelay/PrivacyInfo.xcprivacy'] + ['../design/fonts/' + name for name in ['ChakraPetch-Regular.ttf','ChakraPetch-SemiBold.ttf','OFL.txt']]
 refs=[]; builds=[]; resources_build=[]
 for path in sources+resources+['AudioRelay/Info.plist']:

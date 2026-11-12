@@ -103,12 +103,14 @@ final class MacCompanionModel: ObservableObject {
 
 struct MacCompanionView: View {
     @ObservedObject var model: MacCompanionModel
+    @StateObject private var updates = ReleaseUpdates()
     @Environment(\.accessibilityReduceMotion) private var reduced
     var body: some View {
         ZStack(alignment: .bottom) {
             RelayBackdrop()
             VStack(spacing: 0) {
                 header
+                ReleaseUpdateNotice(updates: updates).padding(.horizontal, 20)
                 ZStack {
                     Group {
                         if model.page == 0 { ScrollView { overview } }
@@ -132,6 +134,9 @@ struct MacCompanionView: View {
             }
         }.foregroundStyle(RelayPalette.ink).preferredColorScheme(.light)
             .frame(width: 400, height: 560)
+            .onReceive(Timer.publish(every: 900, on: .main, in: .common).autoconnect()) { _ in updates.check() }
+            .onAppear { updates.check() }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in updates.check() }
     }
     private var pageTransition: AnyTransition {
         guard !reduced else { return .opacity }

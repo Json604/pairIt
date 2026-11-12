@@ -68,6 +68,10 @@ Choose Settings → Connection & pairing → Forget this computer to stop playba
 
 On iPhone, open the computer pairing screen from Settings and choose Forget this computer to remove the stored pairing credential. Do this before uninstalling if you want to remove the Keychain entry, since uninstalling alone may leave it behind.
 
+## Update checks
+
+PairIt periodically checks for available releases while the app is in use. Google Play installations use Google Play’s update service. Other supported builds request a small public release list hosted on GitHub over HTTPS. GitHub receives ordinary web-request information, including your IP address; PairIt does not attach audio, pairing credentials, a device identifier, or your installed version. Version and signing-certificate comparisons happen on your device. The latest available update may be cached locally so the reminder survives an offline launch. Choosing Get update opens the official store or GitHub release page. Downloads and installation remain under your control. GitHub’s privacy statement is at https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement.
+
 ## Other services
 
 Google Play, Apple’s App Store, Android, iOS, your device manufacturer and your email provider may process store, device, crash or support-email information under their own policies and your settings. These platform services are separate from this app’s local audio connection.

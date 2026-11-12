@@ -4,6 +4,7 @@ import AVKit
 struct ReceiverView: View {
     @ObservedObject var receiver: RelayReceiver
     @ObservedObject var pairing: PairingStore
+    @StateObject private var updates = ReleaseUpdates()
     @EnvironmentObject private var ads: BannerAds
     @Environment(\.scenePhase) private var scenePhase
     @State private var sheet: ReceiverSheet?
@@ -34,6 +35,7 @@ struct ReceiverView: View {
                             Image(systemName: "slider.horizontal.3").font(.system(size: 19)).frame(width: 44, height: 44)
                         }.frost(14).buttonStyle(RelayControlButtonStyle()).accessibilityLabel("Settings")
                     }.padding(.bottom, 30)
+                    ReleaseUpdateNotice(updates: updates).padding(.bottom, updates.available == nil ? 0 : 16)
                     RelayStatusPill(title: pairing.mac == nil && !preview ? "LET’S GET CONNECTED" : status, active: receiver.phase == .playing, busy: connecting || request != nil)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     HStack(alignment: .center, spacing: 12) {
@@ -69,6 +71,9 @@ struct ReceiverView: View {
             .safeAreaInset(edge: .bottom, spacing: 8) {
                 BannerAdSlot(ads: ads, active: scenePhase == .active && sheet == nil && !ads.fullscreenActive)
             }
+            .onReceive(Timer.publish(every: 900, on: .main, in: .common).autoconnect()) { _ in if scenePhase == .active { updates.check() } }
+            .onAppear { updates.check() }
+            .onChange(of: scenePhase) { _, phase in if phase == .active { updates.check() } }
             .sensoryFeedback(.selection, trigger: selectionCount)
             .onReceive(receiver.$phase) { _ in request = nil }
             .sheet(item: $sheet) { value in
@@ -273,7 +278,7 @@ struct ReceiverSettings: View {
                         }.font(.subheadline).foregroundStyle(RelayPalette.secondary).padding(22).frost()
                         VStack(alignment: .leading, spacing: 12) {
                             Label("Local by design", systemImage: "lock.shield").font(.headline).foregroundStyle(RelayPalette.ink)
-                            Text("Audio is encrypted directly between your devices. There are no cloud audio servers or PairIt accounts. A Google AdMob banner and an eligible post-pairing advertisement support the app. Google may process IP-derived location, device identifiers, ad interactions and diagnostics for advertising, measurement and fraud prevention. Live ad requests require the available consent choices; this build requests non-personalized ads and does not request tracking permission. PairIt does not use your microphone. Pairing credentials stay in Keychain. Camera access only scans pairing codes; no photos are saved.")
+                            Text("Audio is encrypted directly between your devices. There are no cloud audio servers or PairIt accounts. A Google AdMob banner and an eligible post-pairing advertisement support the app. Google may process IP-derived location, device identifiers, ad interactions and diagnostics for advertising, measurement and fraud prevention. Live ad requests require the available consent choices; this build requests non-personalized ads and does not request tracking permission. PairIt does not use your microphone. Pairing credentials stay in Keychain. Camera access only scans pairing codes; no photos are saved. Update checks fetch a public release list from GitHub, which receives normal web-request information such as your IP address. No audio, pairing credentials or device identifier is attached.")
                                 .font(.footnote).foregroundStyle(RelayPalette.secondary)
                         }.padding(22).frost()
                         VStack(spacing: 0) {

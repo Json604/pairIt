@@ -82,10 +82,17 @@ Ads do not receive relayed audio or pairing credentials. There are no desktop ad
 
 ## Updates
 
-Android updates are delivered through Google Play; iPhone updates through the App
-Store when available. GitHub Releases distributes desktop downloads. Current desktop
-apps do not automatically download or install releases: quit the old app and replace
-it with the new download, keeping the existing Mac driver and pairing data.
+Update-capable builds check for new releases and show a persistent Get update notice.
+Google Play determines update eligibility for Play installations; APK releases are
+matched by package and signing certificate. iPhone notices open the App Store.
+Mac and Windows notices open the official GitHub release download. The notice
+remains until the installed build catches up; it never stops listening or silently
+replaces executable files. The OS/store or user performs installation.
+
+Checks run asynchronously on launch/return and at most every six hours during use.
+Offline checks preserve a cached notice; a successful check removes withdrawn
+releases. Older copies need one manual/store update to gain this checker. See
+[release feed maintenance](release/UPDATES.md) before publishing future versions.
 
 ## Source and third-party notices
 

@@ -21,6 +21,8 @@ import com.google.mlkit.vision.codescanner.GmsBarcodeScanning;
 public class MainActivity extends Activity {
     static volatile boolean visible;
     private Button pauseAudio;
+    private ReleaseUpdates updates;
+    private String updateURL;
     private boolean scanningCode;
     private Runnable pendingScanResult;
     private AlertDialog pairingDialog;
@@ -49,7 +51,7 @@ public class MainActivity extends Activity {
         feedback.animate().alpha(0).setDuration(120).withEndAction(() -> feedback.setVisibility(View.GONE)).start();
     };
     private final Runnable refresh = new Runnable() {
-        public void run() { render(); handler.postDelayed(this, 500); }
+        public void run() { render(); if (updates != null) updates.check(); handler.postDelayed(this, 500); }
     };
 
     @Override public void onCreate(Bundle saved) {
@@ -90,7 +92,16 @@ public class MainActivity extends Activity {
         ImageButton options = new ImageButton(this); options.setImageDrawable(new GlassUI.Glyph("settings",INK));
         options.setPadding(dp(13),dp(13),dp(13),dp(13)); options.setBackground(new RippleDrawable(ColorStateList.valueOf(0x18191919), GlassUI.surface(dp(14)), null));
         options.setContentDescription("Settings"); options.setOnClickListener(v -> settingsDialog()); GlassUI.pressFeedback(options);
-        brand.addView(options,new LinearLayout.LayoutParams(dp(48),dp(48))); content.addView(brand); space(content,30);
+        brand.addView(options,new LinearLayout.LayoutParams(dp(48),dp(48))); content.addView(brand); space(content,16);
+        Button updateButton = new Button(this); updateButton.setAllCaps(false); updateButton.setTextColor(INK);
+        updateButton.setBackground(GlassUI.surface(dp(14))); updateButton.setMinHeight(dp(48));
+        updateButton.setVisibility(View.GONE); content.addView(updateButton, new LinearLayout.LayoutParams(-1,-2));
+        updates = new ReleaseUpdates(this, (label, url) -> {
+            updateURL = url; updateButton.setText(label == null ? "" : label + " · Get update");
+            updateButton.setVisibility(label == null ? View.GONE : View.VISIBLE);
+        });
+        updateButton.setOnClickListener(v -> { if (updateURL != null) updates.open(updateURL); });
+        space(content,14);
         badge = text("LET’S GET CONNECTED",11,MUTED,true); badge.setLetterSpacing(.12f);
         LinearLayout badgeGroup=row();
         connectionProgress=new ProgressBar(this,null,android.R.attr.progressBarStyleSmall);connectionProgress.setIndeterminateTintList(ColorStateList.valueOf(GREEN));
@@ -562,7 +573,7 @@ public class MainActivity extends Activity {
     private void space(LinearLayout parent, int height) { parent.addView(new View(this), new LinearLayout.LayoutParams(1, dp(height))); }
     private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
     @Override public void onResume() {
-        super.onResume(); visible = true; RelayService.restoreControlsNotification(this);
+        super.onResume(); if (updates != null) updates.check(); visible = true; RelayService.restoreControlsNotification(this);
         if(bannerAds!=null)bannerAds.resume();
         handler.removeCallbacks(refresh);handler.post(refresh);
         showScanResult();
@@ -573,5 +584,5 @@ public class MainActivity extends Activity {
     private void updateAdVisibility() {
         if (bannerAds != null) bannerAds.setVisibleToUser(hasWindowFocus() && !PairingInterstitial.isPresenting() && !scanningCode && pairingDialog == null && pendingScanResult == null);
     }
-    @Override public void onDestroy() { pendingScanResult = null; pendingPairingCompletion = null; if (pairingDialog != null) pairingDialog.dismiss(); if(pairingAds!=null)pairingAds.destroy(); if(bannerAds!=null)bannerAds.destroy();handler.removeCallbacksAndMessages(null);super.onDestroy(); }
+    @Override public void onDestroy() { if (updates != null) updates.destroy(); pendingScanResult = null; pendingPairingCompletion = null; if (pairingDialog != null) pairingDialog.dismiss(); if(pairingAds!=null)pairingAds.destroy(); if(bannerAds!=null)bannerAds.destroy();handler.removeCallbacksAndMessages(null);super.onDestroy(); }
 }
