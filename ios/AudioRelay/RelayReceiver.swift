@@ -34,7 +34,7 @@ final class RelayReceiver: ObservableObject {
     private var waitingForComputerOutput = false // Main thread; stops local playback before the remote acknowledgement.
     var audioIdleForAdvertisement: Bool { !playIntent }
     private var intentGeneration = 0
-    private var connectionGeneration = 0 // Main thread; invalidates delayed UI callbacks after disconnect.
+    private var connectionGeneration = 0 // Main thread; invalidates delayed UI callbacks after disconnect or suspension.
     private var routeUID = ""
     private var generation = 0
     private var reportTimer: DispatchSourceTimer?
@@ -266,11 +266,17 @@ final class RelayReceiver: ObservableObject {
     }
     func listenOnComputer() {
         guard supportsOutputControl else { return }
-        waitingForComputerOutput = true
-        queue.sync {
+        let requested = queue.sync {
+            guard transport?.requestOutputIfConnected(computer: true) == true else { return false }
             localPlaybackReady = false; playback.stop()
-            transport?.requestOutput(computer: true)
+            return true
         }
+        guard requested else {
+            supportsOutputControl = false
+            detail = "Choose Computer to reconnect before changing the playback destination."
+            return
+        }
+        waitingForComputerOutput = true
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         if playIntent { publish(.buffering, "Switching to computer", "Waiting for the computer to confirm. Audio stays stopped on this iPhone.") }
@@ -316,6 +322,8 @@ final class RelayReceiver: ObservableObject {
         guard !playIntent, intentGeneration == ticket, holdBackgroundTask == task else { return }
         // Once suspended, a later interruption-ended notification must not
         // reconnect in the background. The listener explicitly chooses Computer.
+        connectionGeneration += 1
+        supportsOutputControl = false
         queue.sync { transport?.suspend() }
         endHoldBackgroundTask()
     }

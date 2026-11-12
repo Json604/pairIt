@@ -47,7 +47,11 @@ enum RelayPlaybackMode { case reliable, interactive }
                 queue.asyncAfter(deadline: .now() + 0.6) { atChoice = packets; transport.requestOutput(computer: true) }
             } else {
                 queue.asyncAfter(deadline: .now() + 0.6) { transport.park("PHONE") }
-                queue.asyncAfter(deadline: .now() + 0.8) { transport.suspend() }
+                queue.asyncAfter(deadline: .now() + 0.8) {
+                    transport.suspend()
+                    if transport.requestOutputIfConnected(computer: true) { violations += 1 }
+                    if transport.pendingComputerOutput != nil { violations += 1 }
+                }
                 queue.asyncAfter(deadline: .now() + 1) {
                     transport.requestOutput(computer: false)
                     transport.resume()
@@ -69,11 +73,14 @@ enum RelayPlaybackMode { case reliable, interactive }
             return
         }
         if outputCase {
-            queue.asyncAfter(deadline: .now() + 0.7) { transport.requestOutput(computer: true) }
+            queue.asyncAfter(deadline: .now() + 0.7) {
+                if transport.requestOutputIfConnected(computer: true) != modern { violations += 1 }
+            }
             queue.asyncAfter(deadline: .now() + 1.1) {
                 if modern && (!outputSupported || !computerOutput || packets != atComputer || packets == 0) { violations += 1 }
                 if !modern && (outputSupported || computerOutput || packets == 0) { violations += 1 }
-                atResume = packets; transport.requestOutput(computer: false)
+                atResume = packets
+                if transport.requestOutputIfConnected(computer: false) != modern { violations += 1 }
             }
             queue.asyncAfter(deadline: .now() + 1.5) {
                 if computerOutput || packets <= atResume { violations += 1 }

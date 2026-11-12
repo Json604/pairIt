@@ -105,6 +105,11 @@ final class RelayTransport {
         requestedComputerOutput = computer; outputRequestPing = nil
         sendOutputRequest()
     }
+    func requestOutputIfConnected(computer: Bool) -> Bool {
+        guard capabilitiesKnown, connection?.state == .ready, controlStatus & 128 != 0 else { return false }
+        requestOutput(computer: computer)
+        return true
+    }
     private func sendOutputRequest() {
         guard capabilitiesKnown, connection?.state == .ready, outputRequestPing == nil, let computer = requestedComputerOutput else { return }
         guard controlStatus & 128 != 0 else {
