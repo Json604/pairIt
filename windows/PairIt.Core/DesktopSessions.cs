@@ -69,7 +69,7 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
     }
 
     private void PublishOutputStatus() => SetMessage(computerOutput
-        ? "Computer output selected. Phone connections stay ready; Local computer output is unchanged."
+        ? "Computer output selected. Phone connections stay ready; local computer output is unchanged."
         : Status.ActiveReceivers == 0 ? "Phone headphones selected. Start or resume audio on your phone."
         : "Sharing computer audio. Local computer output stays unchanged.");
 
@@ -218,7 +218,7 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
             if (intent == ReceiverIntent.Park) handoff.Park(peer.Id, token, reason, lastListener && !mediaHandoffSuppressed && !computerOutput);
             if (computerOutput) { PublishOutputStatus(); return; }
             SetMessage(Status.ActiveReceivers == 0
-                ? "Relay held. Computer player pause is best effort; unsupported apps can keep playing locally."
+                ? "Relay held. The computer player may keep playing locally."
                 : "Sharing computer audio. Local computer output stays unchanged.");
         }
         finally { lifecycle.Release(); }
@@ -228,7 +228,7 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
     {
         if (computerOutput) return true;
         handoff.CancelAll();
-        if (handoff.HasUnsettledCommand) SetMessage("Waiting for a Computer player command before starting audio.");
+        if (handoff.HasUnsettledCommand) SetMessage("Waiting for a computer player command before starting audio.");
         if (await handoff.WaitUntilSettledAsync(cancellation).ConfigureAwait(false))
         {
             cancellation.ThrowIfCancellationRequested();

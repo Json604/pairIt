@@ -162,7 +162,7 @@ internal static class HandoffIntegration
         var starts = audio.SourceStarts;
         await using (var joining = await connector.ReceiverAsync())
         {
-            await UntilAsync(() => sessions.Status.Message.StartsWith("Waiting for a Windows", StringComparison.Ordinal), "new listener waits for native pause completion");
+            await UntilAsync(() => sessions.Status.Message.StartsWith("Waiting for a computer", StringComparison.Ordinal), "new listener waits for native pause completion");
             Require(sessions.Status.Receivers == 1 && sessions.Status.ActiveReceivers == 0 && audio.SourceStarts == starts,
                 "New listener became active while a prior native pause was unresolved.");
             var late = new SyntheticPauseLease();
