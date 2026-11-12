@@ -8,6 +8,8 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using PairIt.Core;
+using PairIt.Windows;
+using PairIt.Windows.Storage;
 
 // This is a real loopback-TLS integration executable using synthetic PCM and
 // fake audio endpoints. It never calls Windows audio or records any input.
@@ -17,6 +19,7 @@ internal static class Integration
 {
     public static async Task RunAsync()
     {
+        CheckReleaseDestinations();
         using var rsa = RSA.Create(2048);
         var request = new CertificateRequest("CN=PairIt synthetic integration", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         using var generated = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
@@ -129,6 +132,17 @@ internal static class Integration
         await UntilAsync(() => !sessions.Status.Capturing && sessions.Status.Receivers == 0, "restart cleanup");
         Console.WriteLine("PASS: source startup failure disables automatic retries; explicit desktop restart recovers.");
 
+        await sessions.ConfigureAsync(new(SourceEndpointId: "synthetic", SharingEnabled: true));
+        await using (var stopping = await connector.ReceiverAsync())
+        {
+            await UntilAsync(() => sessions.Status.Capturing, "capture before unavailable-settings stop");
+            var saved = await SettingsApplication.ApplyAsync(sessions, new(), _ => throw new IOException("Synthetic read-only profile."));
+            Require(!saved && !sessions.CurrentSettings.SharingEnabled && !sessions.Status.Capturing && sessions.Status.Receivers == 0,
+                "A settings write failure prevented Stop from closing capture and receivers.");
+            await UntilAsync(() => stopping.Closed, "stop closes listener despite settings write failure");
+        }
+        Console.WriteLine("PASS: Stop closes capture and receivers even when saving preferences fails.");
+
         await sessions.ConfigureAsync(new());
         using (var disabled = await connector.ConnectAsync())
         {
@@ -199,6 +213,23 @@ internal static class Integration
         Console.WriteLine("PASS: wrong-rate/oversize/partial frames, idle timeout, EOF, desktop revoke and sink failure cleanup.");
         await HandoffIntegration.RunAsync(certificate, token);
         Console.WriteLine("Synthetic protocol integration passed. No hardware audio, microphone, Windows UI or acoustic checks were performed.");
+    }
+
+    private static void CheckReleaseDestinations()
+    {
+        const string prefix = "https://github.com/Json604/pairIt/releases/";
+        foreach (var suffix in new[] { "tag/v1.1.0-preview.7", "download/v1.1.0-preview.7/PairIt-Windows-x64.zip" })
+            Require(ReleaseDestination.IsTrusted(prefix + suffix), "Official versioned release was rejected.");
+        foreach (var suffix in new[] { "latest", "tag/latest", "tag/v1?redirect=elsewhere", "tag/v1#fragment", "tag/v1/extra",
+            "tag/v1..2", "../../../attacker/repo/releases/tag/v1", "%2e%2e/%2e%2e/%2e%2e/attacker/repo/releases/tag/v1",
+            "%2e%2e%2fattacker", "%252e%252e/%252e%252e", "tag/v1\\..\\latest", "tag/v1\n" })
+            Require(!ReleaseDestination.IsTrusted(prefix + suffix), "Unsafe or mutable release URL was accepted: " + suffix);
+        foreach (var url in new[] { null, "http://github.com/Json604/pairIt/releases/tag/v1",
+            "https://github.com.attacker.invalid/Json604/pairIt/releases/tag/v1",
+            "https://user@github.com/Json604/pairIt/releases/tag/v1", "https://github.com:443/Json604/pairIt/releases/tag/v1",
+            "https://github.com/attacker/repo/releases/tag/v1" })
+            Require(!ReleaseDestination.IsTrusted(url), "Unofficial or ambiguous release URL was accepted.");
+        Console.WriteLine("PASS: update destinations allow only versioned official GitHub release pages/assets; escaped paths and ambiguous/mutable URLs are rejected.");
     }
 
     private static Task EnableMicrophone(DesktopSessions sessions) => sessions.ConfigureAsync(new(MicrophoneEndpointId: "virtual-synthetic", VirtualEndpointConfirmed: true, MicrophoneEnabled: true));

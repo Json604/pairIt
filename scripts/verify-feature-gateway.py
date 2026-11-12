@@ -63,6 +63,13 @@ with tempfile.TemporaryDirectory(prefix='pairit-synthetic-identity-') as directo
         process.stdin.write(text+'\n');process.stdin.flush();return process.stdout.readline().strip()
     def stats():return json.loads(command('stats'))
     try:
+        with socket.create_connection(('127.0.0.1',rawport),timeout=2) as raw:
+            raw.sendall(b'HELLO '+b'a'*32+b'\nACTIVE 1\n')
+            require(closed(raw),'Loopback callers cannot bypass TLS pairing to receive audio')
+        with socket.create_connection(('127.0.0.1',rawport),timeout=2) as raw:
+            raw.sendall(('AUTH '+token+'\n').encode())
+            require(closed(raw),'A phone pairing token is not a loopback gateway capability')
+        require(stats()['sourceStarts']==0,'Unauthenticated loopback callers never start capture')
         with connect('0'*64) as s:require(closed(s),'Wrong credentials rejected before source/sink start')
         with connect(token+' MIC2') as s:require(closed(s),'Unsupported role rejected without starting source')
         require(stats()['sourceStarts']==0,'Rejected authentication never starts capture')

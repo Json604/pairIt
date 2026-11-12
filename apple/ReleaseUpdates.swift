@@ -59,16 +59,23 @@ import SwiftUI
               entry.build > (Int(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "") ?? Int.max),
               entry.version.range(of: #"^\d+\.\d+\.\d+([.-][A-Za-z0-9.]+)?$"#, options: .regularExpression) != nil,
               entry.minimumOS.range(of: #"^\d+\.\d+(\.\d+)?$"#, options: .regularExpression) != nil,
-              let url = URL(string: entry.url), url.scheme == "https", url.user == nil, url.password == nil,
-              url.port == nil else { return false }
+              Self.trustedURL(entry.url, platform: platform) else { return false }
         let current = ProcessInfo.processInfo.operatingSystemVersion
         let os = "\(current.majorVersion).\(current.minorVersion).\(current.patchVersion)"
         guard os.compare(entry.minimumOS, options: .numeric) != .orderedAscending else { return false }
-        #if os(macOS)
-        return url.host == "github.com" && url.path.hasPrefix("/Json604/pairIt/releases/")
-        #else
-        return url.host == "apps.apple.com" && url.path.hasSuffix("/id6833655052")
-        #endif
+        return true
+    }
+    static func trustedURL(_ value: String, platform: String) -> Bool {
+        // Check the raw spelling before a browser can decode or normalize dot
+        // segments. A path prefix alone can escape the official repository.
+        guard value.unicodeScalars.allSatisfy({ (33...126).contains($0.value) }), !value.contains("..") else { return false }
+        let pattern: String
+        if platform == "mac" {
+            pattern = #"^https://github\.com/Json604/pairIt/releases/(?:tag/v[0-9][A-Za-z0-9._-]*|download/v[0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*)$"#
+        } else if platform == "ios" {
+            pattern = #"^https://apps\.apple\.com/(?:[a-z]{2}/)?app/(?:[A-Za-z0-9-]+/)?id6833655052$"#
+        } else { return false }
+        return value.range(of: pattern, options: .regularExpression) != nil
     }
 }
 

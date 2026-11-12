@@ -2,7 +2,7 @@
   "app_name": "PairIt",
   "bundle_id": "dev.bluetoothswitch.iosrelay",
   "version_name": "1.1.0",
-  "build_number": "13",
+  "build_number": "14",
   "release_stage": "feature-preview",
   "admob": {
     "mode": "live",

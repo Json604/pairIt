@@ -56,7 +56,7 @@ final class Capture: RelayCaptureSource {
         defer { preferences.removePersistentDomain(forName: suite) }
         let server = RelayServer(port: port, preferences: preferences)
         try server.start()
-        print("READY"); fflush(stdout)
+        print("READY " + server.gatewayToken); fflush(stdout)
         while let line = readLine() {
             if line == "reserve" { print(server.reserveMicrophone() ? "RESERVED" : "BUSY"); fflush(stdout) }
             if line == "release" { server.releaseMicrophone(); print("RELEASED"); fflush(stdout) }

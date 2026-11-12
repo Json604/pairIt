@@ -38,6 +38,7 @@ func runGateway() throws {
     defer { preferences.removePersistentDomain(forName: suite) }
     let source = RelayServer(port: UInt16(CommandLine.arguments[2])!, preferences: preferences)
     let gateway = WiFiServer(port: UInt16(CommandLine.arguments[1])!, upstreamPort: UInt16(CommandLine.arguments[2])!,
+                            upstreamToken: source.gatewayToken,
                             identityProvider: { LocalIdentity(directory: directory, config: config) },
                             makeMicrophone: { SyntheticMicrophone() })
     gateway.reserveMicrophone = { source.reserveMicrophone() }

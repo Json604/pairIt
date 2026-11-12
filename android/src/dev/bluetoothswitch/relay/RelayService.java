@@ -314,7 +314,9 @@ public class RelayService extends Service {
                 if (!requestedMac) {
                     main.post(() -> {
                         if (!requestedMac && socket == null) {
-                            if (!userStopped) publish(state.phase, state.title, "Control connection ended. Your Mac may still hold output. Choose Computer to reconnect, or release it in the Mac app.");
+                            if (!userStopped) publish(state.phase, state.title, "macos".equals(settings.platform())
+                                    ? "Control connection ended. Your Mac may still hold output. Choose Computer to reconnect, or release it in the Mac app."
+                                    : "Control connection ended. Choose Computer to reconnect.");
                             stopSelf();
                         }
                     });

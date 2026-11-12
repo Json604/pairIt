@@ -10,12 +10,27 @@ struct LocalIdentity {
 
     static func load() throws -> LocalIdentity {
         let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("AudioRelay", isDirectory: true)
+        return try load(directory: directory)
+    }
+
+    static func load(directory: URL) throws -> LocalIdentity {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
         let configURL = directory.appendingPathComponent("identity.json")
-        if let data = try? Data(contentsOf: configURL),
-           let config = try? JSONDecoder().decode([String: String].self, from: data),
-           config["token"]?.count == 64, config["pin"]?.count == 64,
-           FileManager.default.fileExists(atPath: directory.appendingPathComponent("identity.p12").path) {
+        let files = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+        let identityFiles = ["identity.json", "identity.p12", "server.key", "server.pem", "server.der"]
+        if files.contains(where: identityFiles.contains) {
+            // A partial, unreadable or damaged identity may still belong to paired
+            // phones. Never silently replace its private key or credentials.
+            guard let data = try? Data(contentsOf: configURL),
+                  let config = try? JSONDecoder().decode([String: String].self, from: data),
+                  ["token", "pin"].allSatisfy({ config[$0]?.utf8.count == 64 && config[$0]?.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil }),
+                  FileManager.default.isReadableFile(atPath: directory.appendingPathComponent("identity.p12").path) else {
+                throw AudioFailure(description: "The saved pairing identity could not be read. Restore its backup before trying again; PairIt has kept the existing files.")
+            }
+            for name in ["identity.json", "identity.p12", "server.key"] where files.contains(name) {
+                try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: directory.appendingPathComponent(name).path)
+            }
             return LocalIdentity(directory: directory, config: config)
         }
         var bytes = [UInt8](repeating: 0, count: 32)

@@ -7,7 +7,7 @@ $env:DOTNET_NOLOGO = '1'
 $env:NUGET_PACKAGES = Join-Path $projectRoot 'artifacts/feature-preview/windows/nuget'
 Push-Location (Join-Path $projectRoot 'windows')
 try {
-    if ((& $dotnetExe --version) -ne '10.0.403') { throw 'Install the pinned .NET SDK 10.0.403.' }
+    if ((& $dotnetExe --version) -ne '10.0.404') { throw 'Install the pinned .NET SDK 10.0.404.' }
     $lockArgument = if ($UpdateLock) { '--force-evaluate' } else { '--locked-mode' }
     & $dotnetExe restore PairIt.Windows/PairIt.Windows.csproj -p:RuntimeIdentifier=win-x64 -p:SelfContained=true $lockArgument
     if ($LASTEXITCODE) { throw 'Restore failed.' }

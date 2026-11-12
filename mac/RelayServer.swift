@@ -12,6 +12,9 @@ protocol RelayCaptureSource: AnyObject {
 /// One capture owner and one ring consumer. Each receiver owns its socket writer.
 /// The lifecycle queue can refresh HAL latency without stopping packet dispatch.
 final class RelayServer {
+    // The loopback listener is an implementation detail, not another pairing
+    // endpoint. Give only this process's TLS gateway a fresh capability.
+    let gatewayToken = UUID().uuidString + UUID().uuidString
     private let lock = NSLock()
     private let lifecycle = DispatchQueue(label: "pairit.capture.lifecycle", qos: .userInitiated)
     private let workers = DispatchGroup()
@@ -76,7 +79,7 @@ final class RelayServer {
             guard socket >= 0 else { return }
             let id = UUID(), peer = RelayPeer(socket: socket)
             lock.lock()
-            guard !stopped, !micLease, peers.count < 4 else {
+            guard !stopped, !micLease, peers.count < 12 else {
                 let ending = stopped; lock.unlock(); close(socket)
                 if ending { return }; continue
             }
@@ -94,6 +97,17 @@ final class RelayServer {
     private func control(_ line: String, from id: UUID) {
         lock.lock()
         guard let peer = peers[id], !stopped else { lock.unlock(); return }
+        if !peer.authenticated {
+            let supplied = Array(line.utf8), expected = Array(("AUTH " + gatewayToken).utf8)
+            var difference: UInt8 = supplied.count == expected.count ? 0 : 1
+            if supplied.count == expected.count { for (a, b) in zip(supplied, expected) { difference |= a ^ b } }
+            guard difference == 0, !micLease,
+                  peers.values.filter({ $0.authenticated && !$0.closed }).count < 4 else {
+                lock.unlock(); peer.stop(); return
+            }
+            peer.authenticated = true; peer.active = true
+            lock.unlock(); reconcile(); return
+        }
         if line.hasPrefix("PING "), let sent = UInt64(line.dropFirst(5)), sent <= UInt64(Int64.max) {
             var reply = Data(count: 24)
             reply.withUnsafeMutableBytes { raw in
@@ -240,7 +254,7 @@ final class RelayServer {
             let valid = source == nil || capture === source
             // Serialize selection + bounded enqueue against PARK/clear. The socket
             // writer never runs under this lock; parked packets cannot be queued late.
-            if valid { for peer in peers.values where peer.active || source == nil { peer.enqueue(packet) } }
+            if valid { for peer in peers.values where peer.authenticated && (peer.active || source == nil) { peer.enqueue(packet) } }
             lock.unlock()
         }
     }
@@ -285,7 +299,8 @@ private final class RelayPeer {
     private var bytes = 0
     private var ending = false
     var closed: Bool { queueLock.lock(); defer { queueLock.unlock() }; return ending }
-    var active = true
+    var authenticated = false
+    var active = false
     var parked = false
     var released = false
     var intentToken: UInt32 = 0
@@ -326,10 +341,12 @@ private final class RelayPeer {
         setsockopt(socket, SOL_SOCKET, SO_SNDBUF, &sendBuffer, socklen_t(MemoryLayout<Int32>.size))
         var timeout = timeval(tv_sec: 0, tv_usec: 200000)
         setsockopt(socket, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
-        var commands = Data(), lastControl = ProcessInfo.processInfo.systemUptime
+        let acceptedAt = ProcessInfo.processInfo.systemUptime
+        var commands = Data(), lastControl = acceptedAt
         while true {
             queueLock.lock(); let done = ending; queueLock.unlock()
-            if done || ProcessInfo.processInfo.systemUptime - lastControl > 8 { return }
+            let now = ProcessInfo.processInfo.systemUptime
+            if done || now - lastControl > 8 || (!authenticated && now - acceptedAt > 4) { return }
             var probe = pollfd(fd: socket, events: Int16(POLLIN | POLLHUP | POLLERR), revents: 0)
             if poll(&probe, 1, 0) > 0 {
                 if probe.revents & Int16(POLLHUP | POLLERR | POLLNVAL) != 0 { return }

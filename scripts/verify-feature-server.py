@@ -12,7 +12,9 @@ subprocess.run(['xcrun','swiftc','-O','-swift-version','5','-framework','CoreAud
 with socket.socket() as reserve:
     reserve.bind(('127.0.0.1',0)); port=reserve.getsockname()[1]
 process=subprocess.Popen([str(binary),str(port)],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,bufsize=1)
-assert process.stdout.readline().strip()=='READY'
+ready=process.stdout.readline().strip().split(' ',1)
+assert len(ready)==2 and ready[0]=='READY'
+gateway_token=ready[1]
 checks=[]
 def command(text):
     process.stdin.write(text+'\n');process.stdin.flush();return process.stdout.readline().strip()
@@ -29,7 +31,7 @@ class Client:
     def __init__(self,number,read=True):
         self.socket=socket.create_connection(('127.0.0.1',port),timeout=2)
         self.socket.settimeout(3);self.packets={};self.clocks=0;self.status=0;self.error=None;self.running=True
-        self.send('HELLO '+format(number,'032x')+'\nACTIVE 1\n')
+        self.send('AUTH '+gateway_token+'\nHELLO '+format(number,'032x')+'\nACTIVE 1\n')
         if read:
             self.reader=threading.Thread(target=self.run,daemon=True);self.reader.start()
         self.pinger=threading.Thread(target=self.ping,daemon=True);self.pinger.start()
@@ -63,7 +65,15 @@ class Client:
         self.socket.close()
 clients=[]
 try:
+    pending=socket.create_connection(('127.0.0.1',port),timeout=2)
+    pending.settimeout(.15)
+    try:
+        pending.recv(1)
+        raise AssertionError('Pending authentication received data or closed early')
+    except socket.timeout:pass
+    require(json.loads(command('stats'))['starts']==0,'Pending loopback authentication cannot start capture or receive a heartbeat')
     clients=[Client(i) for i in range(1,5)]
+    pending.close()
     time.sleep(.5)
     clients[0].send('SYNC 610\n');time.sleep(.25)
     clients[1].send('SYNC 730\n');clients[2].send('SYNC 450\n')
@@ -77,6 +87,7 @@ try:
     require(stats['adjustments']==[610],'Secondary SYNC cannot change primary timing')
     require(command('reserve')=='BUSY','Microphone rejected during desktop capture')
     with socket.create_connection(('127.0.0.1',port),timeout=2) as fifth:
+        fifth.sendall(('AUTH '+gateway_token+'\n').encode())
         try:rejected=fifth.recv(1)==b''
         except ConnectionResetError:rejected=True
     require(rejected,'Fifth receiver is rejected')
@@ -90,7 +101,7 @@ try:
     require(len(clients[0].packets)>before+300 and clients[0].error is None,'Stalled receiver cannot block healthy capture')
     slow.close();clients.remove(slow)
     with socket.create_connection(('127.0.0.1',port),timeout=2) as bad:
-        bad.sendall(b'x'*4097)
+        bad.sendall(('AUTH '+gateway_token+'\n').encode()+b'x'*4097)
         # Some PCM may have started before this loopback-only malformed command.
         bad.settimeout(2)
         try:

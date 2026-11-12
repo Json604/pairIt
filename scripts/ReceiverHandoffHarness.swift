@@ -7,6 +7,9 @@ enum RelayPlaybackMode { case reliable, interactive }
 
 @main struct ReceiverHandoffHarness {
     static func main() throws {
+        let boundaryPacket = RelayPacket(sequence: 0, rate: 48000, frames: 1, capturedAt: .max, pcm: Data(count: 4))
+        precondition(boundaryPacket.localCaptureSeconds(clockOffset: 1).isFinite,
+                     "Untrusted timestamp adjustment must not overflow before stale-packet rejection")
         let config = try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1]))) as! [String: Any]
         let mac = try JSONDecoder().decode(PairedMac.self, from: JSONSerialization.data(withJSONObject: config["computer"]!))
         let queue = DispatchQueue(label: "pairit.synthetic.receiver")

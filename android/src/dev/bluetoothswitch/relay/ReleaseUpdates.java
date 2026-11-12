@@ -101,9 +101,7 @@ final class ReleaseUpdates {
         if (!"android".equals(item.optString("platform")) || !activity.getPackageName().equals(item.optString("bundleID"))
             || item.optLong("build") <= BuildConfig.VERSION_CODE || item.optInt("minimumSDK", Integer.MAX_VALUE) > Build.VERSION.SDK_INT
             || !item.optString("version").matches("[0-9]+\\.[0-9]+\\.[0-9]+([.-][A-Za-z0-9.]+)?")) return false;
-        Uri url = Uri.parse(item.optString("url"));
-        if (!"https".equals(url.getScheme()) || !"github.com".equals(url.getHost()) || url.getUserInfo() != null || url.getPort() != -1
-            || url.getPath() == null || !url.getPath().startsWith("/Json604/pairIt/releases/")) return false;
+        if (!ReleaseDownloadLink.trusted(item.optString("url"))) return false;
         // APK updates require the same package and certificate; never send a Play-signed
         // or locally re-signed copy to an incompatible upload-key APK.
         android.content.pm.Signature[] signatures = activity.getPackageManager().getPackageInfo(activity.getPackageName(), PackageManager.GET_SIGNING_CERTIFICATES).signingInfo.getApkContentsSigners();

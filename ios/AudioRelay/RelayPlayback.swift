@@ -61,7 +61,7 @@ final class RelayPlayback {
         catch { onError?("Your iPhone couldn’t start audio playback. Try reconnecting your headphones."); return }
         guard let format else { return }
         let now = Double(RelayClock.nanoseconds) / 1e9
-        let source = Double(packet.capturedAt + clockOffset) / 1e9
+        let source = packet.localCaptureSeconds(clockOffset: clockOffset)
         guard source.isFinite, (-1...5).contains(now - source) else { return }
         if mode == .interactive && !learned {
             learn(packet)

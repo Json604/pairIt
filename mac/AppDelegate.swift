@@ -3,7 +3,7 @@ import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var server = RelayServer()
-    private var wifi = WiFiServer()
+    private lazy var wifi = WiFiServer(upstreamToken: server.gatewayToken)
     private let model = MacCompanionModel()
     private let lifecycle = DispatchQueue(label: "relay.companion.lifecycle", qos: .userInitiated)
     private var item: NSStatusItem!
@@ -160,7 +160,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         model.network = "Starting local Wi-Fi…"
         model.detail = "Getting your Mac ready."
         let previousServer = server, previousWiFi = wifi
-        let nextServer = RelayServer(), nextWiFi = WiFiServer()
+        let nextServer = RelayServer()
+        let nextWiFi = WiFiServer(upstreamToken: nextServer.gatewayToken)
         nextWiFi.reserveMicrophone = { [weak nextServer] in nextServer?.reserveMicrophone() ?? false }
         nextWiFi.releaseMicrophone = { [weak nextServer] in nextServer?.releaseMicrophone() }
         server = nextServer; wifi = nextWiFi

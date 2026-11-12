@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Create a local test identity and embed its pin in the debug APK. Never prints secrets."""
+"""Prepare disposable credentials for the historical lab bridge, not the production app.
+
+LabConfig.java is an ignored lab output, not part of the current Android source set.
+The production Mac backend requires a private in-process gateway credential.
+"""
 import hashlib
 import json
 import os

@@ -38,7 +38,7 @@ final class MacCompanionModel: ObservableObject {
     var openPermissions: () -> Void = {}
     var quit: () -> Void = {}
     var changeAddress: () -> Void = {}
-    var needsAudioPermission: Bool { detail.hasPrefix("Capture failed") }
+    var needsAudioPermission: Bool { outputInstalled && detail.hasPrefix("Capture failed") }
     var connectionFailed: Bool { detail.hasPrefix("Couldn’t start") || network.hasPrefix("Wi-Fi unavailable") }
 
     func navigate(to destination: Int) {
@@ -174,7 +174,8 @@ struct MacCompanionView: View {
         if model.sharingAction == .pausing { return "Returning audio to your Mac’s usual output." }
         if model.outputHeld { return (model.detail.hasPrefix("Phone unavailable") ? "Phone unavailable. " : "") + "Resume in PairIt on your phone. Media may still be playing silently; pause it in the player if needed." }
         if model.receiverCount > 1 || model.parkedCount > 0 { return model.receiverDetail }
-        return model.needsAudioPermission ? "Allow audio recording in System Settings, then reconnect your phone." : model.connectionFailed ? "Check your local network, then try sharing again." : model.connected ? "Audio plays through your phone. Adjust volume on the phone or headphones." : !model.outputInstalled ? "A one-time setup keeps video and sound in sync." : model.sharing ? "Pair your phone to listen through its headphones." : "Make this Mac available to your phone again."
+        if model.connectionFailed { return model.detail.hasPrefix("Couldn’t start") ? model.detail : model.network }
+        return model.needsAudioPermission ? "Allow audio recording in System Settings, then reconnect your phone." : model.connectionFailed ? "Check your local network, then try sharing again." : model.connected ? "Audio plays through your phone. Adjust volume on the phone or headphones." : !model.outputInstalled ? "A one-time setup helps compatible players align video and sound." : model.sharing ? "Pair your phone to listen through its headphones." : "Make this Mac available to your phone again."
     }
     private var primaryTitle: String {
         if model.sharingAction == .starting { return "Starting…" }

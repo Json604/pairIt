@@ -2,6 +2,7 @@
 """Build a signed, reproducible internal candidate; private keys never enter this repo."""
 import argparse, hashlib, importlib.util, json, os, secrets, shutil, subprocess, tempfile, urllib.request, zipfile
 from pathlib import Path
+from release_tools import verified_download
 ROOT=Path(__file__).resolve().parent.parent
 parser=argparse.ArgumentParser();parser.add_argument('--internal',action='store_true',help='Allow documented configuration/acceptance blockers; does not submit or force test ads');parser.add_argument('--output-dir',type=Path,help='Isolated candidate directory');args=parser.parse_args()
 p=json.loads((ROOT/'release/google-play/release.json').read_text())
@@ -26,8 +27,8 @@ aab=out/(name+'.aab');shutil.copy2(ROOT/'android/build/outputs/bundle/release/Au
 run([keytool,'-exportcert','-rfc','-keystore',str(key),'-storepass:env','PAIR_UPLOAD_PASSWORD','-alias',c['alias'],'-file',str(out/'upload-certificate.pem')])
 with (out/'bundle-signature.txt').open('w') as log:run([str(Path(java_home)/'bin/jarsigner'),'-verify','-verbose','-certs',str(aab)],stdout=log,stderr=subprocess.STDOUT)
 cache=ROOT/'artifacts/tools';cache.mkdir(exist_ok=True);bundletool=cache/'bundletool-all-1.18.3.jar'
-if not bundletool.exists():
-    urllib.request.urlretrieve('https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar',bundletool)
+verified_download('https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar', bundletool,
+                  'a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29')
 with (out/'bundle-validation.txt').open('w') as log:run([java,'-jar',str(bundletool),'validate','--bundle='+str(aab)],stdout=log,stderr=subprocess.STDOUT)
 # A temporary password file avoids secrets in argv/process listings. Removed immediately.
 fd,secretfile=tempfile.mkstemp(prefix='pairit-signing-',dir=keydir)

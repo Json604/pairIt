@@ -144,7 +144,7 @@ public class MainActivity extends Activity {
         space(content,24);TextView note=text("LOCAL & ENCRYPTED",10,MUTED,false);note.setLetterSpacing(.12f);note.setGravity(Gravity.CENTER);content.addView(note);
         if (!settings.paired() && RelayService.state.phase == RelayState.Phase.IDLE)
             RelayService.state=new RelayState(RelayState.Phase.IDLE,"Connect your computer","Open the companion on your computer, then pair this phone to get started.");
-        render();acceptPairing(getIntent());acceptShortcut(getIntent());
+        render();acceptPairing(getIntent());
         handler.post(() -> bannerAds.start());
     }
     private LinearLayout computerDownloadButtons() {
@@ -165,12 +165,10 @@ public class MainActivity extends Activity {
                 if(which==0)connectionDialog();else if(which==1)outputDialog();else if(which==2)sharedListeningDialog();else if(which==3)syncDialog();else if(which==4)backgroundControlsDialog();else if(which==5)addQuickTile();else if(which==6)InformationActivity.open(this,"help");else if(which==7)InformationActivity.open(this,"privacy");else if(which==8)bannerAds.privacyOptions();else if(which==9)adSoundDialog();else if(which==10)reportAd();else if(which==11)contactSupport();else aboutDialog();
             }).setNegativeButton("Done",null).show();
     }
-    @Override protected void onNewIntent(Intent intent) { super.onNewIntent(intent); setIntent(intent); acceptPairing(intent); acceptShortcut(intent); }
-    private void acceptShortcut(Intent intent) {
-        if (!intent.getBooleanExtra("listen_from_tile", false)) return;
-        intent.removeExtra("listen_from_tile");
-        handler.post(() -> dispatch("PLAY"));
-    }
+    // This activity is exported for launcher/pairing links. Intent extras cannot
+    // authorize playback: any other app can supply them. Start audio only from
+    // our controls or the permission-protected Quick Settings tile service.
+    @Override protected void onNewIntent(Intent intent) { super.onNewIntent(intent); setIntent(intent); acceptPairing(intent); }
     private void addQuickTile() {
         if (Build.VERSION.SDK_INT >= 33) {
             int icon = R.drawable.ic_quick_tile;

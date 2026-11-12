@@ -15,10 +15,15 @@ struct RelayPacket {
     let capturedAt: Int64
     let pcm: Data
     let receivedAt = RelayClock.nanoseconds
+    func localCaptureSeconds(clockOffset: Int64) -> Double {
+        // A pinned but faulty peer can still supply extreme timestamps. Convert
+        // before adding so playback's age check can reject them without a trap.
+        (Double(capturedAt) + Double(clockOffset)) / 1e9
+    }
 }
 
 /// All mutable transport and playback scheduling state runs on the supplied queue.
-/// The TLS peer is the Mac itself; there is no Internet audio service.
+/// The TLS peer is the paired computer; there is no Internet audio service.
 final class RelayTransport {
     private let queue: DispatchQueue
     private let mac: PairedMac

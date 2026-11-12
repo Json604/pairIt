@@ -248,6 +248,9 @@ final class RelayReceiver: ObservableObject {
     }
     private func finishHeldTransport(ticket: Int, task: UIBackgroundTaskIdentifier) {
         guard !playIntent, intentGeneration == ticket, holdBackgroundTask == task else { return }
+        // Once suspended, a later interruption-ended notification must not
+        // reconnect in the background. The listener explicitly chooses Computer.
+        resumeAfterInterruption = false
         queue.sync { transport?.suspend() }
         endHoldBackgroundTask()
     }

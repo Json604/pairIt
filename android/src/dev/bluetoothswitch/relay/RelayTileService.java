@@ -32,9 +32,8 @@ public final class RelayTileService extends TileService {
             return;
         }
         boolean bluetooth = Build.VERSION.SDK_INT < 31 || checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED;
-        // All playback notifications belong to a MediaSession. Android exempts
-        // these from POST_NOTIFICATIONS; declining unrelated alerts must not
-        // force every source switch to open the app.
+        // Notification permission is not needed to start playback from the tile.
+        // Android may hide notification controls when the permission is declined.
         if (!settings.paired() || (settings.output() == OutputRoute.BLUETOOTH && !bluetooth)) { openReceiver(); return; }
         try {
             startForegroundService(new Intent(this, RelayService.class).setAction(RelayService.state.macSelected() ? "USE_PHONE" : "PLAY"));
@@ -42,7 +41,7 @@ public final class RelayTileService extends TileService {
         } catch (IllegalStateException | SecurityException error) { openReceiver(); }
     }
     private void openReceiver() {
-        Intent intent = new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP).putExtra("listen_from_tile", true);
+        Intent intent = new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         if (Build.VERSION.SDK_INT >= 34) startActivityAndCollapse(PendingIntent.getActivity(this, 18, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
         else openBeforeAndroid14(intent);
     }

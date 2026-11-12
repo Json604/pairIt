@@ -52,8 +52,7 @@ internal sealed class ReleaseUpdates : IDisposable
         return entry.Platform == "windows" && entry.BundleID == "dev.bluetoothswitch.windowsrelay" && entry.Build > current
             && entry.Version != null && System.Text.RegularExpressions.Regex.IsMatch(entry.Version, @"^\d+\.\d+\.\d+([.-][A-Za-z0-9.]+)?$")
             && Version.TryParse(entry.MinimumOS, out var os) && Environment.OSVersion.Version >= os
-            && Uri.TryCreate(entry.Url, UriKind.Absolute, out var url) && url.Scheme == "https" && url.Host == "github.com"
-            && url.IsDefaultPort && url.UserInfo.Length == 0 && url.AbsolutePath.StartsWith("/Json604/pairIt/releases/", StringComparison.Ordinal);
+            && ReleaseDestination.IsTrusted(entry.Url);
     }
     internal bool Open()
     {

@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Live capture probe, not a unit test. Examines PCM in memory; saves no audio."""
+"""Historical raw lab-source probe. Examines PCM in memory; saves no audio.
+
+It does not authenticate to the current production Mac companion. Use a
+standalone synthetic source for raw port-5001 diagnostics.
+"""
 import argparse
 import math
 import socket

@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Local authenticated TLS bridge for the real Wi-Fi experiment; no cloud service."""
+"""Historical TLS lab bridge for a standalone raw test source on port 5001.
+
+This cannot connect to the production Mac backend, which authenticates its own
+in-process gateway. Use normal pairing with the companion for product testing.
+"""
 from pathlib import Path
 import hmac
 import json

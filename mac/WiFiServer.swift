@@ -1,6 +1,7 @@
 import Foundation
 import Network
 import Security
+import CryptoKit
 
 /// TLS and discovery live in the app. No shell bridge or fixed interface binding.
 final class WiFiServer {
@@ -17,16 +18,17 @@ final class WiFiServer {
     private let microphoneWorkers = DispatchGroup()
     private let port: UInt16
     private let upstreamPort: UInt16
+    private let upstreamToken: String
     private let identityProvider: () throws -> LocalIdentity
     private let makeMicrophone: () -> MicrophoneSink
     var reserveMicrophone: () -> Bool = { false }
     var releaseMicrophone: () -> Void = {}
     var onMicrophoneStatus: ((String) -> Void)?
     var onStatus: ((String) -> Void)?
-    init(port: UInt16 = 5002, upstreamPort: UInt16 = 5001,
+    init(port: UInt16 = 5002, upstreamPort: UInt16 = 5001, upstreamToken: String,
          identityProvider: @escaping () throws -> LocalIdentity = { try LocalIdentity.load() },
          makeMicrophone: @escaping () -> MicrophoneSink = { MicrophoneOutput() }) {
-        self.port = port; self.upstreamPort = upstreamPort
+        self.port = port; self.upstreamPort = upstreamPort; self.upstreamToken = upstreamToken
         self.identityProvider = identityProvider; self.makeMicrophone = makeMicrophone
     }
     var pairingCode: String {
@@ -52,6 +54,11 @@ final class WiFiServer {
             throw AudioFailure(description: "Could not load local TLS identity (\(result))")
         }
         let secIdentity = value as! SecIdentity
+        var certificate: SecCertificate?
+        guard SecIdentityCopyCertificate(secIdentity, &certificate) == errSecSuccess, let certificate,
+              SHA256.hash(data: SecCertificateCopyData(certificate) as Data).map({ String(format: "%02x", $0) }).joined() == config["pin"] else {
+            throw AudioFailure(description: "The saved certificate does not match the pairing identity. Restore its backup; PairIt has kept the existing files.")
+        }
         let tls = NWProtocolTLS.Options()
         sec_protocol_options_set_min_tls_protocol_version(tls.securityProtocolOptions, .TLSv12)
         sec_protocol_options_set_local_identity(tls.securityProtocolOptions, sec_identity_create(secIdentity)!)
@@ -71,7 +78,7 @@ final class WiFiServer {
             // Pending authentication is separate from the four capture slots.
             guard let self, !self.stopped, self.peers.count < 12 else { connection.cancel(); return }
             let id = UUID()
-            let peer = WiFiPeer(connection: connection, token: self.config["token"]!, queue: self.queue, upstreamPort: self.upstreamPort)
+            let peer = WiFiPeer(connection: connection, token: self.config["token"]!, queue: self.queue, upstreamPort: self.upstreamPort, upstreamToken: self.upstreamToken)
             peer.onAuthenticated = { [weak peer] in peer?.connectUpstream() }
             peer.onMicrophone = { [weak self] completion in
                 guard let self else { completion(.failure("DISABLED")); return }
@@ -203,6 +210,7 @@ private final class WiFiPeer {
     let token: String
     let queue: DispatchQueue
     let upstreamPort: UInt16
+    let upstreamToken: String
     var onAuthenticated: (() -> Void)?
     var onClose: (() -> Void)?
     var onMicrophone: ((@escaping (MicrophoneAdmission) -> Void) -> Void)?
@@ -217,8 +225,8 @@ private final class WiFiPeer {
     private var lastActivity = ProcessInfo.processInfo.systemUptime
     private var closed = false
     private(set) var authenticated = false
-    init(connection: NWConnection, token: String, queue: DispatchQueue, upstreamPort: UInt16) {
-        self.connection = connection; self.token = token; self.queue = queue; self.upstreamPort = upstreamPort
+    init(connection: NWConnection, token: String, queue: DispatchQueue, upstreamPort: UInt16, upstreamToken: String) {
+        self.connection = connection; self.token = token; self.queue = queue; self.upstreamPort = upstreamPort; self.upstreamToken = upstreamToken
     }
     func start() {
         connection.stateUpdateHandler = { [weak self] state in
@@ -335,13 +343,12 @@ private final class WiFiPeer {
             guard let self else { return }
             switch state {
             case .ready:
-                if !self.prefix.isEmpty {
-                    upstream.send(content: self.prefix, completion: .contentProcessed { [weak self] error in
-                        guard let self else { return }
-                        if error != nil { self.stop() } else { self.pipe(self.connection, to: upstream, control: true) }
-                    })
-                    self.prefix.removeAll()
-                } else { self.pipe(self.connection, to: upstream, control: true) }
+                let initial = Data(("AUTH " + self.upstreamToken + "\n").utf8) + self.prefix
+                self.prefix.removeAll()
+                upstream.send(content: initial, completion: .contentProcessed { [weak self] error in
+                    guard let self, !self.closed else { return }
+                    if error != nil { self.stop() } else { self.pipe(self.connection, to: upstream, control: true) }
+                })
                 self.pipe(upstream, to: self.connection, control: false)
             case .failed, .cancelled: self.stop()
             default: break

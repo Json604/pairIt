@@ -43,7 +43,7 @@ public final class InformationActivity extends Activity {
         Button back=new Button(this);back.setText("‹");back.setTextSize(30);back.setTextColor(GlassUI.INK);back.setPadding(0,0,0,0);back.setContentDescription("Back");
         back.setBackground(new RippleDrawable(ColorStateList.valueOf(0x18331f1a),null,GlassUI.surface(dp(12))));
         GlassUI.pressFeedback(back);back.setOnClickListener(v->finish());header.addView(back,new LinearLayout.LayoutParams(dp(48),dp(48)));
-        TextView heading=label(privacy?"Privacy policy":"Help & Mac companion",22,true);heading.setAccessibilityHeading(true);
+        TextView heading=label(privacy?"Privacy policy":"Help & desktop companion",22,true);heading.setAccessibilityHeading(true);
         LinearLayout.LayoutParams headingParams=new LinearLayout.LayoutParams(0,-2,1);headingParams.setMarginStart(dp(8));header.addView(heading,headingParams);content.addView(header);
         String document=readAsset(privacy?"privacy.txt":"help.txt");
         for(String paragraph:document.split("\n\n")) {

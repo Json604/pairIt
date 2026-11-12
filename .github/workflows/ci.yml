@@ -1,0 +1,103 @@
+name: Repository checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  repository:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Release checks and script syntax
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_*.py'
+          python3 scripts/check-update-feed.py --offline
+          python3 -m compileall -q scripts android/tests
+          for script in scripts/*.sh; do bash -n "$script"; done
+          git diff --check
+      - name: Generated documents stay current
+        run: |
+          python3 scripts/prepare-play-content.py
+          python3 scripts/generate-ios-project.py
+          git diff --exit-code -- android/assets android/res/values/strings.xml ios/AudioRelay.xcodeproj
+      - name: Scan complete Git history for credentials
+        env:
+          GITLEAKS_VERSION: 8.30.1
+        run: |
+          archive="$RUNNER_TEMP/gitleaks.tar.gz"
+          curl --fail --location --silent --show-error "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" --output "$archive"
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  $archive" | sha256sum --check
+          tar -xzf "$archive" -C "$RUNNER_TEMP" gitleaks
+          "$RUNNER_TEMP/gitleaks" git --log-opts=--all --redact --no-banner
+
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install Android platform
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - name: Build Preview and run lint
+        run: |
+          python3 android/tests/verify-core.py
+          PAIRIT_ANDROID_UI_PREVIEW=1 bash scripts/build-android.sh
+          cd android
+          ./gradlew lintDebug -PpairitUiPreview=true --console=plain
+
+  apple:
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Mac universal build
+        run: bash scripts/build-mac.sh
+      - name: Synthetic protocol and identity regressions
+        run: |
+          python3 scripts/verify-feature-server.py
+          python3 scripts/verify-feature-gateway.py
+          python3 scripts/verify-receiver-handoff.py
+          xcrun swiftc -swift-version 5 -framework Security mac/LocalIdentity.swift mac/tests/LocalIdentityCheck.swift -o artifacts/local-identity-check
+          artifacts/local-identity-check
+          xcrun swiftc -swift-version 5 apple/RelayStyle.swift apple/ReleaseUpdates.swift mac/tests/ReleaseUpdateCheck.swift -o artifacts/release-update-check
+          artifacts/release-update-check
+      - name: iOS simulator build
+        run: bash scripts/build-ios.sh simulator
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          global-json-file: windows/global.json
+      - name: Build and synthetic protocol regressions
+        shell: pwsh
+        run: ./scripts/build-windows.ps1

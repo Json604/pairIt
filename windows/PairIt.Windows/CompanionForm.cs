@@ -98,7 +98,7 @@ internal sealed class CompanionForm : Form
         FormClosing += (_, args) => { if (!ExitRequested) { args.Cancel = true; Hide(); } };
         VisibleChanged += (_, _) => { if (!Visible) { pairing.Clear(); pairing.Visible = false; } };
         var updateTimer = new System.Windows.Forms.Timer { Interval = 900000, Enabled = true };
-        updateTimer.Tick += async (_, _) => { if (Visible) await updates.CheckAsync(); };
+        updateTimer.Tick += async (_, _) => await updates.CheckAsync();
         Disposed += (_, _) => updateTimer.Dispose();
         Activated += async (_, _) => await updates.CheckAsync();
         Disposed += (_, _) => updates.Dispose();
@@ -167,9 +167,9 @@ internal sealed class CompanionForm : Form
         startSharing.Enabled = false;
         try
         {
-            SettingsStore.Save(value);
-            await sessions.ConfigureAsync(value);
+            var saved = await SettingsApplication.ApplyAsync(sessions, value, SettingsStore.Save);
             UpdateStatus(sessions.Status);
+            if (!saved) status.Text = sessions.Status.Message + " Preferences could not be saved for the next launch.";
         }
         catch { status.Text = "Could not apply the setting. Check device availability and try again."; }
         finally { updating = false; startSharing.Enabled = true; }
