@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name" translatable="false">PairIt</string>
+    <string name="publisher_name" translatable="false">Kartikey</string>
+    <string name="support_email" translatable="false">kartikey060105@gmail.com</string>
+    <string name="privacy_url" translatable="false">https://pairit.kartikey.xyz/privacy.html</string>
+    <string name="website_url" translatable="false">https://pairit.kartikey.xyz</string>
+    <string name="mac_download_url" translatable="false">https://pairit.kartikey.xyz/downloads.html</string>
+    <string name="app_version" translatable="false">1.1.0</string>
+</resources>

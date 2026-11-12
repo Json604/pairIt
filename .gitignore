@@ -1,0 +1,39 @@
+artifacts/
+android/build/
+android/.gradle/
+android/local.properties
+*.keystore
+*.jks
+*.p12
+*.mobileprovision
+ios/AudioRelay.xcodeproj/xcuserdata/
+*.xcuserstate
+.DS_Store
+
+# Local caches and developer environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+node_modules/
+**/xcuserdata/
+DerivedData/
+
+# Private configuration and signing material
+.env
+.env.*
+!.env.example
+!.env.sample
+*.key
+*-private.pem
+upload-credentials.json
+relay-config.json
+relay-identity.*
+
+# The website has its own existing repository and publishing history.
+/sites/paircove/
+
+# Local rollout/account history; not product source.
+/HANDOFF.md
+/AGENTS.md
+/release/apple/GOOGLE-SDK-PRIVACY-QUESTION.txt

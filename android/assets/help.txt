@@ -1,0 +1,41 @@
+PairIt has two features: computer audio relay and shared listening.
+
+## Set up and pair
+
+Install PairIt on your Mac or Windows computer and phone. Keep them on the same local Wi-Fi. On Mac, finish the one-time audio-output setup and allow system audio capture. On Windows, choose the output your apps use and start sharing; local speakers can also play. Open Pair a phone on Mac, or Listen together on Windows, then Scan QR code or paste the code in the phone app. Confirm the computer’s name before saving. Keep the code private.
+
+Pairing saved means the credentials are stored, not that audio is connected. A video or image ad may appear after an explicit pairing is saved; the app waits at most briefly for an already loading ad and continues if none is available. Tap Start audio separately. Deliberately confirming a pairing again is eligible; normal reconnection does not show another interstitial.
+
+## Audio relay
+
+Choose Computer to hear your computer through this phone. Choose Phone to release audio to phone apps. Output lets you select Bluetooth headphones, phone speaker or wired headphones. If a private output disconnects, playback stops instead of intentionally moving to the speaker. Adjust listening volume on the phone or headphones. Mac system volume keys may be unavailable with the virtual relay output; this does not mean Phone is the selected source.
+
+Headphone play/pause pauses or resumes this phone’s live relay while keeping Computer selected. It does not change the selected source or pause other listeners. This is a live stream: the computer player can keep progressing while listening is paused, and resuming returns to live audio. Track skipping stays in the computer player. Volume and noise-control gestures remain controlled by your device/headphone manufacturer. On updated Mac companions, phone audio, paused listening and unexpected connection loss hold the Mac output instead of releasing speakers. The computer player may continue silently; pause it manually when needed. Return with Computer in PairIt. Explicit Disconnect releases your live connection; if the phone has already lost contact, use Use Mac speakers in the Mac app. Quitting or stopping sharing releases the usual Mac output.
+
+## Listen together
+
+The most compatible setup uses one phone per listener. Connect each person’s Bluetooth headphones to their own phone, keep all devices on the same Wi-Fi, pair each phone with the same computer, and choose Computer on all of them. Up to four phones can listen. Each has its own volume and can pause independently. A slow or disconnected receiver has its own bounded connection.
+
+Two headphones on one phone requires compatible hardware and the phone’s built-in audio-sharing feature. PairIt cannot add this to unsupported devices. On supported iPhones, Apple’s Share Audio works with compatible AirPods/Beats. Use the system output picker to select outputs before starting the relay. The separate-phone setup is the cross-platform option.
+
+Everyone receives the same stream, but different headphones can have different delays. Only one primary listener controls Mac video compensation. Shared listening is not a guarantee of perfectly synchronized sound across all outputs.
+
+## Background controls
+
+Android playback runs in a foreground media service and continues when the screen is locked or you use another app. The notification offers Pause/Resume, Use phone and Disconnect. Allow notifications to retain a Computer shortcut after switching to Phone. Disconnect removes it. When playback is stopped, no wake/Wi-Fi lock or audio stream is retained just to show the switch. Android can hide notifications if you turn them off, dismiss them or stop the app. Settings → Background controls explains the controls; Quick Settings also switches sources.
+
+On iPhone, background audio and system media controls support listening with the screen locked. Home/Lock Screen widgets provide Computer/Phone shortcuts. iOS does not provide an always-on Android-style source notification. Calls or output loss may stop playback; choose Computer when ready to resume.
+
+## Video timing and connection help
+
+Playback uses the Reliable path. Mac video timing is estimated from the selected output; leave correction at zero initially. Some players need playback reopened after timing changes. Windows does not provide the Mac driver’s system video compensation. Bluetooth retains physical delay, especially for live audio and games.
+
+Guest Wi-Fi isolation, VPNs and firewalls can block local connections. Connection settings accept a manual computer address while still verifying its paired certificate; clear it to restore discovery. Supported OS network links can also carry the same connection, but a USB cable alone is not a connection. Android-to-Mac USB networking is not generally supported.
+
+## Requirements and downloads
+
+Android 10 or later, iPhone with the supported iOS version, and a compatible Mac or Windows companion. Mac needs macOS 14.2 or later. Use the provided matching build; Windows remains a preview until native runtime testing is complete. Downloads: https://pairit.kartikey.xyz/downloads.html.
+
+## Contact support
+
+Email kartikey060105@gmail.com. Include the app version, Android version, headphone model and steps to reproduce the issue. Never send a pairing code.

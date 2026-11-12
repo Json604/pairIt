@@ -1,0 +1,24 @@
+{
+  "app_name": "PairIt",
+  "publisher_name": "Kartikey",
+  "support_email": "kartikey060105@gmail.com",
+  "website_url": "https://pairit.kartikey.xyz",
+  "privacy_url": "https://pairit.kartikey.xyz/privacy.html",
+  "mac_download_url": "https://pairit.kartikey.xyz/downloads.html",
+  "public_name_confirmed": true,
+  "version_name": "1.1.0",
+  "version_code": 13,
+  "application_id": "dev.bluetoothswitch.relay",
+  "effective_date": "2026-11-12",
+  "release_status": "owner-accepted-internal-candidate",
+  "admob": {
+    "mode": "live",
+    "publisher_id": "pub-1439264473551763",
+    "app_id": "ca-app-pub-1439264473551763~5216633154",
+    "banner_id": "ca-app-pub-1439264473551763/4498447855",
+    "consent_messages_confirmed": false,
+    "placement": "One bottom banner plus one preloaded video or image interstitial after explicit pairing is saved, while audio is idle; five-minute cap; separate Start audio action.",
+    "interstitial_id": "ca-app-pub-1439264473551763/2765250705"
+  },
+  "release_stage": "feature-preview"
+}

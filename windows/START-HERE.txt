@@ -1,0 +1,41 @@
+PairIt for Windows — 1.1.0 preview 5
+
+Extract the complete PairIt-Windows folder, then open PairIt.exe inside it.
+Keep the DLLs, runtime, Fonts and licenses folders together. The .NET runtime
+is included. This private x64 preview is unsigned and has not run on Windows
+in our build environment. Its API minimum is Windows 10 build 19041; use a
+supported Windows installation. ARM64 is not offered.
+
+Open PairIt from its notification-area icon. There are two tabs:
+- Audio relay: choose the Windows output your apps use, then Start sharing.
+- Listen together: select a reachable local address and copy the private
+  pairing code into each phone. Pairing saves first; start audio on the phone.
+Keep phones on a reachable local network and allow TCP 5002 on that trusted
+private network if Windows asks. Clear the clipboard after pairing.
+
+Please check on Windows:
+1. The tray icon, both tabs, keyboard controls and your display scaling.
+2. Audio reaches your phone/headphones; Stop, reconnect and closing/reopening
+   the tray window work. Ordinary listening continues when Windows locks.
+3. Up to four phones share one source; a held phone still occupies a slot.
+4. With updated phone apps, switching to phone audio holds relay. Only the
+   last active listener may ask a compatible Windows media player to pause.
+5. With Android, starting that same computer player can offer a return, subject
+   to phone output/focus/call/ad checks. iPhone currently needs explicit return.
+6. Phone Pause/output changes do not arm automatic return. Locking Windows
+   suppresses player control until unlock; unlock does not rearm an old hold.
+7. A long listening session remains stable, including phone screen lock.
+
+Windows player control is best effort through GSMTC, not universal multipoint.
+Unsupported apps can keep playing on their existing local output. Pause those
+apps yourself if needed. PairIt does not reroute to speakers, change system
+volume/default devices or send automatic Play. A pending Windows Pause command
+can delay a new listener; retry Start audio after that player responds.
+
+Windows has no Mac-driver video compensation, and different headphones are
+not guaranteed to be acoustically synchronized. Phone microphone controls are
+not offered. Read README.md for full source/output, identity and USB limits.
+
+Report Windows version, display scale, phone/headphone types, exact steps and
+visible errors. Never include private pairing codes, identity files or audio.
+Build and synthetic TLS checks passed; physical Windows/audio checks remain.

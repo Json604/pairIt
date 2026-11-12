@@ -1,0 +1,14 @@
+/*
+See the APPLE-LICENSE.txt file for this sample’s licensing information.
+
+Abstract:
+Localized strings displayed by the device.
+*/
+
+DeviceName = "Audio Relay";
+InputStreamName = "Audio Relay Input";
+OutputStreamName = "Audio Relay Output";
+ManufacturerName = "Audio Relay";
+MasterElementName = "Master";
+LeftElementName = "Left";
+RightElementName = "Right";

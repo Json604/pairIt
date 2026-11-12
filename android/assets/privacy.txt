@@ -1,0 +1,51 @@
+Effective date: 2026-11-12
+
+This policy explains how PairIt handles information when you listen to computer audio on your Android phone or iPhone, alone or with other listeners. Kartikey publishes the app.
+
+## Audio stays between your devices
+
+The phone app receives live audio from the Mac or Windows computer you pair. The connection uses an encrypted connection authenticated with the computer’s certificate and pairing credentials. The publisher does not receive your audio, and PairIt does not save audio recordings. Audio is temporarily buffered in memory for playback. Operational timing and connection statistics are exchanged with your paired computer to keep playback working; they are not sent to a publisher server.
+
+## Earlier feature previews
+
+Older feature-preview builds offered a standalone phone microphone. In those builds capture required an explicit Start action, permission and acceptance by the paired computer. PairIt did not save recordings; a receiving computer app could record or transmit the input under its own settings. Current two-feature builds remove that mode and its microphone permission.
+
+## Information stored on this device
+
+The app stores the paired computer’s local address, authentication credentials, and headphone timing preferences in app-private storage. Android backup and device-transfer rules exclude this data. On iPhone, pairing credentials use this-device-only Keychain storage; preferences use the app’s local settings. Pairing credentials allow access to your shared computer audio; keep the pairing code private. The audio feature does not require an account. Advertising data is described below.
+
+## Permissions and device access
+
+Nearby devices access is requested on Android 12 and later only for Bluetooth output. Speaker and wired playback do not need this permission. Local networking connects to the computer you paired, including supported USB network links. A foreground media service and temporary wake/Wi-Fi locks support background playback. Notification permission keeps source-switch controls visible when Phone is selected; this idle notification does not require continuous streaming. Disconnect removes it. PairIt does not request microphone, camera, contacts, photos, storage or location access on Android. Choose Scan QR code inside PairIt to open Google Play services’ scanner, or paste a pairing code. Scanner images are processed on the phone; Google states that it does not store the images or scan results. PairIt receives only the decoded code and asks you to confirm before saving the pairing. The scanner needs Google Play services and may need an initial module download; pasting works without it. The Android scanner also sends Google technical device and app information, identifiers, performance and error metrics, configuration information, and scanner usage events for diagnostics and usage analytics. This data is encrypted in transit. Google states that ML Kit does not transfer this listed data to third parties. This scanner processing is separate from advertising consent choices.
+
+On iPhone, local network access discovers and connects to your paired computer. Camera access is used only if you choose the in-app QR scanner; you can paste a pairing code instead. Background audio support keeps an explicitly started audio session working. PairIt does not request microphone, contacts, photos or location access on iPhone.
+
+## Advertising and privacy choices
+
+Both phone apps are supported by a banner ad supplied by Google AdMob while their main screen is open. A preloaded video or image interstitial may appear after a new computer pairing is saved, before you separately choose Start audio. It is skipped if unavailable, if audio is busy, on cancelled or invalid codes, for the same currently paired computer, and for rapid repeat pairings. Advertisements do not appear on the lock screen or in background playback; banners are hidden during scanning, dialogs and full-screen ads. Ads are separate from the local audio connection. Google does not receive your relayed audio or pairing credentials from this app. The Google Mobile Ads SDK can collect and share your IP address (which can indicate approximate location), app and ad interactions, diagnostic information, and device or account identifiers, including the Android advertising ID where available, for advertising, analytics and fraud prevention. This data is encrypted in transit. Google’s policy is available at https://policies.google.com/privacy and its partner-site explanation at https://policies.google.com/technologies/partner-sites.
+
+Where required, Google’s User Messaging Platform presents consent choices before ads are requested. Revisit available choices in Settings → Ad privacy choices. Your choices and region can affect whether personalized, non-personalized, limited or no ads are served. Android settings let you reset or delete your advertising ID. Advertising identifiers and consent settings are handled separately from pairing data; Forget this computer does not erase data held by Google. Contact Google through its privacy controls about that data. The publisher does not set Google’s retention periods. Builds configured with Google’s designated test ads do not earn advertising revenue. Production-configured builds use the publisher’s ad units, subject to consent and Google’s approval.
+
+The iPhone app requests non-personalized ads, disables the SDK’s publisher first-party ID and permission-based coarse-location collection, and does not ask for App Tracking Transparency authorization or access to IDFA. Non-personalized ads can still use data for measurement, security and ad delivery. IP-derived approximate location may still be processed. iPhone banner sound starts muted and can be changed in Settings. Banners are hidden during scanning, full-screen flows and while the app is in the background.
+
+## Diagnostics and support
+
+Diagnostics contain technical playback and connection information. They remain within your devices unless you choose to copy and share them. A support email is composed in your chosen email app and is sent only when you send it. Pairing credentials and audio recordings are not attached automatically. If you contact support, the publisher receives the email and information you choose to send, uses it to answer your request, and retains it only as needed to handle the request and applicable record-keeping obligations. Do not include your pairing code.
+
+## Removing your information
+
+Choose Settings → Connection & pairing → Forget this computer to stop playback and remove this Android app’s pairing and saved timing preferences. Clearing Android app storage or uninstalling also removes the app’s local data. This does not revoke copies of the same computer pairing code on other devices or remove data stored on the computer. There is no online app account to delete. Stop relay playback with Disconnect in the app or Android notification. A small amount of audio already in a network or output buffer may finish while the remote endpoint is being stopped.
+
+On iPhone, open the computer pairing screen from Settings and choose Forget this computer to remove the stored pairing credential. Do this before uninstalling if you want to remove the Keychain entry, since uninstalling alone may leave it behind.
+
+## Other services
+
+Google Play, Apple’s App Store, Android, iOS, your device manufacturer and your email provider may process store, device, crash or support-email information under their own policies and your settings. These platform services are separate from this app’s local audio connection.
+
+## Children and changes
+
+The app is a general audio utility and is not designed for children. The publisher does not knowingly collect children’s personal information through the app. If this policy changes, the updated version and effective date will be available here and inside the app.
+
+## Contact
+
+For privacy questions or to request deletion of support correspondence, contact Kartikey at kartikey060105@gmail.com.

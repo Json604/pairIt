@@ -1,0 +1,405 @@
+using System.Buffers.Binary;
+using System.Collections.Concurrent;
+using System.Net;
+using System.Net.Security;
+using System.Net.Sockets;
+using System.Security.Authentication;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+using System.Text;
+using PairIt.Core;
+
+// This is a real loopback-TLS integration executable using synthetic PCM and
+// fake audio endpoints. It never calls Windows audio or records any input.
+await Integration.RunAsync();
+
+internal static class Integration
+{
+    public static async Task RunAsync()
+    {
+        using var rsa = RSA.Create(2048);
+        var request = new CertificateRequest("CN=PairIt synthetic integration", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        using var generated = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
+        var syntheticPfx = generated.Export(X509ContentType.Pfx);
+        using var windowsCertificate = OperatingSystem.IsWindows()
+            ? X509CertificateLoader.LoadPkcs12(syntheticPfx, null, X509KeyStorageFlags.UserKeySet)
+            : null;
+        var certificate = windowsCertificate ?? generated;
+        CryptographicOperations.ZeroMemory(syntheticPfx);
+        var token = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
+        var audio = new SyntheticEndpoints();
+        var sessions = new DesktopSessions(audio);
+        await using var server = new RelayServer(certificate, token, sessions);
+        server.Start(IPAddress.Loopback, 0);
+        var connector = new Connector(server.Port, certificate, token);
+        var wrongRequest = new CertificateRequest("CN=Different synthetic identity", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        using var wrongCertificate = wrongRequest.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
+        var pinRejected = false;
+        try { using var unexpected = await new Connector(server.Port, wrongCertificate, token).ConnectAsync(); }
+        catch (AuthenticationException) { pinRejected = true; }
+        Require(pinRejected, "Certificate pin mismatch was accepted.");
+        await sessions.ConfigureAsync(new(SourceEndpointId: "synthetic", SharingEnabled: true));
+
+        // Slow unauthenticated sockets cannot occupy receiver slots.
+        var pendingHandshakes = new List<TcpClient>();
+        for (var index = 0; index < 4; index++)
+        {
+            var socket = new TcpClient();
+            await socket.ConnectAsync(IPAddress.Loopback, server.Port);
+            pendingHandshakes.Add(socket);
+        }
+        var listeners = new List<Receiver>();
+        for (var index = 0; index < 4; index++) listeners.Add(await connector.ReceiverAsync());
+        await UntilAsync(() => sessions.Status.Receivers == 4 && audio.SourceStarts == 1, "four receivers with one capture");
+        foreach (var socket in pendingHandshakes) socket.Dispose();
+
+        var capturedAt = MonotonicClock.Nanoseconds;
+        audio.Emit(480, capturedAt);
+        foreach (var peer in listeners) await UntilAsync(() => peer.Frames.Any(frame => frame.CapturedAt == capturedAt), "shared source packet");
+        var signatures = listeners.Select(peer => peer.Frames.Single(frame => frame.CapturedAt == capturedAt)).ToArray();
+        Require(signatures.All(frame => frame == signatures[0]), "All four peers must receive identical source sequence/timestamp/payload.");
+        await listeners[0].SendAsync("PING 123456\nSYNC 123.5\nACTIVE 1\nSTATS harmless-diagnostic\n");
+        await UntilAsync(() => listeners[0].Clocks.Contains(123456), "serialized PING response");
+
+        await using (var excess = await connector.ReceiverAsync())
+            await UntilAsync(() => excess.Closed, "fifth receiver rejected");
+        Require(sessions.Status.Receivers == 4, "Fifth peer evicted a healthy receiver.");
+        await using (var invalid = await connector.ReceiverAsync(new string('0', 64)))
+            await UntilAsync(() => invalid.Closed, "wrong authentication rejected");
+        await using (var unknownRole = await connector.ReceiverAsync(token + " MIC2"))
+            await UntilAsync(() => unknownRole.Closed, "unknown microphone protocol rejected without capture");
+        using (var busy = await connector.ConnectAsync())
+        {
+            await busy.WriteLineAsync(token + " MIC1");
+            Require(await busy.ReadLineAsync() == "ERR BUSY", "Microphone must be refused while sharing.");
+        }
+        Console.WriteLine("PASS: pinned TLS, independent handshake slots, legacy four-peer fanout, fifth-peer rejection, PING and sharing/mic exclusion.");
+
+        await listeners[3].DisposeAsync();
+        listeners.RemoveAt(3);
+        await UntilAsync(() => sessions.Status.Receivers == 3, "receiver disconnect");
+        await using (var slow = await connector.ReceiverAsync(readFrames: false))
+        {
+            await UntilAsync(() => sessions.Status.Receivers == 4, "slow receiver admission");
+            var deadline = DateTime.UtcNow.AddSeconds(5);
+            while (sessions.Status.Receivers == 4 && DateTime.UtcNow < deadline)
+            {
+                audio.Emit(8192, MonotonicClock.Nanoseconds);
+                await Task.Delay(20);
+            }
+            Require(sessions.Status.Receivers == 3, "A non-reading peer was not removed by bounded backpressure.");
+            Require(listeners.All(peer => !peer.Closed), "A slow peer disrupted healthy peers.");
+        }
+        await using (var malformed = await connector.ReceiverAsync())
+        {
+            await UntilAsync(() => sessions.Status.Receivers == 4, "malformed peer admission");
+            await malformed.SendAsync("SYNC NaN\n");
+            await UntilAsync(() => malformed.Closed, "invalid control rejection");
+        }
+        await UntilAsync(() => sessions.Status.Receivers == 3, "malformed receiver removed");
+        await using (var overlong = await connector.ReceiverAsync())
+        {
+            await UntilAsync(() => sessions.Status.Receivers == 4, "overlong control peer admission");
+            await overlong.SendAsync(new string('x', 4097) + "\n");
+            await UntilAsync(() => overlong.Closed, "bounded control line rejection");
+        }
+        foreach (var peer in listeners) await peer.SendAsync("ACTIVE 0\n");
+        await UntilAsync(() => !sessions.Status.Capturing, "last active receiver stops capture");
+        await listeners[0].SendAsync("ACTIVE 1\n");
+        await UntilAsync(() => sessions.Status.Capturing, "explicit receiver reactivation");
+        foreach (var peer in listeners) await peer.DisposeAsync();
+        await UntilAsync(() => sessions.Status.Receivers == 0 && !sessions.Status.Capturing, "last receiver cleanup");
+        Require(audio.MaximumSources == 1 && audio.SourceStarts == audio.SourceStops, "Source lifetime leaked or overlapped.");
+        Console.WriteLine("PASS: slow-peer isolation, malformed-control isolation, ACTIVE transitions and last-receiver cleanup.");
+
+        audio.FailSourceStartup = true;
+        await sessions.ConfigureAsync(new(SourceEndpointId: "synthetic", SharingEnabled: true));
+        await using (var failedSource = await connector.ReceiverAsync())
+            await UntilAsync(() => failedSource.Closed, "source startup failure closes peer");
+        Require(!sessions.CurrentSettings.SharingEnabled && sessions.Status.Message.Contains("synthetic format", StringComparison.Ordinal),
+            "Startup failure must disable sharing and retain the actionable error.");
+        var failedAttempts = audio.SourceAttempts;
+        await using (var retry = await connector.ReceiverAsync())
+            await UntilAsync(() => retry.Closed, "automatic retry blocked after source failure");
+        Require(audio.SourceAttempts == failedAttempts, "Automatic reconnect reopened a failed source.");
+        audio.FailSourceStartup = false;
+        await sessions.ConfigureAsync(new(SourceEndpointId: "synthetic", SharingEnabled: true));
+        await using (var restarted = await connector.ReceiverAsync())
+            await UntilAsync(() => sessions.Status.Capturing, "explicit restart after source failure");
+        await UntilAsync(() => !sessions.Status.Capturing && sessions.Status.Receivers == 0, "restart cleanup");
+        Console.WriteLine("PASS: source startup failure disables automatic retries; explicit desktop restart recovers.");
+
+        await sessions.ConfigureAsync(new());
+        using (var disabled = await connector.ConnectAsync())
+        {
+            await disabled.WriteLineAsync(token + " MIC1");
+            Require(await disabled.ReadLineAsync() == "ERR DISABLED", "Disabled microphone was accepted.");
+        }
+        await sessions.ConfigureAsync(new(MicrophoneEndpointId: "missing", VirtualEndpointConfirmed: true, MicrophoneEnabled: true));
+        using (var missing = await connector.ConnectAsync())
+        {
+            await missing.WriteLineAsync(token + " MIC1");
+            Require(await missing.ReadLineAsync() == "ERR OUTPUT", "Missing sink was accepted.");
+        }
+        await EnableMicrophone(sessions);
+        using (var microphone = await connector.ConnectAsync())
+        {
+            await microphone.WriteLineAsync(token + " MIC1");
+            Require(await microphone.ReadLineAsync() == "OK MIC1 48000", "Microphone negotiation failed.");
+            using (var second = await connector.ConnectAsync())
+            {
+                await second.WriteLineAsync(token + " MIC1");
+                Require(await second.ReadLineAsync() == "ERR BUSY", "Second microphone was accepted.");
+            }
+            await using (var receiver = await connector.ReceiverAsync())
+                await UntilAsync(() => receiver.Closed, "source cannot start during mic lease");
+            await microphone.WriteAsync(MicPacket(0, 480));
+            await UntilAsync(() => audio.LastSink?.Packets == 1, "synthetic microphone delivery");
+            await microphone.WriteAsync(MicPacket(2, 480));
+            await UntilAsync(() => audio.LastSink?.Packets == 2 && audio.LastSink.Flushes == 1, "discontinuity flush");
+            await microphone.WriteAsync(MicPacket(3, 0));
+            Require(await microphone.ReadLineAsync() == "STOPPED", "Stop acknowledgement missing.");
+            Require(audio.LastSink!.Disposed && !sessions.Status.MicrophoneActive, "Stop did not dispose sink and release lease before ACK.");
+        }
+        Console.WriteLine("PASS: MIC1 disabled/output errors, exclusive admission, bounded packet parsing, discontinuity flush and Stop/STOPPED lifetime.");
+
+        // Bad framing, stalled partial payload, EOF, and desktop revoke all
+        // release the same sink/lease; no real microphone is ever opened.
+        using (var wrongRate = await AcceptedMicrophone(connector, token))
+        {
+            var packet = MicPacket(0, 480);
+            BinaryPrimitives.WriteInt32LittleEndian(packet.AsSpan(8), 44100);
+            await wrongRate.WriteAsync(packet);
+            await UntilAsync(() => !sessions.Status.MicrophoneActive && audio.LastSink!.Disposed, "wrong mic sample rate rejected");
+        }
+        using (var oversized = await AcceptedMicrophone(connector, token))
+        {
+            await oversized.WriteAsync(MicPacket(0, 961));
+            await UntilAsync(() => !sessions.Status.MicrophoneActive, "oversized mic frame rejected");
+        }
+        using (var stalled = await AcceptedMicrophone(connector, token))
+        {
+            await stalled.WriteAsync(MicPacket(0, 480).AsMemory(0, 17));
+            await UntilAsync(() => !sessions.Status.MicrophoneActive && audio.LastSink!.Disposed, "partial microphone timeout", 3500);
+        }
+        using (var eof = await AcceptedMicrophone(connector, token)) { }
+        await UntilAsync(() => !sessions.Status.MicrophoneActive && audio.LastSink!.Disposed, "mic EOF cleanup");
+        using (var revoked = await AcceptedMicrophone(connector, token))
+        {
+            await sessions.ConfigureAsync(new());
+            Require(!sessions.Status.MicrophoneActive && audio.LastSink!.Disposed, "Desktop revoke leaked sink.");
+        }
+        await EnableMicrophone(sessions);
+        using (var failedSink = await AcceptedMicrophone(connector, token))
+        {
+            audio.LastSink!.RejectWrites = true;
+            await failedSink.WriteAsync(MicPacket(0, 480));
+            await UntilAsync(() => !sessions.Status.MicrophoneActive && audio.LastSink!.Disposed, "sink failure cleanup");
+        }
+        Console.WriteLine("PASS: wrong-rate/oversize/partial frames, idle timeout, EOF, desktop revoke and sink failure cleanup.");
+        await HandoffIntegration.RunAsync(certificate, token);
+        Console.WriteLine("Synthetic protocol integration passed. No hardware audio, microphone, Windows UI or acoustic checks were performed.");
+    }
+
+    private static Task EnableMicrophone(DesktopSessions sessions) => sessions.ConfigureAsync(new(MicrophoneEndpointId: "virtual-synthetic", VirtualEndpointConfirmed: true, MicrophoneEnabled: true));
+    private static async Task<Connection> AcceptedMicrophone(Connector connector, string token)
+    {
+        var connection = await connector.ConnectAsync();
+        await connection.WriteLineAsync(token + " MIC1");
+        Require(await connection.ReadLineAsync() == "OK MIC1 48000", "Expected microphone acceptance.");
+        return connection;
+    }
+    private static byte[] MicPacket(uint sequence, int frames)
+    {
+        var packet = new byte[16 + frames * 2];
+        BinaryPrimitives.WriteUInt32LittleEndian(packet, Protocol.MicMagic);
+        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(4), sequence);
+        BinaryPrimitives.WriteInt32LittleEndian(packet.AsSpan(8), 48000);
+        BinaryPrimitives.WriteInt32LittleEndian(packet.AsSpan(12), frames);
+        return packet;
+    }
+    internal static void Require(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }
+    internal static async Task UntilAsync(Func<bool> condition, string description, int timeout = 3000)
+    {
+        using var deadline = new CancellationTokenSource(timeout);
+        while (!condition())
+        {
+            if (deadline.IsCancellationRequested) throw new TimeoutException(description);
+            await Task.Delay(10);
+        }
+    }
+}
+
+internal sealed class Connector(int port, X509Certificate2 expected, string token)
+{
+    public async Task<Connection> ConnectAsync()
+    {
+        var socket = new TcpClient { ReceiveBufferSize = 4096, NoDelay = true };
+        await socket.ConnectAsync(IPAddress.Loopback, port);
+        var stream = new SslStream(socket.GetStream(), false, (_, certificate, _, _) =>
+            certificate != null && CryptographicOperations.FixedTimeEquals(SHA256.HashData(certificate.GetRawCertData()), SHA256.HashData(expected.RawData)));
+        using var deadline = new CancellationTokenSource(3000);
+        try
+        {
+            await stream.AuthenticateAsClientAsync(new SslClientAuthenticationOptions { TargetHost = "localhost", EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13 }, deadline.Token);
+            return new(socket, stream);
+        }
+        catch { socket.Dispose(); stream.Dispose(); throw; }
+    }
+    public async Task<Receiver> ReceiverAsync(string? credential = null, bool readFrames = true)
+    {
+        var connection = await ConnectAsync();
+        await connection.WriteLineAsync(credential ?? token);
+        return new(connection, readFrames);
+    }
+}
+
+internal sealed class Connection(TcpClient socket, SslStream stream) : IDisposable
+{
+    public SslStream Stream { get; } = stream;
+    private readonly ProtocolReader reader = new(stream);
+    public Task WriteLineAsync(string line) => WriteAsync(Encoding.ASCII.GetBytes(line + "\n"));
+    public async Task WriteAsync(ReadOnlyMemory<byte> bytes)
+    {
+        using var timeout = new CancellationTokenSource(2500);
+        await Stream.WriteAsync(bytes, timeout.Token);
+    }
+    public async Task<string> ReadLineAsync()
+    {
+        using var timeout = new CancellationTokenSource(3000);
+        return await reader.ReadLineAsync(timeout.Token);
+    }
+    public void Dispose() { socket.Dispose(); Stream.Dispose(); }
+}
+
+internal sealed record FrameSignature(uint Sequence, int Rate, int Frames, long CapturedAt, string Hash);
+internal sealed class Receiver : IAsyncDisposable
+{
+    private readonly Connection connection;
+    private readonly Task reader;
+    private readonly CancellationTokenSource lifetime = new();
+    private readonly SemaphoreSlim writes = new(1);
+    public ConcurrentQueue<FrameSignature> Frames { get; } = new();
+    public ConcurrentBag<long> Clocks { get; } = [];
+    private readonly ConcurrentDictionary<long, uint> clockFlags = new();
+    private long nextClock;
+    public bool Closed { get; private set; }
+
+    public Receiver(Connection connection, bool readFrames)
+    {
+        this.connection = connection;
+        reader = readFrames ? ReadAsync() : Task.CompletedTask;
+    }
+    public async Task SendAsync(string line)
+    {
+        await writes.WaitAsync();
+        try { await connection.WriteAsync(Encoding.ASCII.GetBytes(line)); }
+        finally { writes.Release(); }
+    }
+    public async Task<uint> ProbeAsync()
+    {
+        var echo = Interlocked.Increment(ref nextClock);
+        await SendAsync($"PING {echo}\n");
+        await Integration.UntilAsync(() => clockFlags.ContainsKey(echo), "handoff clock reply");
+        clockFlags.TryRemove(echo, out var flags);
+        return flags;
+    }
+    private async Task ReadAsync()
+    {
+        try
+        {
+            while (!lifetime.IsCancellationRequested)
+            {
+                var header = new byte[24];
+                await connection.Stream.ReadExactlyAsync(header, lifetime.Token);
+                var magic = BinaryPrimitives.ReadUInt32LittleEndian(header);
+                if (magic == Protocol.ClockMagic)
+                {
+                    var echo = BinaryPrimitives.ReadInt64LittleEndian(header.AsSpan(8));
+                    Clocks.Add(echo);
+                    clockFlags[echo] = BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(4));
+                    continue;
+                }
+                Integration.Require(magic == Protocol.PcmMagic, "Unexpected/overlapped server frame.");
+                var frames = BinaryPrimitives.ReadInt32LittleEndian(header.AsSpan(12));
+                Integration.Require(frames is >= 0 and <= 8192, "Invalid source frame bound.");
+                var pcm = new byte[frames * 4];
+                await connection.Stream.ReadExactlyAsync(pcm, lifetime.Token);
+                if (frames == 0) continue;
+                Frames.Enqueue(new(BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(4)), BinaryPrimitives.ReadInt32LittleEndian(header.AsSpan(8)), frames,
+                    BinaryPrimitives.ReadInt64LittleEndian(header.AsSpan(16)), Convert.ToHexStringLower(SHA256.HashData(pcm))));
+                while (Frames.Count > 64) Frames.TryDequeue(out _);
+            }
+        }
+        catch (Exception error) when (error is IOException or OperationCanceledException or ObjectDisposedException) { Closed = true; }
+    }
+    public async ValueTask DisposeAsync()
+    {
+        lifetime.Cancel();
+        connection.Dispose();
+        await reader;
+        lifetime.Dispose();
+        writes.Dispose();
+    }
+}
+
+internal sealed class SyntheticEndpoints : IAudioEndpoints
+{
+    private SyntheticSource? current;
+    private int activeSources;
+    public int SourceStarts, SourceStops, MaximumSources, SourceAttempts;
+    public bool FailSourceStartup;
+    public SyntheticSink? LastSink;
+    public ISystemAudioSource CreateSource(string endpointId) => new SyntheticSource(this);
+    public Task<IMicrophoneSink> OpenMicrophoneSinkAsync(string endpointId, CancellationToken cancellation)
+    {
+        if (endpointId != "virtual-synthetic") throw new IOException("Synthetic endpoint absent.");
+        LastSink = new();
+        return Task.FromResult<IMicrophoneSink>(LastSink);
+    }
+    public void Emit(int frames, long capturedAt)
+    {
+        var bytes = new byte[frames * 4];
+        for (var index = 0; index < bytes.Length; index++) bytes[index] = (byte)(index % 251);
+        current?.Received?.Invoke(new(48000, frames, capturedAt, bytes));
+    }
+    private sealed class SyntheticSource(SyntheticEndpoints owner) : ISystemAudioSource
+    {
+        public Action<SourcePacket>? Received;
+        private bool disposed, started;
+        public Task StartAsync(Action<SourcePacket> received, Action<string> failed, CancellationToken cancellation)
+        {
+            owner.SourceAttempts++;
+            if (owner.FailSourceStartup) throw new NotSupportedException("Choose a supported synthetic format and start again.");
+            started = true;
+            owner.current = this;
+            Received = received;
+            owner.SourceStarts++;
+            owner.MaximumSources = Math.Max(owner.MaximumSources, ++owner.activeSources);
+            return Task.CompletedTask;
+        }
+        public ValueTask DisposeAsync()
+        {
+            if (!disposed)
+            {
+                disposed = true;
+                Received = null;
+                if (started) { owner.SourceStops++; owner.activeSources--; }
+            }
+            return ValueTask.CompletedTask;
+        }
+    }
+}
+
+internal sealed class SyntheticSink : IMicrophoneSink
+{
+    public volatile int Packets, Flushes;
+    public volatile bool Disposed, RejectWrites;
+    public void Write(ReadOnlySpan<byte> pcm)
+    {
+        if (Disposed || RejectWrites) throw new IOException("Synthetic output unavailable.");
+        Interlocked.Increment(ref Packets);
+    }
+    public Task FlushAsync(CancellationToken cancellation) { Interlocked.Increment(ref Flushes); return Task.CompletedTask; }
+    public ValueTask DisposeAsync() { Disposed = true; return ValueTask.CompletedTask; }
+}

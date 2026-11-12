@@ -1,0 +1,5 @@
+#!/bin/sh
+# A new HAL plug-in is loaded when the audio server restarts. Installer runs this
+# script as root after copying the reviewed package's one driver bundle.
+/usr/bin/killall coreaudiod 2>/dev/null || true
+exit 0
