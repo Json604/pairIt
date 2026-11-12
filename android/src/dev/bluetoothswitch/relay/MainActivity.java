@@ -118,7 +118,9 @@ public class MainActivity extends Activity {
         TextView device=text("",14,INK,false);GlassUI.Glyph desktop=new GlassUI.Glyph("mac",INK);desktop.setBounds(0,0,dp(32),dp(32));device.setCompoundDrawables(desktop,null,null,null);
         introduction.addView(device,new LinearLayout.LayoutParams(dp(52),dp(46)));
         LinearLayout introText=column();introText.addView(text("Computer → phone",15,INK,true));space(introText,5);introText.addView(text("One local connection. Your choice of output.",12,MUTED,false));
-        introduction.addView(introText,new LinearLayout.LayoutParams(0,-2,1));onboardingInfo=introduction;content.addView(introduction);
+        introduction.addView(introText,new LinearLayout.LayoutParams(0,-2,1));LinearLayout onboarding=column();onboarding.addView(introduction);
+        space(onboarding,12);onboarding.addView(text("First, install PairIt on your computer",13,MUTED,false));
+        onboarding.addView(computerDownloadButtons());onboardingInfo=onboarding;content.addView(onboarding);
         sourceCard=column();sourceCard.setPadding(dp(18),dp(20),dp(18),dp(12));sourceCard.setBackground(GlassUI.surface(dp(18)));
         TextView label=text("LISTEN FROM",11,MUTED,true);label.setLetterSpacing(.10f);sourceCard.addView(label);space(sourceCard,14);
         LinearLayout sources=row();mac=button("Computer",()->dispatch("PLAY"));phone=button("Phone",()->dispatch("USE_PHONE"));
@@ -144,6 +146,18 @@ public class MainActivity extends Activity {
             RelayService.state=new RelayState(RelayState.Phase.IDLE,"Connect your computer","Open the companion on your computer, then pair this phone to get started.");
         render();acceptPairing(getIntent());acceptShortcut(getIntent());
         handler.post(() -> bannerAds.start());
+    }
+    private LinearLayout computerDownloadButtons() {
+        LinearLayout links=row();
+        for (String platform : new String[]{"Mac", "Windows"}) {
+            Button link=button("Get " + platform + " app ↗",()->openDownload(platform.toLowerCase(java.util.Locale.ROOT)));
+            style(link,false);links.addView(link,new LinearLayout.LayoutParams(0,dp(48),1));
+        }
+        return links;
+    }
+    private void openDownload(String platform) {
+        try { startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse("https://pairit.kartikey.xyz/downloads.html#"+platform))); }
+        catch (android.content.ActivityNotFoundException error) { showFeedback("Open pairit.kartikey.xyz/downloads.html on your computer."); }
     }
     private void settingsDialog() {
         new GlassDialogBuilder(this).setTitle("Settings")
@@ -413,7 +427,7 @@ public class MainActivity extends Activity {
         input.setSaveEnabled(false); input.setText(initialCode);
         input.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);input.setImeOptions(android.view.inputmethod.EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING);
         LinearLayout body = dialogBody();
-        body.addView(text("On your computer, open PairIt → Pair a phone. Keep both devices on the same local network.", 14, MUTED, false)); space(body,16);
+        body.addView(text("On your computer, open PairIt → Pair a phone. Keep both devices on the same local network.", 14, MUTED, false)); space(body,8);body.addView(computerDownloadButtons());space(body,16);
         Button scan = button("Scan QR code", () -> scanPairingCode(input.getText().toString())); style(scan, true);
         body.addView(scan,new LinearLayout.LayoutParams(-1,dp(52))); space(body,8);
         body.addView(text("Camera images stay on your phone. You’ll confirm before connecting.",12,MUTED,false)); space(body,18);

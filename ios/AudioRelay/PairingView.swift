@@ -43,6 +43,7 @@ struct PairingView: View {
                             Text("On your computer, open PairIt → Pair a phone. Keep both devices on the same local network.")
                                 .font(.subheadline).foregroundStyle(RelayPalette.secondary)
                         }.padding(.top, 14)
+                        ComputerDownloadLinks()
                         VStack(spacing: 18) {
                             Image(systemName: "qrcode.viewfinder").font(.system(size: 40, weight: .light)).foregroundStyle(RelayPalette.ink)
                                 .frame(width: 90, height: 90).background(RelayPalette.sand, in: RoundedRectangle(cornerRadius: 24))

@@ -1,4 +1,4 @@
-PairIt for Windows — 1.1.0 preview 6
+PairIt for Windows — 1.1.0 preview 7
 
 Extract the complete ZIP, then open PairIt.exe inside it.
 Keep the DLLs, runtime, Fonts and licenses folders together. The .NET runtime

@@ -188,6 +188,7 @@ struct ReceiverView: View {
                 }
                 Spacer(minLength: 0)
             }.padding(16).frost()
+            ComputerDownloadLinks()
             Button { incomingCode = ""; sheet = .pair } label: {
                 HStack { Text("Pair your computer"); Spacer(); Image(systemName: "arrow.up.right") }
             }
@@ -291,6 +292,7 @@ struct ReceiverSettings: View {
                                 .font(.footnote).foregroundStyle(RelayPalette.secondary).padding(.bottom, 16)
                             Link("Privacy policy", destination: URL(string: "https://pairit.kartikey.xyz/privacy.html")!).padding(.bottom, 16)
                         }.padding(.horizontal, 20).frost()
+                        ComputerDownloadLinks()
                         Text("PairIt 1.1 · Audio relay & shared listening")
                             .font(.caption).foregroundStyle(RelayPalette.secondary)
                     }.padding(24)
@@ -331,5 +333,17 @@ struct ReceiverSettings: View {
             } message: {
                 Text("Tell us the advertiser, when it appeared and what was inappropriate. You do not need to tap the ad. Email kartikey060105@gmail.com, or use the ad’s own reporting controls when available.")
             }
+    }
+}
+
+struct ComputerDownloadLinks: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("First, install PairIt on your computer").font(.footnote).foregroundStyle(RelayPalette.secondary)
+            HStack(spacing: 16) {
+                Link("Get Mac app ↗", destination: URL(string: "https://pairit.kartikey.xyz/downloads.html#mac")!)
+                Link("Get Windows app ↗", destination: URL(string: "https://pairit.kartikey.xyz/downloads.html#windows")!)
+            }.font(.subheadline).frame(minHeight: 44).tint(RelayPalette.deep)
+        }
     }
 }

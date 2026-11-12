@@ -242,8 +242,18 @@ struct MacCompanionView: View {
         else if !model.sharing || model.connected || model.outputHeld { model.toggleSharing() }
         else { model.navigate(to: 1) }
     }
+    private var phoneDownloads: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Install PairIt on your phone").font(.system(size: 12, weight: .medium))
+            HStack(spacing: 20) {
+                Link("Android downloads ↗", destination: URL(string: "https://pairit.kartikey.xyz/downloads.html#android")!)
+                Link("iPhone availability ↗", destination: URL(string: "https://pairit.kartikey.xyz/downloads.html#iphone")!)
+            }.font(.system(size: 12)).frame(minHeight: 32).tint(RelayPalette.deep)
+        }.frame(maxWidth: .infinity, alignment: .leading)
+    }
     private var pairing: some View {
         VStack(spacing: 18) {
+            phoneDownloads
             Text("Make the connection.").font(RelayTypography.display(25)).tracking(-0.5)
             Text("Keep your phone and Mac on the same Wi-Fi.").font(.system(size: 12)).foregroundStyle(RelayPalette.secondary).multilineTextAlignment(.center)
             if !model.sharing || model.sharingAction != nil || model.connectionFailed {
@@ -317,6 +327,7 @@ struct MacCompanionView: View {
                     .foregroundStyle(RelayPalette.secondary).fixedSize(horizontal: false, vertical: true)
                 Text(model.detail).foregroundStyle(RelayPalette.secondary).fixedSize(horizontal: false, vertical: true)
             }.font(.system(size: 12))
+            phoneDownloads
             Text("Audio travels directly between your devices. No accounts, cloud audio servers or analytics.")
                 .font(.system(size: 11)).foregroundStyle(RelayPalette.secondary).fixedSize(horizontal: false, vertical: true)
             HStack {

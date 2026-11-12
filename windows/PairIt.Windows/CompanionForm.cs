@@ -112,6 +112,7 @@ internal sealed class CompanionForm : Form
         var (tab, panel) = Tab("Computer audio");
         Add(panel, Heading("Your sound.\nA little closer."));
         Add(panel, TextLabel("Send computer audio to your phone."));
+        AddPhoneDownloads(panel);
         Add(panel, TextLabel("COMPUTER OUTPUT"));
         Add(panel, source);
         Add(panel, TextLabel("Choose the output your apps actually use. Local speakers keep playing; PairIt does not change or mute Windows outputs."));
@@ -130,6 +131,7 @@ internal sealed class CompanionForm : Form
         Add(panel, Heading("Same audio.\nMore company."));
         Add(panel, TextLabel("Up to four listeners. Connect each person’s headphones to their own phone, then pair every phone here and choose Computer."));
         Add(panel, TextLabel("Use the same Wi-Fi on all devices. Choose this computer’s reachable address."));
+        AddPhoneDownloads(panel);
         Add(panel, addresses);
         addresses.SelectedIndexChanged += (_, _) => { pairing.Clear(); pairing.Visible = false; };
         var actions = new FlowLayoutPanel { BackColor = Color.Transparent, AutoSize = true, Dock = DockStyle.Top };
@@ -226,6 +228,20 @@ internal sealed class CompanionForm : Form
         if (!copy) { pairing.Text = code; pairing.Visible = true; return; }
         try { Clipboard.SetText(code); status.Text = "Pairing code copied. Keep it private and clear your clipboard after pairing."; }
         catch { status.Text = "Clipboard is busy. Try again or use Show pairing code."; }
+    }
+
+    private void AddPhoneDownloads(TableLayoutPanel panel)
+    {
+        Add(panel, TextLabel("Install PairIt on your phone:"));
+        foreach (var (title, platform) in new[] { ("Android downloads ↗", "android"), ("iPhone availability ↗", "iphone") })
+        {
+            var link = new LinkLabel { Text = title, AutoSize = true, BackColor = Color.Transparent, LinkColor = PairItAppearance.Link, MinimumSize = new Size(0, 28) };
+            link.LinkClicked += (_, _) => {
+                try { Process.Start(new ProcessStartInfo("https://pairit.kartikey.xyz/downloads.html#" + platform) { UseShellExecute = true }); }
+                catch { MessageBox.Show(this, "Open pairit.kartikey.xyz/downloads.html on your phone.", "PairIt downloads"); }
+            };
+            Add(panel, link);
+        }
     }
 
     private static void OpenHelp()
