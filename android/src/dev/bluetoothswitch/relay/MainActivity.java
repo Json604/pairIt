@@ -617,7 +617,7 @@ public class MainActivity extends Activity {
     private void space(LinearLayout parent, int height) { parent.addView(new View(this), new LinearLayout.LayoutParams(1, dp(height))); }
     private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
     @Override public void onResume() {
-        super.onResume(); if (updates != null) updates.check(); visible = true; RelayService.restoreControlsNotification(this);
+        super.onResume(); if (updates != null) updates.checkOnResume(); visible = true; RelayService.restoreControlsNotification(this);
         if(bannerAds!=null)bannerAds.resume();
         handler.removeCallbacks(refresh);handler.post(refresh);
         showScanResult();

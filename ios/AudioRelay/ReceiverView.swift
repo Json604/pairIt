@@ -73,7 +73,7 @@ struct ReceiverView: View {
             }
             .onReceive(Timer.publish(every: 900, on: .main, in: .common).autoconnect()) { _ in if scenePhase == .active { updates.check() } }
             .onAppear { updates.check() }
-            .onChange(of: scenePhase) { _, phase in if phase == .active { updates.check() } }
+            .onChange(of: scenePhase) { _, phase in if phase == .active { updates.checkOnForeground() } }
             .sensoryFeedback(.selection, trigger: selectionCount)
             .onReceive(receiver.$phase) { _ in request = nil }
             .sheet(item: $sheet) { value in

@@ -28,6 +28,8 @@ final class ReleaseUpdates {
     private final boolean storeCapable;
     private boolean checking, destroyed;
     private long lastAttempt;
+    private long availablePlayBuild;
+    private android.app.AlertDialog prompt;
     private static final String FEED = "https://raw.githubusercontent.com/Json604/pairIt/main/release/updates.json";
     private static final String STORE = "https://play.google.com/store/apps/details?id=dev.bluetoothswitch.relay";
     ReleaseUpdates(Activity activity, Listener listener) {
@@ -44,7 +46,25 @@ final class ReleaseUpdates {
             catch (Exception ignored) { }
         }
     }
+    void checkOnResume() {
+        // A foreground return should see a just-published Play update promptly.
+        if (System.currentTimeMillis() - lastAttempt >= 60_000) lastAttempt = 0;
+        check();
+    }
+    private void maybePrompt() {
+        if (destroyed || availablePlayBuild <= BuildConfig.VERSION_CODE || prompt != null
+                || activity.isFinishing() || !activity.hasWindowFocus() || PairingInterstitial.isPresenting()
+                || cache.getLong("promptedBuild", 0) >= availablePlayBuild) return;
+        prompt = new android.app.AlertDialog.Builder(activity).setTitle("PairIt update available")
+                .setMessage("A newer version is available on Google Play. Update to get the latest fixes.")
+                .setPositiveButton("Update", (dialog, which) -> open(STORE))
+                .setNegativeButton("Later", null).create();
+        prompt.setOnDismissListener(dialog -> prompt = null);
+        prompt.show();
+        cache.edit().putLong("promptedBuild", availablePlayBuild).apply();
+    }
     void check() {
+        maybePrompt();
         if (destroyed || checking || System.currentTimeMillis() - lastAttempt < 6 * 3600000L) return;
         lastAttempt = System.currentTimeMillis(); checking = true;
         if (storeCapable) {
@@ -53,10 +73,12 @@ final class ReleaseUpdates {
                 if (destroyed) return;
                 checking = false;
                 if (info.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE && info.availableVersionCode() > BuildConfig.VERSION_CODE) {
-                    cache.edit().putLong("playBuild", info.availableVersionCode()).apply();
+                    availablePlayBuild = info.availableVersionCode();
+                    cache.edit().putLong("playBuild", availablePlayBuild).apply();
+                    maybePrompt();
                     listener.changed("Update available · Google Play", STORE);
                 } else {
-                    cache.edit().remove("playBuild").apply();
+                    availablePlayBuild = 0; cache.edit().remove("playBuild").apply();
                     if (play) listener.changed(null, null); else { checking = true; checkDirect(); }
                 }
             }).addOnFailureListener(error -> { if (destroyed) return; if (play) retryLater(); else checkDirect(); });
@@ -116,5 +138,5 @@ final class ReleaseUpdates {
         try { activity.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url))); }
         catch (android.content.ActivityNotFoundException error) { android.widget.Toast.makeText(activity,"No browser or store available to open the update.",android.widget.Toast.LENGTH_LONG).show(); }
     }
-    void destroy() { destroyed = true; worker.shutdownNow(); main.removeCallbacksAndMessages(null); }
+    void destroy() { destroyed = true; if (prompt != null) prompt.dismiss(); worker.shutdownNow(); main.removeCallbacksAndMessages(null); }
 }

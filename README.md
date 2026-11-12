@@ -142,7 +142,7 @@ unreadable saved computer identity as routine troubleshooting—it invalidates p
 
 Update notices open the official store or GitHub release; they do not install
 executables or interrupt playback. Successful checks are spaced six hours apart;
-failed requests can retry after five minutes. Offline launches preserve cached notices.
+failed requests can retry after five minutes. Phone apps also recheck on foreground return after a one-minute cooldown. Offline launches preserve cached notices.
 Google Play controls eligibility for Play installations; direct APK updates must
 match the package and signing certificate.
 

@@ -19,6 +19,8 @@ final class BannerAds {
     private AdView ad;
     private boolean started, initialized, destroyed, resumed, allowed, loaded, gatheringConsent;
     private boolean muted;
+    private final android.os.Handler retryHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable retryLoad = this::updateVisibility;
     private long nextLoadAt;
     private long consentRevision;
     private String bannerStatus = "Not requested";
@@ -55,10 +57,14 @@ final class BannerAds {
             if (consent.canRequestAds()) initialize();
             updateVisibility();
         });
+        // Warm the SDK using valid previous-session consent, while the new check runs.
+        // Requests and display still wait for the current consent check to finish.
+        if (consent.canRequestAds()) initialize();
     }
 
     private void initialize() {
-        if (started || destroyed || gatheringConsent) return;
+        if (destroyed) return;
+        if (started) { if (initialized && !gatheringConsent) readinessChanged.run(); return; }
         started = true;
         MobileAds.setRequestConfiguration(new RequestConfiguration.Builder()
                 .setMaxAdContentRating(RequestConfiguration.MAX_AD_CONTENT_RATING_G).build());
@@ -115,8 +121,8 @@ final class BannerAds {
                 container.setVisibility(View.GONE);
                 requestedAd.destroy(); ad = null;
                 container.removeAllViews();
-                // A later foreground/visibility change may retry; never create a request timer.
                 nextLoadAt = android.os.SystemClock.uptimeMillis() + 60_000;
+                updateVisibility();
             }
         });
         ad.loadAd(new AdRequest.Builder().build());
@@ -180,10 +186,16 @@ final class BannerAds {
         if (ad != null) {
             if (active) ad.resume(); else ad.pause();
             container.setVisibility(active && loaded ? View.VISIBLE : View.GONE);
-        } else if (active && initialized) load();
+        } else if (active && initialized) {
+            retryHandler.removeCallbacks(retryLoad);
+            long delay = nextLoadAt - android.os.SystemClock.uptimeMillis();
+            if (delay > 0) retryHandler.postDelayed(retryLoad, delay);
+            else load();
+        }
+        if (!active) retryHandler.removeCallbacks(retryLoad);
     }
     void resume() { resumed = true; updateVisibility(); }
     void pause() { resumed = false; updateVisibility(); }
-    void destroy() { destroyed = true; if (ad != null) { ad.destroy(); ad = null; } container.removeAllViews(); }
+    void destroy() { destroyed = true; retryHandler.removeCallbacksAndMessages(null); if (ad != null) { ad.destroy(); ad = null; } container.removeAllViews(); }
     private int dp(int value) { return Math.round(value * activity.getResources().getDisplayMetrics().density); }
 }

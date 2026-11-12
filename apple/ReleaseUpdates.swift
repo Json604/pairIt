@@ -29,6 +29,9 @@ import SwiftUI
         if let data = UserDefaults.standard.data(forKey: cacheKey),
            let entry = try? JSONDecoder().decode(Entry.self, from: data), eligible(entry) { available = entry }
     }
+    func checkOnForeground() {
+        check(force: Date().timeIntervalSince(lastAttempt) >= 60)
+    }
     func check(force: Bool = false) {
         guard !checking, force || Date().timeIntervalSince(lastAttempt) >= 6 * 3600 else { return }
         lastAttempt = Date(); checking = true; status = "Checking for updates…"
@@ -83,6 +86,7 @@ struct ReleaseUpdateNotice: View {
     @ObservedObject var updates: ReleaseUpdates
     @Environment(\.openURL) private var openURL
     @State private var openFailed = false
+    @State private var showPrompt = false
     var body: some View {
         if let entry = updates.available, let url = URL(string: entry.url) {
             VStack(alignment: .leading, spacing: 6) {
@@ -96,6 +100,20 @@ struct ReleaseUpdateNotice: View {
                     .buttonStyle(RelayControlButtonStyle()).frame(minHeight: 44)
                 if openFailed { Text("Couldn’t open the download. Try again.").font(.caption) }
             }.frame(maxWidth: .infinity, alignment: .leading).padding(14).frost(14)
+                #if os(iOS)
+                .onAppear {
+                    let key = "pairit.update-prompt.build"
+                    if UIApplication.shared.applicationState == .active,
+                       UserDefaults.standard.integer(forKey: key) < entry.build {
+                        showPrompt = true
+                        UserDefaults.standard.set(entry.build, forKey: key)
+                    }
+                }
+                .alert("PairIt update available", isPresented: $showPrompt) {
+                    Button("Update") { openURL(url) { accepted in openFailed = !accepted } }
+                    Button("Later", role: .cancel) { }
+                } message: { Text("Get the latest PairIt from the App Store. Your saved pairing stays on this device.") }
+                #endif
         }
     }
 }

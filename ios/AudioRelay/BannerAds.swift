@@ -73,10 +73,12 @@ final class BannerAds: ObservableObject {
                 self.initializeIfPermitted()
             }
         }
+        // Valid prior consent can warm the SDK; requests still wait for this check.
+        initializeIfPermitted(warmOnly: true)
     }
-    private func initializeIfPermitted() {
-        guard permitted, !gatheringConsent, UIApplication.shared.applicationState == .active else { setReady(false); return }
-        if initialized { setReady(true); return }
+    private func initializeIfPermitted(warmOnly: Bool = false) {
+        guard permitted, (!gatheringConsent || warmOnly), UIApplication.shared.applicationState == .active else { setReady(false); return }
+        if initialized { setReady(!gatheringConsent); return }
         guard !initializing, !bannerID.isEmpty else { return }
         initializing = true
         let sdk = MobileAds.shared
@@ -130,7 +132,7 @@ final class BannerAds: ObservableObject {
 }
 
 /// The slot remains mounted at zero height until an ad actually loads. Failure
-/// collapses it; returning to the foreground is the next bounded retry.
+/// collapses it; a bounded foreground retry recovers without leaving the screen.
 struct BannerAdSlot: View {
     @ObservedObject var ads: BannerAds
     let active: Bool
@@ -176,6 +178,8 @@ private final class BannerHostController: UIViewController, BannerViewDelegate {
     private var heightRevision = 0
     private var refreshRevision = 0
     private var refreshScheduled = false
+    private var retryWork: DispatchWorkItem?
+    private var nextLoadAt = Date.distantPast
     private var dismantled = false
     var heightChanged: (CGFloat) -> Void = { _ in }
     init(ads: BannerAds) { self.ads = ads; super.init(nibName: nil, bundle: nil) }
@@ -205,6 +209,7 @@ private final class BannerHostController: UIViewController, BannerViewDelegate {
         guard active, !dismantled, isViewLoaded, view.window != nil, UIApplication.shared.applicationState == .active else { return }
         ads.begin(from: self)
         guard ads.ready else { if banner != nil { stop() }; return }
+        guard Date() >= nextLoadAt else { scheduleRetry(); return }
         let width = floor(min(600, view.bounds.width - view.safeAreaInsets.left - view.safeAreaInsets.right))
         guard width >= 280, width != attemptedWidth else { return }
         stop(); attemptedWidth = width
@@ -222,7 +227,17 @@ private final class BannerHostController: UIViewController, BannerViewDelegate {
         ads.updateBannerStatus("Loading")
         next.load(request)
     }
+    private func scheduleRetry() {
+        guard active, !dismantled, retryWork == nil, UIApplication.shared.applicationState == .active else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.retryWork = nil; self.refresh()
+        }
+        retryWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0.1, nextLoadAt.timeIntervalSinceNow), execute: work)
+    }
     func stop() {
+        retryWork?.cancel(); retryWork = nil
         refreshRevision += 1; refreshScheduled = false
         banner?.delegate = nil; banner?.rootViewController = nil; banner?.removeFromSuperview(); banner = nil
         attemptedWidth = 0; publishHeight(0)
@@ -247,7 +262,8 @@ private final class BannerHostController: UIViewController, BannerViewDelegate {
         guard banner === bannerView else { return }
         ads.updateBannerStatus("Unavailable (Google load code \((error as NSError).code))")
         bannerView.removeFromSuperview(); bannerView.delegate = nil; banner = nil
-        // Keep attemptedWidth to prevent a layout-driven request loop.
+        attemptedWidth = 0; nextLoadAt = Date().addingTimeInterval(60)
         publishHeight(0)
+        scheduleRetry()
     }
 }
