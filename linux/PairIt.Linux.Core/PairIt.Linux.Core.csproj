@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net10.0</TargetFramework><RuntimeIdentifiers>linux-x64;linux-arm64</RuntimeIdentifiers></PropertyGroup>
+  <ItemGroup><ProjectReference Include="../../windows/PairIt.Core/PairIt.Core.csproj" /></ItemGroup>
+</Project>

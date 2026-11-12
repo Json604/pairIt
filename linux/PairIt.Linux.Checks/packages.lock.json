@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0": {
+      "pairit.core": {
+        "type": "Project"
+      },
+      "pairit.linux.core": {
+        "type": "Project",
+        "dependencies": {
+          "PairIt.Core": "[1.0.0, )"
+        }
+      }
+    }
+  }
+}

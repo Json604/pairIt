@@ -1,0 +1,38 @@
+PairIt Linux preview
+
+Requirements: Ubuntu 24.04+ or Debian 12+ (x64/ARM64), a graphical X11 session
+or Wayland with XWayland, and PulseAudio or PipeWire's PulseAudio compatibility
+service. Other glibc distributions may work but are not yet verified.
+
+On Ubuntu/Debian, install runtime dependencies:
+  sudo apt install pulseaudio-utils libx11-6 libice6 libsm6 libfontconfig1 libicu-dev xdg-utils
+PipeWire desktops also need their pipewire-pulse user service running.
+No .NET installation is required for the published self-contained download.
+
+Extract the entire archive. Run ./PairIt as your normal desktop user, never root.
+Choose the audio output your apps use, then Start sharing. On the same local
+network, scan the QR code or paste the pairing code into PairIt on your phone.
+If you have several network addresses, choose the one reachable by the phone.
+Confirm pairing, then start audio on your phone. PairIt shows Phone paired.
+Allow incoming TCP 5002 from your trusted local network if a firewall blocks it.
+Do not forward that port through your router.
+
+Phone headphones / Computer speakers preserves live phone connections.
+Like the Windows preview, Linux captures an output monitor and does not mute or
+reroute local speakers. To listen silently on the computer, route your apps to
+a virtual output using your system audio tools, then select it in PairIt.
+Paused phones stay paused. There is no automatic player pause, microphone relay,
+or Mac-style video compensation in this Linux preview. Capture timing is
+approximate; hardware listening validation is still needed.
+
+Closing the window stops sharing. Pairing is saved privately under
+$XDG_DATA_HOME/PairIt (normally ~/.local/share/PairIt). Do not delete identity.json
+to fix a startup problem: existing phones trust that identity. The directory
+must have mode 700, and identity.json mode 600. Never share those files or codes.
+
+Use Check for updates to open a newer official release. Updates are downloaded
+and installed manually; GitHub releases do not replace a running application.
+Replace the extracted app files after closing PairIt; keep your user data.
+
+Optional application-menu entry: run ./install-desktop.sh from the extracted
+folder. It points at this folder, so keep the folder in a permanent location.

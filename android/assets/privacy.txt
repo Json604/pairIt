@@ -4,7 +4,7 @@ This policy explains how PairIt handles information when you listen to computer 
 
 ## Audio stays between your devices
 
-The phone app receives live audio from the Mac or Windows computer you pair. The connection is encrypted and authenticated with the computer’s certificate and pairing credentials. The publisher does not receive your audio, and PairIt does not save audio recordings. Audio is temporarily buffered in memory for playback. Operational timing and connection statistics are exchanged with your paired computer to keep playback working; they are not sent to a publisher server.
+The phone app receives live audio from the Mac, Windows or Linux computer you pair. The connection is encrypted and authenticated with the computer’s certificate and pairing credentials. The publisher does not receive your audio, and PairIt does not save audio recordings. Audio is temporarily buffered in memory for playback. Operational timing and connection statistics are exchanged with your paired computer to keep playback working; they are not sent to a publisher server.
 
 ## Earlier feature previews
 

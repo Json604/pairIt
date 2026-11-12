@@ -2,7 +2,7 @@
 
 Computer audio through the headphones on your phone.
 
-PairIt sends audio from a Mac or Windows computer to Android or iPhone over an
+PairIt sends audio from a Mac, Windows or Linux computer to Android or iPhone over an
 encrypted local connection. Listen on your own, or pair up to four phones, each
 with its own headphones. No PairIt account or cloud audio server is required.
 
@@ -15,9 +15,10 @@ with its own headphones. No PairIt account or cloud audio server is required.
 | Platform | Requirements | Status |
 | --- | --- | --- |
 | Mac | macOS 14.2+, Apple Silicon or Intel | Signed and notarized downloads |
-| Android | Android 10+ | APK downloads and invited Play internal testing; closed-test review pending |
+| Android | Android 10+ | APK downloads and invited Play internal/closed testing |
 | iPhone | iOS 17+ | Submitted for App Review; public release and physical-device audio validation pending |
 | Windows | Windows 10 build 19041+, x64 | Unsigned preview; native playback validation pending |
+| Linux | Ubuntu 24.04 / Debian 12 or newer, x64 or ARM64; X11/XWayland and PipeWire/PulseAudio | Preview; physical-device playback validation pending |
 
 Store submission does not mean approval. Check the downloads page for current
 availability. The separate Android Preview APK can coexist with the Play app and
@@ -28,7 +29,11 @@ uses test ads.
 1. Install the computer companion and phone app. Keep both on the same local network.
 2. Connect your headphones to the phone.
 3. On Mac, complete audio-output setup and allow system audio capture. On Windows,
-   extract the entire ZIP, select the output your apps use, and start sharing.
+   extract the entire ZIP, select the output your apps use, and start sharing. On Linux,
+   extract the tar.gz and run `./PairIt`; install `pulseaudio-utils`, `libx11-6`,
+   `libice6`, `libsm6`, `libfontconfig1`, `libicu-dev` and `xdg-utils` first.
+   Select the output your apps use and start sharing. Run `./install-desktop.sh`
+   from the permanent extracted folder to add an application launcher.
 4. Open pairing on the computer. Scan its QR code or paste the full pairing link
    in the phone app, then confirm the computer. Updated companions show **Phone paired**
    before audio starts. If the computer is offline, the phone keeps the code saved
@@ -59,13 +64,16 @@ to all listeners, and paused phones stay paused. **Stop sharing** ends live sess
   installed virtual render device. Supported players can respond to a best-effort
   pause request; PairIt never sends automatic Play. Windows has no bundled virtual
   driver or Mac-style video compensation.
+- **Linux:** captures a selected output monitor. Local speakers keep playing; use a
+  virtual sink for silent local output. There is no automatic player pause, microphone
+  forwarding or video compensation. Closing the window stops sharing.
 - **Timing:** the Mac driver reports downstream latency to compatible video players.
   Bluetooth still adds delay for games, live monitoring and calls. Different listeners
   can hear different delays; shared listening does not guarantee synchronized outputs.
 - **iPhone:** returning after background suspension requires an explicit action.
   Simulator checks do not establish physical-device audio quality.
 - **Networking:** guest Wi-Fi isolation, VPNs, firewalls and local-network permissions
-  can block connections. PairIt uses TCP 5002; do not port-forward it. Windows uses
+  can block connections. PairIt uses TCP 5002; do not port-forward it. Windows and Linux use
   manual address selection. Clear manual host overrides when changing networks.
 - **USB:** supported OS tethering/hotspot links can carry the same network connection.
   A cable alone is insufficient. Android-to-Mac USB networking is not generally
@@ -80,7 +88,7 @@ To uninstall it, quit PairIt, select your normal output, then run
 ## Build
 
 Use full Xcode on macOS for Apple apps, Java 21 and Android SDK/platform/build-tools
-36 for Android, and .NET SDK **10.0.404** for Windows. Set `ANDROID_HOME` or
+36 for Android, and .NET SDK **10.0.404** for Windows and Linux. Set `ANDROID_HOME` or
 `android/local.properties` with `sdk.dir=...` for Android.
 
 ```sh
@@ -92,6 +100,8 @@ bash scripts/build-mac.sh
 bash scripts/build-ios.sh simulator
 bash scripts/build-ios.sh device
 bash scripts/build-windows.sh
+bash scripts/build-linux.sh
+PAIRIT_LINUX_RID=linux-arm64 bash scripts/build-linux.sh
 ```
 
 Run each command on a supported build host. On Windows, use
@@ -121,8 +131,8 @@ python3 scripts/verify-receiver-handoff.py
 ```
 
 Windows builds run `PairIt.ProtocolCheck`. Android changes should also pass
-`./gradlew lintDebug` from `android/`. CI builds all four platforms and runs the
-available automated checks. Real Bluetooth, calls, output switching and background
+`./gradlew lintDebug` from `android/`. CI builds all five platforms and runs the
+available automated checks, including Linux monitor capture and graphical startup. Real Bluetooth, calls, output switching and background
 playback still need device testing.
 
 ## Privacy and security
@@ -141,7 +151,8 @@ unreadable saved computer identity as routine troubleshooting—it invalidates p
 ## Updates and releases
 
 Update notices open the official store or GitHub release; they do not install
-executables or interrupt playback. Successful checks are spaced six hours apart;
+executables or interrupt playback. Linux currently checks only when you press
+**Check for updates**. On the other platforms, successful checks are spaced six hours apart;
 failed requests can retry after five minutes. Phone apps also recheck on foreground return after a one-minute cooldown. Offline launches preserve cached notices.
 Google Play controls eligibility for Play installations; direct APK updates must
 match the package and signing certificate.
@@ -171,4 +182,5 @@ identifiers for the official app, not credentials or configuration for fork rele
 
 PairIt's original code is [MIT licensed](LICENSE). Third-party files retain their
 own licenses, including the [Apple driver sample](mac/driver/APPLE-LICENSE.txt),
-[Chakra Petch fonts](design/fonts/OFL.txt), and dependencies in `windows/licenses/`.
+[Chakra Petch fonts](design/fonts/OFL.txt), and dependencies in `windows/licenses/`. Linux packages include their dependency
+notices in `licenses/`.

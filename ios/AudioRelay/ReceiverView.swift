@@ -242,7 +242,7 @@ struct VideoSyncView: View {
                     VStack(spacing: 22) {
                         Image(systemName: "waveform.path").font(.system(size: 38, weight: .light)).foregroundStyle(RelayPalette.blue).padding(.top, 20)
                         Text("Video sync").font(.title2.weight(.semibold)).multilineTextAlignment(.center)
-                        Text(receiver.supportsVideoCompensation ? "Automatic timing uses your selected output. With multiple listeners, only the primary listener controls Mac video timing." : "Windows loopback does not provide system video compensation. Software timing below is an estimate, not a sync guarantee.")
+                        Text(receiver.supportsVideoCompensation ? "Automatic timing uses your selected output. With multiple listeners, only the primary listener controls Mac video timing." : "This computer does not provide system video compensation. Software timing below is an estimate, not a sync guarantee.")
                             .font(.subheadline).foregroundStyle(RelayPalette.secondary).multilineTextAlignment(.center)
                         VStack(spacing: 16) {
                             Text(receiver.estimatedMs.map { "Automatic · \($0) ms" } ?? "Timing appears after you start listening")
@@ -360,9 +360,10 @@ struct ComputerDownloadLinks: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("First, install PairIt on your computer").font(.footnote).foregroundStyle(RelayPalette.secondary)
-            HStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 12) {
                 Link("Get Mac app ↗", destination: URL(string: "https://pairit.kartikey.xyz/downloads.html#mac")!)
                 Link("Get Windows app ↗", destination: URL(string: "https://pairit.kartikey.xyz/downloads.html#windows")!)
+                Link("Get Linux app ↗", destination: URL(string: "https://pairit.kartikey.xyz/downloads.html#linux")!)
             }.font(.subheadline).frame(minHeight: 44).tint(RelayPalette.deep)
         }
     }

@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 IDENTITIES = {
     'mac': {'dev.bluetoothswitch.macrelay'},
     'windows': {'dev.bluetoothswitch.windowsrelay'},
+    'linux': {'dev.bluetoothswitch.linuxrelay'},
     'ios': {'dev.bluetoothswitch.iosrelay'},
     'android': {'dev.bluetoothswitch.relay', 'dev.bluetoothswitch.relay.preview'},
 }
@@ -51,6 +52,9 @@ def validate_feed(raw):
         if platform == 'android':
             require(isinstance(entry.get('signerSHA256'), str) and re.fullmatch('[0-9a-f]{64}', entry['signerSHA256']), 'Invalid signer fingerprint')
             require(type(entry.get('minimumSDK')) is int and entry['minimumSDK'] >= 29, 'Invalid minimum SDK')
+        elif platform == 'linux':
+            require(entry.get('architectures') == ['x64', 'arm64'], 'Invalid Linux architectures')
+            require(isinstance(entry.get('requirements'), str) and 1 <= len(entry['requirements']) <= 256, 'Missing Linux requirements')
         else:
             require(isinstance(entry.get('minimumOS'), str) and re.fullmatch(r'\d+\.\d+(\.\d+)?', entry['minimumOS']), 'Invalid minimum OS')
         key = (platform, entry['bundleID'], entry.get('signerSHA256', ''))

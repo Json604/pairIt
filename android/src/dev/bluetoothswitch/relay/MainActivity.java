@@ -154,10 +154,10 @@ public class MainActivity extends Activity {
         handler.post(() -> bannerAds.start());
     }
     private LinearLayout computerDownloadButtons() {
-        LinearLayout links=row();
-        for (String platform : new String[]{"Mac", "Windows"}) {
+        LinearLayout links=new LinearLayout(this); links.setOrientation(LinearLayout.VERTICAL);
+        for (String platform : new String[]{"Mac", "Windows", "Linux"}) {
             Button link=button("Get " + platform + " app ↗",()->openDownload(platform.toLowerCase(java.util.Locale.ROOT)));
-            style(link,false);links.addView(link,new LinearLayout.LayoutParams(0,dp(48),1));
+            style(link,false);links.addView(link,new LinearLayout.LayoutParams(-1,dp(48)));
         }
         return links;
     }
@@ -317,7 +317,7 @@ public class MainActivity extends Activity {
         final String routeKey = RelayService.timingProfileKey;
         final boolean wifi = settings.wifi();
         LinearLayout body = dialogBody();
-        body.addView(text("Mac video timing is estimated from the actual output. Windows has no system-wide video compensation. Only the primary listener controls Mac compensation when several phones listen. Changing correction stops playback; choose Computer and replay the video afterward.", 15, MUTED, false));
+        body.addView(text("Mac video timing is estimated from the actual output. Windows and Linux have no system-wide video compensation. Only the primary listener controls Mac compensation when several phones listen. Changing correction stops playback; choose Computer and replay the video afterward.", 15, MUTED, false));
         space(body, 20);
         TextView value = text(syncLabel(routeKey, wifi), 28, INK, true); value.setGravity(Gravity.CENTER); body.addView(value); space(body, 12);
         LinearLayout buttons = row();
@@ -349,7 +349,7 @@ public class MainActivity extends Activity {
                     else if (which == 1) editAddress();
                     else if(which==3)forgetMac();
                     else new GlassDialogBuilder(this).setTitle("Local Wi-Fi or USB network")
-                            .setMessage("Wi-Fi: keep your computer and phone on the same local network.\n\nUSB on Windows: connect this Android phone with a data cable, enable USB tethering in Android’s network settings, then enter the computer’s USB-network address shown in the desktop companion.\n\nAndroid USB networking on Mac requires a supported network interface; a cable alone is not enough.\n\nBoth paths use the same encrypted pairing. No USB debugging is needed. A manual address takes priority over discovery until you clear it. The app reports local network because it cannot reliably identify the physical cable path.")
+                            .setMessage("Wi-Fi: keep your computer and phone on the same local network.\n\nUSB on Windows or compatible Linux desktops: connect this Android phone with a data cable, enable USB tethering in Android’s network settings, then enter the computer’s USB-network address shown in the desktop companion.\n\nAndroid USB networking on Mac requires a supported network interface; a cable alone is not enough.\n\nBoth paths use the same encrypted pairing. No USB debugging is needed. A manual address takes priority over discovery until you clear it. The app reports local network because it cannot reliably identify the physical cable path.")
                             .setPositiveButton("Done", null).show();
                 }).setNegativeButton("Done", null).show();
     }

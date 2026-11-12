@@ -23,7 +23,7 @@ final class RelayReceiver: ObservableObject {
     @Published private(set) var supportsOutputControl = false
     @Published private(set) var computerOutput = false
     let pairing = PairingStore()
-    var supportsVideoCompensation: Bool { pairing.mac?.platform != "windows" }
+    var supportsVideoCompensation: Bool { pairing.mac?.platform != "windows" && pairing.mac?.platform != "linux" }
     private let queue = DispatchQueue(label: "relay.iphone.playback", qos: .userInitiated)
     private var transport: RelayTransport?
     private var playback = RelayPlayback()
@@ -207,7 +207,7 @@ final class RelayReceiver: ObservableObject {
                         return
                     }
                     self.detail = status & 8 != 0 ? "Computer player paused. Choose Computer to return."
-                        : computer.platform == "windows" ? "Relay held. Pause unsupported players on your computer; return here to listen again."
+                        : (computer.platform == "windows" || computer.platform == "linux") ? "Relay held. Pause unsupported players on your computer; return here to listen again."
                         : "Mac output is held. Media may still be playing silently. Return here and choose Computer to listen again."
                 }
             }

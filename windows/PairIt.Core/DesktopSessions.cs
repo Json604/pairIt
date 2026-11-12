@@ -46,7 +46,7 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
             handoff.CancelAll();
             if (!value && !await handoff.WaitUntilSettledAsync(CancellationToken.None).ConfigureAwait(false))
             {
-                SetMessage("Windows player pause is still finishing. Choose Phone headphones again after it responds.");
+                SetMessage("Computer player pause is still finishing. Choose Phone headphones again after it responds.");
                 return;
             }
             lock (state)
@@ -69,9 +69,9 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
     }
 
     private void PublishOutputStatus() => SetMessage(computerOutput
-        ? "Computer output selected. Phone connections stay ready; Windows local output is unchanged."
+        ? "Computer output selected. Phone connections stay ready; Local computer output is unchanged."
         : Status.ActiveReceivers == 0 ? "Phone headphones selected. Start or resume audio on your phone."
-        : "Sharing computer audio. Windows local output stays unchanged.");
+        : "Sharing computer audio. Local computer output stays unchanged.");
 
     public async Task ConfigureAsync(DesktopSettings value)
     {
@@ -218,8 +218,8 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
             if (intent == ReceiverIntent.Park) handoff.Park(peer.Id, token, reason, lastListener && !mediaHandoffSuppressed && !computerOutput);
             if (computerOutput) { PublishOutputStatus(); return; }
             SetMessage(Status.ActiveReceivers == 0
-                ? "Relay held. Windows player pause is best effort; unsupported apps can keep playing locally."
-                : "Sharing computer audio. Windows local output stays unchanged.");
+                ? "Relay held. Computer player pause is best effort; unsupported apps can keep playing locally."
+                : "Sharing computer audio. Local computer output stays unchanged.");
         }
         finally { lifecycle.Release(); }
     }
@@ -228,7 +228,7 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
     {
         if (computerOutput) return true;
         handoff.CancelAll();
-        if (handoff.HasUnsettledCommand) SetMessage("Waiting for a Windows player command before starting audio.");
+        if (handoff.HasUnsettledCommand) SetMessage("Waiting for a Computer player command before starting audio.");
         if (await handoff.WaitUntilSettledAsync(cancellation).ConfigureAwait(false))
         {
             cancellation.ThrowIfCancellationRequested();
@@ -237,7 +237,7 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
         // Never acknowledge RESUME or admit an active listener while an older
         // native Pause can still finish and silence that listener's source.
         peer.Close();
-        SetMessage("Windows player pause is still finishing. Try Start audio again.");
+        SetMessage("Computer player pause is still finishing. Try Start audio again.");
         return false;
     }
 

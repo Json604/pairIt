@@ -29,6 +29,9 @@ class FeedChecks(unittest.TestCase):
     def test_accepts_versioned_release(self):
         self.assertEqual(len(self.feed.validate_feed(self.document())), 1)
 
+    def test_accepts_linux_requirements(self):
+        self.feed.validate_feed(self.document(platform="linux", bundleID="dev.bluetoothswitch.linuxrelay", architectures=["x64", "arm64"], requirements="Ubuntu 24.04 or Debian 12; PipeWire/PulseAudio; X11/XWayland"))
+
     def test_rejects_mutable_or_ambiguous_links(self):
         for path in ('latest', 'tag/latest', 'tag/../other', 'tag/%2e%2e',
                      'tag/v1?redirect=elsewhere', 'tag/v1#fragment', 'tag/v1/extra'):

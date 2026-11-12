@@ -310,7 +310,7 @@ public class RelayService extends Service {
             if (returningFromComputer) mediaSession.setActive(state.phase == RelayState.Phase.PAUSED);
             if (!requestedMac && control.held()) {
                 String detail = control.playerPaused() ? "Computer player paused. Choose Computer to return."
-                        : !settings.platform().equals("windows") ? "Mac output is held. Media may still be playing silently. Choose Computer to return."
+                        : (!settings.platform().equals("windows") && !settings.platform().equals("linux")) ? "Mac output is held. Media may still be playing silently. Choose Computer to return."
                         : "Relay is held. Pause unsupported computer players yourself; choose Computer to return.";
                 if (!state.detail.equals(detail)) publish(state.phase, state.title, detail);
             }

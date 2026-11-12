@@ -101,3 +101,22 @@ jobs:
       - name: Build and synthetic protocol regressions
         shell: pwsh
         run: ./scripts/build-windows.ps1
+
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          global-json-file: linux/global.json
+      - name: Install desktop and audio test dependencies
+        run: sudo apt-get update && sudo apt-get install -y pulseaudio pulseaudio-utils xvfb libx11-6 libice6 libsm6 libfontconfig1
+      - name: Build x64 and verify capture and graphical startup
+        run: |
+          bash scripts/build-linux.sh
+          bash scripts/check-linux-runtime.sh
+      - name: Cross-build ARM64
+        run: PAIRIT_LINUX_RID=linux-arm64 bash scripts/build-linux.sh

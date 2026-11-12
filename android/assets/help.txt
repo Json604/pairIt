@@ -2,7 +2,7 @@ PairIt has two features: computer audio relay and shared listening.
 
 ## Set up and pair
 
-Install PairIt on your Mac or Windows computer and phone. Keep them on the same local Wi-Fi. On Mac, finish the one-time audio-output setup and allow system audio capture. On Windows, choose the output your apps use and start sharing; local speakers can also play. Open Pair a phone on Mac, or Listen together on Windows, then Scan QR code or paste the code in the phone app. Confirm the computer’s name before saving. Keep the code private.
+Install PairIt on your Mac, Windows or Linux computer and phone. Keep them on the same local Wi-Fi. On Mac, finish the one-time audio-output setup and allow system audio capture. On Windows or Linux, choose the output your apps use and start sharing; local speakers can also play. Open Pair a phone on Mac, Listen together on Windows, or Pair a phone on Linux, then Scan QR code or paste the code in the phone app. Confirm the computer’s name before saving. Keep the code private.
 
 After you confirm pairing, the phone checks the computer over the encrypted connection. Updated companions show Phone paired without starting audio. If the computer cannot be reached, the code stays saved and the phone says confirmation is unavailable. A short ad may appear after saving. Choose Start audio when ready; pairing itself never starts playback. Deliberately confirming a pairing again can be eligible for an ad; normal reconnection does not show another interstitial.
 
@@ -28,13 +28,13 @@ On iPhone, background audio and system media controls support listening with the
 
 ## Video timing and connection help
 
-Playback uses the Reliable path. Mac video timing is estimated from the selected output; leave correction at zero initially. Some players need playback reopened after timing changes. Windows does not provide the Mac driver’s system video compensation. Bluetooth retains physical delay, especially for live audio and games.
+Playback uses the Reliable path. Mac video timing is estimated from the selected output; leave correction at zero initially. Some players need playback reopened after timing changes. Windows and Linux do not provide the Mac driver’s system video compensation. Bluetooth retains physical delay, especially for live audio and games.
 
 Guest Wi-Fi isolation, VPNs and firewalls can block local connections. Connection settings accept a manual computer address while still verifying its paired certificate; clear it to restore discovery. Supported OS network links can also carry the same connection, but a USB cable alone is not a connection. Android-to-Mac USB networking is not generally supported.
 
 ## Requirements and downloads
 
-Android 10 or later, iPhone with the supported iOS version, and a compatible Mac or Windows companion. Mac needs macOS 14.2 or later. Use the provided matching build; Windows remains a preview until native runtime testing is complete. Downloads: https://pairit.kartikey.xyz/downloads.html.
+Android 10 or later, iPhone with the supported iOS version, and a compatible Mac, Windows or Linux companion. Mac needs macOS 14.2 or later. Use the provided matching build; Windows and Linux remain previews until hardware playback testing is complete. Downloads: https://pairit.kartikey.xyz/downloads.html.
 
 ## Contact support
 

@@ -54,7 +54,7 @@ public final class InformationActivity extends Activity {
         }
         String link=getString(privacy?R.string.privacy_url:R.string.mac_download_url);
         if(!link.isEmpty()) {
-            Button action=new Button(this);action.setText(privacy?"Read online":"Get the Mac companion");action.setAllCaps(false);action.setTextColor(Color.WHITE);action.setTextSize(15);
+            Button action=new Button(this);action.setText(privacy?"Read online":"Get the computer companion");action.setAllCaps(false);action.setTextColor(Color.WHITE);action.setTextSize(15);
             action.setBackground(new RippleDrawable(ColorStateList.valueOf(0x30ffffff),GlassUI.accent(dp(13)),null));GlassUI.pressFeedback(action);
             action.setOnClickListener(v->openLink(link));LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,dp(54));params.topMargin=dp(28);content.addView(action,params);
         }

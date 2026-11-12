@@ -34,7 +34,7 @@ This policy explains how {name} handles information when you listen to computer 
 
 ## Audio stays between your devices
 
-The phone app receives live audio from the Mac or Windows computer you pair. The connection is encrypted and authenticated with the computer’s certificate and pairing credentials. The publisher does not receive your audio, and PairIt does not save audio recordings. Audio is temporarily buffered in memory for playback. Operational timing and connection statistics are exchanged with your paired computer to keep playback working; they are not sent to a publisher server.
+The phone app receives live audio from the Mac, Windows or Linux computer you pair. The connection is encrypted and authenticated with the computer’s certificate and pairing credentials. The publisher does not receive your audio, and PairIt does not save audio recordings. Audio is temporarily buffered in memory for playback. Operational timing and connection statistics are exchanged with your paired computer to keep playback working; they are not sent to a publisher server.
 
 ## Earlier feature previews
 
@@ -84,7 +84,7 @@ The app is a general audio utility and is not designed for children. The publish
 
 ## Set up and pair
 
-Install PairIt on your Mac or Windows computer and phone. Keep them on the same local Wi-Fi. On Mac, finish the one-time audio-output setup and allow system audio capture. On Windows, choose the output your apps use and start sharing; local speakers can also play. Open Pair a phone on Mac, or Listen together on Windows, then Scan QR code or paste the code in the phone app. Confirm the computer’s name before saving. Keep the code private.
+Install PairIt on your Mac, Windows or Linux computer and phone. Keep them on the same local Wi-Fi. On Mac, finish the one-time audio-output setup and allow system audio capture. On Windows or Linux, choose the output your apps use and start sharing; local speakers can also play. Open Pair a phone on Mac, Listen together on Windows, or Pair a phone on Linux, then Scan QR code or paste the code in the phone app. Confirm the computer’s name before saving. Keep the code private.
 
 After you confirm pairing, the phone checks the computer over the encrypted connection. Updated companions show Phone paired without starting audio. If the computer cannot be reached, the code stays saved and the phone says confirmation is unavailable. A short ad may appear after saving. Choose Start audio when ready; pairing itself never starts playback. Deliberately confirming a pairing again can be eligible for an ad; normal reconnection does not show another interstitial.
 
@@ -110,13 +110,13 @@ On iPhone, background audio and system media controls support listening with the
 
 ## Video timing and connection help
 
-Playback uses the Reliable path. Mac video timing is estimated from the selected output; leave correction at zero initially. Some players need playback reopened after timing changes. Windows does not provide the Mac driver’s system video compensation. Bluetooth retains physical delay, especially for live audio and games.
+Playback uses the Reliable path. Mac video timing is estimated from the selected output; leave correction at zero initially. Some players need playback reopened after timing changes. Windows and Linux do not provide the Mac driver’s system video compensation. Bluetooth retains physical delay, especially for live audio and games.
 
 Guest Wi-Fi isolation, VPNs and firewalls can block local connections. Connection settings accept a manual computer address while still verifying its paired certificate; clear it to restore discovery. Supported OS network links can also carry the same connection, but a USB cable alone is not a connection. Android-to-Mac USB networking is not generally supported.
 
 ## Requirements and downloads
 
-Android 10 or later, iPhone with the supported iOS version, and a compatible Mac or Windows companion. Mac needs macOS 14.2 or later. Use the provided matching build; Windows remains a preview until native runtime testing is complete. Downloads: {p['mac_download_url']}.'''
+Android 10 or later, iPhone with the supported iOS version, and a compatible Mac, Windows or Linux companion. Mac needs macOS 14.2 or later. Use the provided matching build; Windows and Linux remain previews until hardware playback testing is complete. Downloads: {p['mac_download_url']}.'''
     if email:help_text+='\n\n## Contact support\n\nEmail '+email+'. Include the app version, Android version, headphone model and steps to reproduce the issue. Never send a pairing code.'
     assets=ROOT/'android/assets';assets.mkdir(parents=True,exist_ok=True)
     (assets/'privacy.txt').write_text(privacy+'\n');(assets/'help.txt').write_text(help_text+'\n')
@@ -132,7 +132,7 @@ Android 10 or later, iPhone with the supported iOS version, and a compatible Mac
     full=f'''{name} brings computer audio to your phone over an encrypted local connection.
 
 AUDIO RELAY
-Listen to a paired Mac or Windows computer through your phone’s Bluetooth headphones, speaker or wired headphones. Updated companions confirm pairing before audio starts. Keep your headphones connected to your phone and choose Computer or Phone to switch sources. Change the computer audio destination between phone headphones and computer speakers without losing the pairing. The destination applies to all listeners; paused listeners stay paused.
+Listen to a paired Mac, Windows or Linux computer through your phone’s Bluetooth headphones, speaker or wired headphones. Updated companions confirm pairing before audio starts. Keep your headphones connected to your phone and choose Computer or Phone to switch sources. Change the computer audio destination between phone headphones and computer speakers without losing the pairing. The destination applies to all listeners; paused listeners stay paused.
 
 Playback keeps going when the screen is locked. Android’s notification and Quick Settings tile keep the source switch nearby. Headphone play/pause pauses or resumes your live relay without selecting Phone. Volume remains on your phone or headphones. The computer player can continue while your relay is paused; resuming returns to the live stream. Updated Mac companions hold output during phone interruptions. Compatible Windows media sessions can pause and offer return when playback resumes; other apps need manual controls. On iPhone, return through PairIt. Track changes stay in the computer player.
 
@@ -147,7 +147,7 @@ No PairIt account or cloud audio server. Your paired devices encrypt audio in tr
 The app has a banner and may show a dismissible video or image ad after an explicit pairing is saved, before you separately start audio. An ad is not guaranteed on every pairing. Ad privacy choices are in Settings.
 
 REQUIREMENTS
-Android 10+, a compatible PairIt Mac or Windows companion, and a reachable local network. Mac requires macOS 14.2+, one-time audio-output setup and system-audio permission. The Windows companion is a preview. Only the Mac driver provides automatic video compensation for a primary listener; Bluetooth still has physical latency.
+Android 10+, a compatible PairIt Mac, Windows or Linux companion, and a reachable local network. Mac requires macOS 14.2+, one-time audio-output setup and system-audio permission. The Windows and Linux companions are previews. Only the Mac driver provides automatic video compensation for a primary listener; Bluetooth still has physical latency.
 
 Allow notifications to keep the source switch visible while Phone is selected. Disconnect removes it. System notification settings and Android’s app-stop controls remain in charge.'''
     if email:full+='\n\nSupport: '+email

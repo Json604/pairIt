@@ -22,7 +22,7 @@ final class PairingCode {
         String name = json.optString("name", "Computer").replaceAll("[\\p{Cntrl}]", "").trim();
         if (name.isEmpty()) name = "Computer";
         String platform = json.optString("platform", "");
-        if (!platform.equals("macos") && !platform.equals("windows")) platform = "";
+        if (!platform.equals("macos") && !platform.equals("windows") && !platform.equals("linux")) platform = "";
         return new PairingCode(host, pin, token, name.substring(0, Math.min(64, name.length())), platform);
     }
 }
