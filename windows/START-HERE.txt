@@ -1,8 +1,8 @@
-PairIt for Windows — 1.1.0 preview 5
+PairIt for Windows — 1.1.0 preview 6
 
-Extract the complete PairIt-Windows folder, then open PairIt.exe inside it.
+Extract the complete ZIP, then open PairIt.exe inside it.
 Keep the DLLs, runtime, Fonts and licenses folders together. The .NET runtime
-is included. This private x64 preview is unsigned and has not run on Windows
+is included. This x64 preview is unsigned and has not run on Windows
 in our build environment. Its API minimum is Windows 10 build 19041; use a
 supported Windows installation. ARM64 is not offered.
 
@@ -39,3 +39,7 @@ not offered. Read README.md for full source/output, identity and USB limits.
 Report Windows version, display scale, phone/headphone types, exact steps and
 visible errors. Never include private pairing codes, identity files or audio.
 Build and synthetic TLS checks passed; physical Windows/audio checks remain.
+
+Update notices: PairIt checks for new releases while in use. When available,
+Get update stays visible until you update. Download, quit PairIt, then replace
+the complete extracted folder. Your pairing identity remains in your profile.
