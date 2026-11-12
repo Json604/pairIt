@@ -288,3 +288,48 @@ configuration for forks. Development builds use Google test ads. Replace the
 update-feed URL and official download links before distributing a fork so it
 does not direct users to incompatible official builds. See
 [release maintenance](#release-maintenance).
+
+## Remaining launch checklist
+
+Last recorded status: **12 November 2026**. These are pending items, not a live
+store-status check. Source cleanup is complete; the website and desktop/APK
+release downloads are published.
+
+- [ ] **Apple review:** check App Store Connect for the submitted iOS 1.1.0
+  build 13 and respond to any review questions. Automatic release after approval
+  is selected. Submission does not mean approval or public availability.
+- [ ] **Google closed-test review:** check Play Console for Android 1.1.0
+  code 15, submitted to the closed Alpha track. Internal testing remains separate
+  and does not satisfy the production-access testing requirement.
+- [ ] **Recruit Android testers:** add the tester email list in Play Console.
+  After the closed test is available, share
+  [the closed-test invitation](https://play.google.com/apps/testing/dev.bluetoothswitch.relay).
+  Testers must open it with their invited Google account, opt in, then follow its
+  Play Store installation link. Keep at least 12 testers opted in continuously
+  for 14 days, collect genuine testing feedback, and follow the eligibility
+  status shown in Play Console.
+- [ ] **Apply for Android production access:** once eligible, complete Google's
+  testing/readiness questions and address any follow-up. Production access and
+  the production release still require Google's approval.
+- [ ] **Windows device validation:** obtain the friend's report for the x64
+  preview ZIP. Check pairing, actual playback, output selection, shared listening,
+  background/reconnect behavior and supported-player handoff. Windows remains an
+  unsigned preview; Microsoft Store distribution has not been arranged.
+- [ ] **Physical iPhone validation:** check actual audio, Bluetooth output,
+  interruptions, background recovery and pairing on an iPhone when one is
+  available. Simulator checks do not establish real-device audio quality.
+- [ ] **Advertising readiness:** after public store listings are available, link
+  them in AdMob and check app review/serving status, app-ads.txt, applicable
+  privacy messages and consent behavior. Confirm any remaining account/payment
+  requirements. Do not treat configured ad IDs as proof of live ad availability.
+- [ ] **Release links and update notices:** once each store release is actually
+  public, update the website's availability/download links and eligible entries
+  in `release/updates.json`. Follow the release-maintenance sequence above; do
+  not advertise an unavailable store build as an update.
+- [ ] **Signing-key backup:** confirm a secure private backup of the existing
+  Android upload key and Apple signing identities. Never commit or attach private
+  keys to a GitHub issue or release.
+
+To resume, check the two store dashboards first, then work through the unchecked
+items. Update this checklist as results are verified; no new app build is needed
+solely to change these notes.
