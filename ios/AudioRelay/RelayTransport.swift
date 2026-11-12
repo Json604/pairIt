@@ -46,7 +46,11 @@ final class RelayTransport {
     private var intent = "RESUME", intentToken: UInt32 = 1, sentToken: UInt32 = 0
     private var controlStatus: UInt32 = 0
     private var capabilitiesKnown = false
+    private var requestedComputerOutput: Bool?
+    private var outputRequestPing: Int64?
+    var pendingComputerOutput: Bool? { requestedComputerOutput }
     var onHandoff: ((UInt32) -> Void)?
+    var onOutput: ((_ supported: Bool, _ computer: Bool) -> Void)?
     var onPacket: ((RelayPacket, Int64) -> Void)?
     var onState: ((String) -> Void)?
     var onReset: (() -> Void)?
@@ -72,6 +76,7 @@ final class RelayTransport {
         connect()
     }
     func stop() {
+        requestedComputerOutput = nil; outputRequestPing = nil
         guard connection != nil else { suspend(); return }
         setIntent("RELEASE")
         // Keep this transport alive for its correlated release ACK. A lost
@@ -89,7 +94,28 @@ final class RelayTransport {
     func park(_ reason: String) { setIntent(reason) }
     func resume() {
         setIntent("RESUME")
+        // Playback may have been rebuilt while this control socket remained
+        // connected. Reapply the current destination even when its bits did not change.
+        if capabilitiesKnown, connection?.state == .ready {
+            onOutput?(controlStatus & 128 != 0, controlStatus & 192 == 192)
+        }
         if connection == nil { start() }
+    }
+    func requestOutput(computer: Bool) {
+        requestedComputerOutput = computer; outputRequestPing = nil
+        sendOutputRequest()
+    }
+    private func sendOutputRequest() {
+        guard capabilitiesKnown, connection?.state == .ready, outputRequestPing == nil, let computer = requestedComputerOutput else { return }
+        guard controlStatus & 128 != 0 else {
+            // Legacy companions already stream to phones. An unfulfilled
+            // Computer choice must continue suppressing local playback.
+            if !computer { requestedComputerOutput = nil }
+            return
+        }
+        let ping = RelayClock.nanoseconds; outputRequestPing = ping
+        send("OUTPUT " + (computer ? "COMPUTER" : "PHONE") + "\n")
+        send("PING \(ping)\n")
     }
     private func setIntent(_ next: String) {
         guard next != intent else { return }
@@ -106,8 +132,15 @@ final class RelayTransport {
         }
         send("PING \(RelayClock.nanoseconds)\n")
     }
-    private func acceptControl(_ status: UInt32) {
-        controlStatus = status; capabilitiesKnown = true; sendIntent()
+    private func acceptControl(_ status: UInt32, echoedPing: UInt64) {
+        let outputChanged = !capabilitiesKnown || (status & 192) != (controlStatus & 192)
+        var outputAcknowledged = false
+        if let requested = requestedComputerOutput, let ping = outputRequestPing,
+           echoedPing == UInt64(ping), status & 128 != 0, (status & 64 != 0) == requested {
+            requestedComputerOutput = nil; outputRequestPing = nil; outputAcknowledged = true
+        }
+        controlStatus = status; capabilitiesKnown = true; sendIntent(); sendOutputRequest()
+        if outputChanged || outputAcknowledged { onOutput?(status & 128 != 0, status & 192 == 192) }
         if status >> 8 == intentToken {
             onHandoff?(status)
             if intent == "RELEASE", status & 32 != 0 { suspend() }
@@ -122,6 +155,7 @@ final class RelayTransport {
         onState?(connections == 0 ? "Connecting to your computer" : "Reconnecting to your computer")
         clockSamples = 0; bestRTT = .max; clockWindow = 0; pingCount = 0; bytes.removeAll()
         capabilitiesKnown = false; controlStatus = 0; intentToken = 1; sentToken = 0
+        outputRequestPing = nil // Retry an unacknowledged user choice on the new socket.
         let parameters = RelaySecurity.parameters(pin: mac.pin, queue: queue)
         let endpoint = hostOverride.map { NWEndpoint.hostPort(host: .init($0), port: port) } ?? discovered ?? .hostPort(host: .init(mac.host), port: port)
         let current = NWConnection(to: endpoint, using: parameters); connection = current
@@ -204,7 +238,7 @@ final class RelayTransport {
                     if roundTrip < bestRTT { bestRTT = roundTrip; clockOffset = Int64(clamping: sent) + roundTrip / 2 - Int64(clamping: server) }
                     clockSamples += 1
                 }
-                bytes.removeFirst(24); acceptControl(status); continue
+                bytes.removeFirst(24); acceptControl(status, echoedPing: sent); continue
             }
             guard magic == 0x31415342 else { return false }
             let sequence: UInt32 = integer(at: 4), rate: UInt32 = integer(at: 8), frames: UInt32 = integer(at: 12)
@@ -214,7 +248,7 @@ final class RelayTransport {
             let length = 24 + Int(frames) * 4
             guard bytes.count >= length else { return true }
             let pcm = Data(bytes.dropFirst(24).prefix(Int(frames) * 4)); bytes.removeFirst(length)
-            if clockSamples >= 3, intent == "RESUME", capabilitiesKnown,
+            if clockSamples >= 3, intent == "RESUME", capabilitiesKnown, requestedComputerOutput != true, controlStatus & 192 != 192,
                controlStatus & 1 == 0 || (controlStatus >> 8 == intentToken && controlStatus & 4 == 0) {
                 onPacket?(RelayPacket(sequence: sequence, rate: rate, frames: frames, capturedAt: Int64(captured), pcm: pcm), clockOffset)
             }

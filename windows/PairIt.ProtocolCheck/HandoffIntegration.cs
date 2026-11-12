@@ -23,7 +23,7 @@ internal static class HandoffIntegration
         }
         await UntilAsync(() => sessions.Status.Receivers == 0, "unnegotiated peer cleanup");
         await using var phone = await connector.ReceiverAsync();
-        Require(await phone.ProbeAsync() == (Protocol.ParkSupported | Protocol.PlayerControl), "Initial capabilities/token wrong.");
+        Require(await phone.ProbeAsync() == ((Protocol.ParkSupported | Protocol.OutputControlSupported) | Protocol.PlayerControl), "Initial capabilities/token wrong.");
         await phone.SendAsync("PARK 1 PHONE\n");
         await ExpectAsync(phone, 1, Protocol.ParkAccepted | Protocol.PlayerPaused);
         Require(!sessions.Status.Capturing && sessions.Status.ActiveReceivers == 0 && sessions.Status.Receivers == 1, "PARK must preserve only the control connection.");
@@ -206,7 +206,7 @@ internal static class HandoffIntegration
         foreach (var command in new[] { "PARK 0 PHONE", "PARK 16777216 PHONE", "RESUME -1", "PARK 1 UNKNOWN" })
         {
             await using var malformed = await connector.ReceiverAsync();
-            Require(await malformed.ProbeAsync() == Protocol.ParkSupported, "Unavailable media API advertised player control.");
+            Require(await malformed.ProbeAsync() == (Protocol.ParkSupported | Protocol.OutputControlSupported), "Unavailable media API advertised player control.");
             await malformed.SendAsync(command + "\n");
             await UntilAsync(() => malformed.Closed, "invalid handoff framing/token rejected");
         }
@@ -214,15 +214,15 @@ internal static class HandoffIntegration
         {
             await phone.ProbeAsync();
             await phone.SendAsync("PARK 16777215 PHONE\n");
-            Require(await phone.ProbeAsync() == (Protocol.MaximumIntentToken << 8 | Protocol.ParkSupported | Protocol.ParkAccepted), "24-bit maximum or unavailable-app fallback wrong.");
+            Require(await phone.ProbeAsync() == (Protocol.MaximumIntentToken << 8 | (Protocol.ParkSupported | Protocol.OutputControlSupported) | Protocol.ParkAccepted), "24-bit maximum or unavailable-app fallback wrong.");
             await phone.SendAsync("RELEASE 16777215\n");
-            Require(await phone.ProbeAsync() == (Protocol.MaximumIntentToken << 8 | Protocol.ParkSupported | Protocol.ParkAccepted), "Same token changed intent identity.");
+            Require(await phone.ProbeAsync() == (Protocol.MaximumIntentToken << 8 | (Protocol.ParkSupported | Protocol.OutputControlSupported) | Protocol.ParkAccepted), "Same token changed intent identity.");
         }
         await UntilAsync(() => sessions.Status.Receivers == 0, "exhausted token connection cleanup");
         await using var restarted = await connector.ReceiverAsync();
         await restarted.ProbeAsync();
         await restarted.SendAsync("PARK 1 OUTPUT\n");
-        Require(await restarted.ProbeAsync() == (1u << 8 | Protocol.ParkSupported | Protocol.ParkAccepted), "Fresh connection did not reset token space.");
+        Require(await restarted.ProbeAsync() == (1u << 8 | (Protocol.ParkSupported | Protocol.OutputControlSupported) | Protocol.ParkAccepted), "Fresh connection did not reset token space.");
         audio.FailSourceStartup = true;
         await restarted.SendAsync("RESUME 2\n");
         await UntilAsync(() => restarted.Closed, "resume source failure closes held peer");
@@ -236,7 +236,7 @@ internal static class HandoffIntegration
         do
         {
             last = await peer.ProbeAsync();
-            if (last == (token << 8 | Protocol.ParkSupported | Protocol.PlayerControl | stateFlags)) return;
+            if (last == (token << 8 | (Protocol.ParkSupported | Protocol.OutputControlSupported) | Protocol.PlayerControl | stateFlags)) return;
             await Task.Delay(10, deadline.Token);
         } while (!deadline.IsCancellationRequested);
         throw new InvalidOperationException($"Unexpected handoff flags {last:x8} for token {token}.");

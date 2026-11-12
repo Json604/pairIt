@@ -13,6 +13,7 @@ internal sealed class CompanionForm : Form
     private readonly ComboBox source = Choice(), addresses = Choice();
     private readonly Label status = TextLabel("Sharing stopped."), counts = TextLabel("0/4 connected");
     private readonly Button startSharing = ActionButton("Start sharing");
+    private readonly Button phoneOutput = ActionButton("Phone headphones"), computerOutput = ActionButton("Computer speakers");
     private readonly TextBox pairing = new() { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Height = 86, Dock = DockStyle.Top, Visible = false };
     private readonly ReleaseUpdates updates = new();
     private readonly Button updateButton = ActionButton("Get update");
@@ -119,6 +120,16 @@ internal sealed class CompanionForm : Form
         startSharing.Click += async (_, _) => await ConfigureAsync();
         PairItAppearance.Select(startSharing, true);
         Add(panel, startSharing);
+        Add(panel, TextLabel("LISTEN ON"));
+        phoneOutput.Click += async (_, _) => await SetOutputAsync(false);
+        computerOutput.Click += async (_, _) => await SetOutputAsync(true);
+        phoneOutput.AccessibleDescription = "Send audio to active phones without changing Windows local playback.";
+        computerOutput.AccessibleDescription = "Hold audio to phones and keep their connections ready. Windows local playback stays unchanged.";
+        phoneOutput.Enabled = computerOutput.Enabled = false;
+        PairItAppearance.Select(phoneOutput, true);
+        Add(panel, phoneOutput);
+        Add(panel, computerOutput);
+        Add(panel, TextLabel("Switching keeps phones connected. Computer speakers holds audio to phones; it does not change your Windows output or start a paused player."));
         Add(panel, TextLabel("Up to four receivers share one source. Different headphones may have different audible delays."));
         Add(panel, TextLabel("Windows preview does not provide the Mac driver's video compensation. Protected media may be unavailable to loopback capture."));
         Add(panel, RefreshButton());
@@ -172,7 +183,24 @@ internal sealed class CompanionForm : Form
             if (!saved) status.Text = sessions.Status.Message + " Preferences could not be saved for the next launch.";
         }
         catch { status.Text = "Could not apply the setting. Check device availability and try again."; }
-        finally { updating = false; startSharing.Enabled = true; }
+        finally { updating = false; startSharing.Enabled = true; UpdateOutputChoices(sessions.Status); }
+    }
+
+    private async Task SetOutputAsync(bool useComputer)
+    {
+        if (updating) return;
+        updating = true;
+        UpdateOutputChoices(sessions.Status);
+        try { await sessions.SetComputerOutputAsync(useComputer); UpdateStatus(sessions.Status); }
+        catch { status.Text = "Could not switch output. Check the selected source and try again."; }
+        finally { updating = false; UpdateOutputChoices(sessions.Status); }
+    }
+
+    private void UpdateOutputChoices(DesktopStatus value)
+    {
+        phoneOutput.Enabled = computerOutput.Enabled = sessions.CurrentSettings.SharingEnabled && !updating;
+        PairItAppearance.Select(phoneOutput, !value.ComputerOutput);
+        PairItAppearance.Select(computerOutput, value.ComputerOutput);
     }
 
     public Task StopAllAsync() => ApplyAsync(preferences with { MicrophoneEnabled = false, SharingEnabled = false });
@@ -187,9 +215,10 @@ internal sealed class CompanionForm : Form
             return;
         }
         status.Text = value.Message;
-        counts.Text = $"{value.Receivers}/4 connected · {value.ActiveReceivers} listening";
+        counts.Text = $"{value.Receivers}/4 connected · {(value.ComputerOutput ? 0 : value.ActiveReceivers)} listening";
         var current = sessions.CurrentSettings;
         startSharing.Text = current.SharingEnabled ? "Stop sharing" : "Start sharing";
+        UpdateOutputChoices(value);
     }
 
     public void Reveal()

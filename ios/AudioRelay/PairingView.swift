@@ -14,6 +14,7 @@ struct PairingView: View {
     @State private var confirmForget = false
     @State private var saving = false
     @State private var savedName: String?
+    @State private var confirmation: Bool?
     @State private var finishedAdvertisement = false
     @State private var mounted = false
     @State private var adFlow: Int?
@@ -28,8 +29,10 @@ struct PairingView: View {
                     VStack(alignment: .leading, spacing: 24) {
                         if let savedName {
                             VStack(alignment: .leading, spacing: 20) {
-                                Label("Pairing saved", systemImage: "checkmark.shield").font(.title2)
-                                Text("Ready to connect to \(savedName). Nothing is playing yet.")
+                                Label(confirmation == true ? "Computer paired" : "Pairing saved", systemImage: "checkmark.shield").font(.title2)
+                                Text(confirmation == true ? "\(savedName) confirmed the pairing. Nothing is playing yet."
+                                     : confirmation == nil ? "Saved on this iPhone. Confirming with \(savedName)…"
+                                     : "Saved on this iPhone. Your computer has not confirmed yet. Keep PairIt open on the same local network; you can still try Start audio.")
                                     .font(.subheadline).foregroundStyle(RelayPalette.secondary)
                                 Button("Start audio") {
                                     receiver.connect()
@@ -126,7 +129,13 @@ struct PairingView: View {
                 guard mounted, action == actionGeneration else { return }
                 do {
                     receiver.disconnect(); try pairing.save(mac)
-                    savedName = mac.displayName; saving = false; code = ""
+                    savedName = mac.displayName; saving = false; code = ""; confirmation = nil
+                    let hostOverride = pairing.hostOverride
+                    Task { @MainActor in
+                        let confirmed = await PairingConfirmation.confirm(mac, hostOverride: hostOverride)
+                        guard mounted, action == actionGeneration, pairing.mac?.pin == mac.pin else { return }
+                        confirmation = confirmed
+                    }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
                         guard mounted, action == actionGeneration, savedName != nil else { return }
                         guard let flow else { finishedAdvertisement = true; return }

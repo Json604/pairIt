@@ -29,6 +29,7 @@ final class RelayServer {
     private var stoppingCapture = false
     private var stopped = false
     private var micLease = false
+    private var computerOutput = false
     // A dropped parked phone must never turn a still-playing Mac into speakers.
     // Bounded installation-owned intents survive dead peers. One phone must not
     // release another missing listener's hold; overflow needs explicit Stop sharing.
@@ -44,6 +45,7 @@ final class RelayServer {
     private var lastReceiverDetail = ""
     var onStatus: ((String) -> Void)?
     var onReceivers: ((Int, Int, String) -> Void)?
+    var onOutputChanged: ((Bool) -> Void)?
 
     init(port: UInt16 = 5001, preferences: UserDefaults = .standard, makeCapture: @escaping () -> RelayCaptureSource = { Capture() }) {
         self.port = port; self.preferences = preferences; self.makeCapture = makeCapture
@@ -112,8 +114,8 @@ final class RelayServer {
             var reply = Data(count: 24)
             reply.withUnsafeMutableBytes { raw in
                 raw.storeBytes(of: UInt32(0x31435342).littleEndian, toByteOffset: 0, as: UInt32.self)
-                let held = peer.parked && capture != nil && !startingCapture && !stoppingCapture
-                let status = UInt32(1) | (held ? 4 : 0) | (peer.released ? 32 : 0) | (peer.intentToken << 8)
+                let held = peer.parked && (computerOutput || capture != nil) && !startingCapture && !stoppingCapture
+                let status = UInt32(1 | 128) | (computerOutput ? 64 : 0) | (held ? 4 : 0) | (peer.released ? 32 : 0) | (peer.intentToken << 8)
                 raw.storeBytes(of: status.littleEndian, toByteOffset: 4, as: UInt32.self)
                 raw.storeBytes(of: sent.littleEndian, toByteOffset: 8, as: UInt64.self)
                 raw.storeBytes(of: AudioConvertHostTimeToNanos(AudioGetCurrentHostTime()).littleEndian, toByteOffset: 16, as: UInt64.self)
@@ -121,6 +123,9 @@ final class RelayServer {
             lock.unlock(); peer.enqueue(reply); return
         }
         let words = line.split(separator: " ")
+        if line == "OUTPUT COMPUTER" || line == "OUTPUT PHONE" {
+            lock.unlock(); setComputerOutput(line == "OUTPUT COMPUTER"); return
+        }
         if let command = words.first, ["PARK", "RESUME", "RELEASE"].contains(String(command)) {
             guard words.count == (command == "PARK" ? 3 : 2),
                   let token = UInt32(words[1]), token > 0, token <= 0xFFFFFF,
@@ -155,7 +160,7 @@ final class RelayServer {
     }
     private func remove(_ id: UUID) {
         lock.lock()
-        if !stopped, let peer = peers[id], peer.parked || (peer.intentToken > 0 && !peer.released) { retainHold(peer) }
+        if !stopped && !computerOutput, let peer = peers[id], peer.parked || (peer.intentToken > 0 && !peer.released) { retainHold(peer) }
         peers.removeValue(forKey: id); order.removeAll { $0 == id }; lock.unlock()
         reconcile()
     }
@@ -174,6 +179,18 @@ final class RelayServer {
             self.updateCapture()
         }
     }
+    func setComputerOutput(_ enabled: Bool) {
+        lock.lock()
+        guard !stopped, !micLease, computerOutput != enabled else { lock.unlock(); return }
+        computerOutput = enabled
+        if enabled {
+            // Explicit speaker selection releases missing-listener holds, while
+            // retaining each connected phone's own playback/paused intent.
+            orphanHolds.removeAll(); unidentifiedHold = false
+            for peer in peers.values { peer.discardAudio() }
+        }
+        lock.unlock(); reconcile()
+    }
     private func updateCapture() {
         lock.lock()
         let active = order.filter { peers[$0]?.active == true && peers[$0]?.closed == false }
@@ -185,7 +202,8 @@ final class RelayServer {
         let held = orphanHold || peers.values.contains { $0.parked }
         let unavailable = orphanHold
         let microphoneActive = micLease
-        let shouldCapture = !stopped && !micLease && (count > 0 || held)
+        let speakers = computerOutput
+        let shouldCapture = !stopped && !micLease && !speakers && (count > 0 || held)
         let current = capture
         if !shouldCapture {
             capture = nil; startingCapture = false; stoppingCapture = current != nil
@@ -193,11 +211,12 @@ final class RelayServer {
         }
         else if current == nil { startingCapture = true }
         lock.unlock()
+        DispatchQueue.main.async { [weak self] in self?.onOutputChanged?(speakers) }
         if !shouldCapture {
             current?.stop()
             lock.lock(); stoppingCapture = false; lock.unlock()
-            update(microphoneActive ? "Phone microphone is active" : captureFailure ?? "Ready for your phones")
-            publishReceivers(0, 0, "No active listeners")
+            update(microphoneActive ? "Phone microphone is active" : captureFailure ?? (speakers ? "Playing on Mac speakers" : "Ready for your phones"))
+            publishReceivers(count, parkedCount, speakers ? "Mac speakers selected. Your phones stay connected." : "No active listeners")
             return
         }
         if current == nil {
@@ -206,7 +225,7 @@ final class RelayServer {
             do {
                 try next.start()
                 lock.lock()
-                if stopped || micLease || !(orphanHold || peers.values.contains(where: { $0.parked || ($0.active && !$0.closed) })) {
+                if stopped || micLease || computerOutput || !(orphanHold || peers.values.contains(where: { $0.parked || ($0.active && !$0.closed) })) {
                     // The newly opened tap is still live until its cancellation teardown returns.
                     stoppingCapture = true; lock.unlock(); next.stop()
                     lock.lock(); startingCapture = false; stoppingCapture = false; lock.unlock(); return
@@ -216,10 +235,20 @@ final class RelayServer {
                 lock.unlock()
             } catch {
                 next.stop()
-                lock.lock(); startingCapture = false; let failed = Array(peers.values); lock.unlock()
-                failed.forEach { $0.stop() }
+                lock.lock()
+                startingCapture = false
+                guard !stopped else { lock.unlock(); return }
+                // Keep the control channel and listening intent so a permission
+                // or device failure can be retried without pairing/reconnecting.
+                computerOutput = true
+                orphanHolds.removeAll(); unidentifiedHold = false
+                for peer in peers.values { peer.discardAudio() }
+                lock.unlock()
                 captureFailure = "Capture failed: \(error)"
-                update(captureFailure!); return
+                DispatchQueue.main.async { [weak self] in self?.onOutputChanged?(true) }
+                update(captureFailure!)
+                publishReceivers(count, parkedCount, "Mac audio could not start. Your phones stay connected; choose Phone headphones to retry.")
+                return
             }
         }
         if let desired, desired != appliedCompensation {
@@ -236,7 +265,7 @@ final class RelayServer {
     private func dispatchPackets() {
         var lastPacket = ProcessInfo.processInfo.systemUptime
         while true {
-            lock.lock(); let ending = stopped, source = capture; lock.unlock()
+            lock.lock(); let ending = stopped, source = computerOutput ? nil : capture; lock.unlock()
             if ending { return }
             var packet = source?.nextPacket()
             let now = ProcessInfo.processInfo.systemUptime
@@ -251,7 +280,7 @@ final class RelayServer {
             guard let packet else { usleep(1000); continue }
             lastPacket = now
             lock.lock()
-            let valid = source == nil || capture === source
+            let valid = source == nil || (!computerOutput && capture === source)
             // Serialize selection + bounded enqueue against PARK/clear. The socket
             // writer never runs under this lock; parked packets cannot be queued late.
             if valid { for peer in peers.values where peer.authenticated && (peer.active || source == nil) { peer.enqueue(packet) } }
@@ -319,6 +348,12 @@ private final class RelayPeer {
         queueLock.unlock()
     }
     func clear() { queueLock.lock(); pending.removeAll(keepingCapacity: true); bytes = 0; queueLock.unlock() }
+    func discardAudio() {
+        queueLock.lock()
+        pending.removeAll { $0.data.count > 24 }
+        bytes = pending.reduce(0) { $0 + $1.data.count }
+        queueLock.unlock()
+    }
     private func next() -> Data? {
         queueLock.lock(); defer { queueLock.unlock() }
         guard !pending.isEmpty else { return nil }

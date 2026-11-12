@@ -82,8 +82,15 @@ public sealed class RelayServer(X509Certificate2 certificate, string pairingToke
             var reader = new ProtocolReader(stream);
             var line = await reader.ReadLineAsync(deadline.Token).ConfigureAwait(false);
             var microphone = line.EndsWith(" MIC1", StringComparison.Ordinal);
-            var supplied = microphone ? line[..^5] : line;
+            var pairing = line.EndsWith(" PAIR1", StringComparison.Ordinal);
+            var supplied = pairing ? line[..^6] : microphone ? line[..^5] : line;
             if (!ValidToken(supplied)) return;
+            if (pairing)
+            {
+                await stream.WriteAsync("OK PAIR1\n"u8.ToArray(), deadline.Token).ConfigureAwait(false);
+                sessions.AcknowledgePairing();
+                return;
+            }
             if (!authenticatedSessions.Wait(0))
             {
                 if (microphone) await stream.WriteAsync("ERR BUSY\n"u8.ToArray(), deadline.Token).ConfigureAwait(false);
@@ -142,6 +149,11 @@ public sealed class RelayServer(X509Certificate2 certificate, string pairingToke
 
     private async Task HandleControlAsync(ReceiverSession peer, string line)
     {
+        if (line == "OUTPUT COMPUTER" || line == "OUTPUT PHONE")
+        {
+            await sessions.SetComputerOutputAsync(line == "OUTPUT COMPUTER").ConfigureAwait(false);
+            return;
+        }
         if (line == "ACTIVE 0" || line == "ACTIVE 1")
         {
             await sessions.SetActiveAsync(peer, line[^1] == '1').ConfigureAwait(false);

@@ -27,12 +27,26 @@ internal sealed class TrayApplication : ApplicationContext
         tray = new NotifyIcon { Text = "PairIt · Windows preview", Icon = icon, Visible = true, ContextMenuStrip = menu };
         tray.MouseClick += (_, args) => { if (args.Button == MouseButtons.Left) { if (form.Visible) form.Hide(); else form.Reveal(); } };
         sessions.StatusChanged += StatusChanged;
+        sessions.PairingAcknowledged += PairingAcknowledged;
         SystemEvents.PowerModeChanged += PowerChanged;
         SystemEvents.SessionSwitch += SessionChanged;
         form.Reveal();
     }
 
     private void StatusChanged(DesktopStatus status) => form.UpdateStatus(status);
+    private void PairingAcknowledged()
+    {
+        if (form.IsDisposed || !form.IsHandleCreated) return;
+        try
+        {
+            form.BeginInvoke(() =>
+            {
+                if (!exiting && !form.IsDisposed)
+                    tray.ShowBalloonTip(4000, "Phone paired", "Pairing saved. Open PairIt to choose where to listen.", ToolTipIcon.Info);
+            });
+        }
+        catch (InvalidOperationException) { /* Shutdown raced the pairing acknowledgment. */ }
+    }
     private async void PowerChanged(object sender, PowerModeChangedEventArgs args)
     {
         if (args.Mode == PowerModes.Suspend) await StopForSystemEventAsync();
@@ -70,6 +84,7 @@ internal sealed class TrayApplication : ApplicationContext
         if (disposing)
         {
             sessions.StatusChanged -= StatusChanged;
+            sessions.PairingAcknowledged -= PairingAcknowledged;
             SystemEvents.PowerModeChanged -= PowerChanged;
             SystemEvents.SessionSwitch -= SessionChanged;
             tray.Visible = false;

@@ -21,6 +21,7 @@ import com.google.mlkit.vision.codescanner.GmsBarcodeScanning;
 public class MainActivity extends Activity {
     static volatile boolean visible;
     private Button pauseAudio;
+    private Button computerOutput;
     private ReleaseUpdates updates;
     private String updateURL;
     private boolean scanningCode;
@@ -29,6 +30,9 @@ public class MainActivity extends Activity {
     private PairingInterstitial pairingAds;
     private Runnable pendingPairingCompletion;
     private long pairingFlow;
+    private PairingConfirmation pairingConfirmation;
+    private String pairingResult = "Pairing saved. Confirming with your computer…";
+    private AlertDialog pairingResultDialog;
     private static final int BG = 0xfff5f4f2, INK = GlassUI.INK, MUTED = GlassUI.SECONDARY, GREEN = GlassUI.BLUE, LINE = 0xb3ffffff;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private TextView title, subtitle, route, badge;
@@ -132,7 +136,9 @@ public class MainActivity extends Activity {
         GlassUI.Glyph headphones=new GlassUI.Glyph("headphones",GREEN);headphones.setBounds(0,0,dp(23),dp(23));route.setCompoundDrawables(headphones,null,null,null);route.setCompoundDrawablePadding(dp(12));
         sourceCard.addView(route);
         pauseAudio=button("Pause audio",()->dispatch(RelayService.state.phase==RelayState.Phase.PAUSED?"PLAY":"MEDIA_PAUSE"));style(pauseAudio,false);sourceCard.addView(pauseAudio,new LinearLayout.LayoutParams(-1,dp(48)));
-        route.setOnClickListener(v -> outputDialog());route.setContentDescription("Choose audio output");route.setFocusable(true);route.setClickable(true);content.addView(sourceCard);
+        computerOutput=button("Play on computer",this::changeComputerOutput);style(computerOutput,false);
+        sourceCard.addView(computerOutput,new LinearLayout.LayoutParams(-1,dp(48)));
+        route.setOnClickListener(v -> outputDialog());route.setContentDescription("Choose this phone’s audio output");route.setFocusable(true);route.setClickable(true);content.addView(sourceCard);
         pairMac=button("Pair your computer  ↗",this::pair);style(pairMac,true);LinearLayout.LayoutParams pairParams=new LinearLayout.LayoutParams(-1,dp(56));pairParams.topMargin=dp(16);content.addView(pairMac,pairParams);
         headphoneSettings=button("Open Bluetooth settings",()->startActivity(new Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS)));style(headphoneSettings,false);
         LinearLayout.LayoutParams headphoneParams=new LinearLayout.LayoutParams(-1,dp(52));headphoneParams.topMargin=dp(12);content.addView(headphoneSettings,headphoneParams);
@@ -209,7 +215,7 @@ public class MainActivity extends Activity {
             macSurface.setEnterFadeDuration(fade);macSurface.setExitFadeDuration(fade);
             phoneSurface.setEnterFadeDuration(fade);phoneSurface.setExitFadeDuration(fade);
             mac.setSelected(state.macSelected()); phone.setSelected(state.phase == RelayState.Phase.PHONE);
-            mac.setText(state.phase == RelayState.Phase.ERROR ? "Try again" : "Computer");
+            mac.setText(state.phase == RelayState.Phase.ERROR ? "Try again" : state.phase == RelayState.Phase.COMPUTER_OUTPUT ? "Listen here" : "Computer");
             pauseAudio.setText(state.phase == RelayState.Phase.PAUSED ? "Resume audio" : "Pause audio");
             pauseAudio.setEnabled(inFlight == null);
             if (Build.VERSION.SDK_INT >= 30) {
@@ -224,16 +230,20 @@ public class MainActivity extends Activity {
         onboardingInfo.setVisibility(settings.paired() ? View.GONE : View.VISIBLE);
         pairMac.setVisibility(settings.paired() ? View.GONE : View.VISIBLE);
         syncRow.setVisibility(View.GONE);
-        pauseAudio.setVisibility(state.macSelected() ? View.VISIBLE : View.GONE);
+        pauseAudio.setVisibility(state.macSelected() && state.phase != RelayState.Phase.COMPUTER_OUTPUT ? View.VISIBLE : View.GONE);
+        computerOutput.setVisibility(RelayService.outputControlSupported ? View.VISIBLE : View.GONE);
+        computerOutput.setText(RelayService.computerOutputSelected ? "Listen here" : "Play on computer");
+        computerOutput.setEnabled(inFlight == null);
         headphoneSettings.setVisibility(state.phase == RelayState.Phase.HEADPHONES && settings.output() == OutputRoute.BLUETOOTH ? View.VISIBLE : View.GONE);
         disconnect.setVisibility(state.phase == RelayState.Phase.IDLE ? View.GONE : View.VISIBLE);
-        String routeText = state.phase == RelayState.Phase.PLAYING ? RelayService.headphoneName + "\nSecured local network · change output ›" : settings.output().label + " · change ›";
+        String routeText = state.phase == RelayState.Phase.PLAYING ? RelayService.headphoneName + "\nThis phone’s output · change ›" : "This phone: " + settings.output().label + " · change ›";
         if (!android.text.TextUtils.equals(route.getText(),routeText)) route.setText(routeText);
     }
     private String homeTitle(RelayState state) {
         switch (state.phase) {
             case IDLE: return settings.paired() ? "Ready when\nyou are" : "Your sound.\nYour space.";
             case CONNECTING: case BUFFERING: case PLAYING: case RECONNECTING: return "Computer audio";
+            case COMPUTER_OUTPUT: return state.title;
             case PAUSED: return "Listening paused";
             case PHONE: return "Phone audio";
             default: return state.title;
@@ -242,7 +252,8 @@ public class MainActivity extends Activity {
     private void dispatch(String action) {
         if (PairingInterstitial.isPresenting()) { showFeedback("Close the advertisement, then choose Computer to start audio."); return; }
         if (inFlight != null || pendingAction != null) return;
-        if (action.equals("PLAY") && RelayService.state.macSelected() && RelayService.state.phase != RelayState.Phase.PAUSED) return;
+        if (action.equals("PLAY") && RelayService.state.macSelected() && RelayService.state.phase != RelayState.Phase.PAUSED
+                && RelayService.state.phase != RelayState.Phase.COMPUTER_OUTPUT) return;
         if (action.equals("USE_PHONE") && RelayService.state.phase == RelayState.Phase.PHONE) return;
         if ((action.equals("PLAY")) && !settings.paired()) { pair(); return; }
         if (action.equals("USE_PHONE") && RelayService.state.phase == RelayState.Phase.IDLE) return;
@@ -260,6 +271,13 @@ public class MainActivity extends Activity {
         try { startForegroundService(new Intent(this, RelayService.class).setAction(action)); }
         catch (RuntimeException error) { inFlight = null; lastState = null; render(); showFeedback("Couldn’t start audio. Please try again."); }
         handler.postDelayed(this::render, 100);
+    }
+    private void changeComputerOutput() {
+        if (RelayService.computerOutputSelected) { dispatch("PLAY"); return; }
+        new GlassDialogBuilder(this).setTitle("Play on computer?")
+                .setMessage("Sound will use the computer’s selected speakers or headphones. This changes the destination for everyone listening to this computer. Pairing stays saved; choose Listen here to return to this phone.")
+                .setPositiveButton("Play on computer", (dialog, which) -> dispatch("OUTPUT_COMPUTER"))
+                .setNegativeButton("Cancel", null).show();
     }
     private void beginAction(String action) {
         requestedFrom=RelayService.state;requestedAt=SystemClock.uptimeMillis();inFlight=action;lastState=null;
@@ -373,6 +391,9 @@ public class MainActivity extends Activity {
         new GlassDialogBuilder(this).setTitle("Forget this computer?")
             .setMessage("This stops playback and removes this phone’s pairing and saved headphone timing. You can pair again with a code from your computer.")
             .setPositiveButton("Forget computer",(dialog,which)->{
+                ++pairingFlow;
+                if (pairingConfirmation != null) { pairingConfirmation.cancel(); pairingConfirmation = null; }
+                pendingPairingCompletion = null;
                 stopAudioForSettings();
                 handler.postDelayed(()->{
                     settings.forget();RelayService.state=new RelayState(RelayState.Phase.IDLE,"Connect your computer","Pair a computer to start listening.");
@@ -418,6 +439,7 @@ public class MainActivity extends Activity {
         if (isFinishing() || isDestroyed()) return;
         if (pairingDialog != null) pairingDialog.dismiss();
         final long flow = ++pairingFlow;
+        if (pairingConfirmation != null) { pairingConfirmation.cancel(); pairingConfirmation = null; }
         final long adFlow = pairingAds.begin();
         final boolean[] confirmed = {false};
         EditText input = new EditText(this); input.setHint("Paste pairing code"); input.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
@@ -452,8 +474,17 @@ public class MainActivity extends Activity {
                 try {
                     PairingCode parsed = PairingCode.parse(input.getText().toString());
                     stopAudioForSettings(); settings.pair(parsed); confirmed[0] = true;
+                    pairingResult = "Pairing saved. Confirming with your computer…";
+                    pairingConfirmation = new PairingConfirmation(parsed, reached -> {
+                        if (flow != pairingFlow || isFinishing() || isDestroyed()) return;
+                        pairingConfirmation = null;
+                        pairingResult = reached ? "Paired with “" + parsed.name + "”. Your computer confirmed the connection."
+                                : "Pairing saved on this phone. Your computer could not confirm it. Keep the companion open on the same network, or update it, then try Start audio.";
+                        if (pairingResultDialog != null && pairingResultDialog.isShowing()) pairingResultDialog.setMessage(pairingCompletionMessage());
+                        showFeedback(reached ? "Computer confirmed pairing." : "Pairing saved. Computer confirmation unavailable.");
+                    });
                     dialog.dismiss(); inFlight = null; pendingAction = null; lastState = null; render();
-                    showFeedback("Pairing saved. Start audio when you’re ready.");
+                    showFeedback("Pairing saved. Confirming with your computer…");
                     getWindow().getDecorView().postOnAnimation(() -> {
                         if (isFinishing() || isDestroyed() || flow != pairingFlow) return;
                         pairingAds.showAfterPairing(adFlow, () -> {
@@ -516,13 +547,14 @@ public class MainActivity extends Activity {
     private void pairingReady() {
         if (pairingDialog != null) pairingDialog.dismiss();
         AlertDialog dialog = new GlassDialogBuilder(this).setTitle("Pairing saved")
-                .setMessage("Ready to connect to “" + settings.computerName() + "”. Choose Start audio to open the encrypted connection. Nothing is playing yet.")
+                .setMessage(pairingCompletionMessage())
                 .setPositiveButton("Start audio", (d, which) -> dispatch("PLAY"))
                 .setNegativeButton("Later", null).create();
-        pairingDialog = dialog; updateAdVisibility();
-        dialog.setOnDismissListener(d -> { if (pairingDialog == dialog) pairingDialog = null; updateAdVisibility(); });
+        pairingDialog = dialog; pairingResultDialog = dialog; updateAdVisibility();
+        dialog.setOnDismissListener(d -> { if (pairingDialog == dialog) pairingDialog = null; if (pairingResultDialog == dialog) pairingResultDialog = null; updateAdVisibility(); });
         dialog.show();
     }
+    private String pairingCompletionMessage() { return pairingResult + "\n\nChoose Start audio when you’re ready. Nothing is playing yet."; }
     private void diagnosticsDialog() {
         String report = "PairIt " + BuildConfig.VERSION_NAME + " (" + BuildConfig.VERSION_CODE + ")\n" + RelayService.diagnostics + "\n\n" + bannerAds.diagnostics() + "\n" + pairingAds.diagnostics();
         TextView details = text(report, 13, INK, false); details.setTypeface(Typeface.MONOSPACE); details.setTextIsSelectable(true); details.setPadding(dp(20), dp(12), dp(20), dp(12));
@@ -596,5 +628,5 @@ public class MainActivity extends Activity {
     private void updateAdVisibility() {
         if (bannerAds != null) bannerAds.setVisibleToUser(hasWindowFocus() && !PairingInterstitial.isPresenting() && !scanningCode && pairingDialog == null && pendingScanResult == null);
     }
-    @Override public void onDestroy() { if (updates != null) updates.destroy(); pendingScanResult = null; pendingPairingCompletion = null; if (pairingDialog != null) pairingDialog.dismiss(); if(pairingAds!=null)pairingAds.destroy(); if(bannerAds!=null)bannerAds.destroy();handler.removeCallbacksAndMessages(null);super.onDestroy(); }
+    @Override public void onDestroy() { if (pairingConfirmation != null) pairingConfirmation.cancel(); if (updates != null) updates.destroy(); pendingScanResult = null; pendingPairingCompletion = null; if (pairingDialog != null) pairingDialog.dismiss(); if(pairingAds!=null)pairingAds.destroy(); if(bannerAds!=null)bannerAds.destroy();handler.removeCallbacksAndMessages(null);super.onDestroy(); }
 }

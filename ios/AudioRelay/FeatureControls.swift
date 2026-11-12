@@ -29,6 +29,7 @@ struct SharedListeningView: View {
                         Text("With compatible AirPods or Beats and a supported iPhone, use Apple’s Share Audio from Control Center or the output picker. This depends on Apple’s device support.").font(.subheadline).foregroundStyle(RelayPalette.secondary)
                         HStack { Text("Choose audio output"); Spacer(); AudioRoutePicker().frame(width: 44, height: 44) }.padding(.horizontal, 18).frost()
                         Text("Everyone hears the same computer stream. Different headphones may have different delays; perfectly synchronized sound across all outputs is not guaranteed.").font(.footnote).foregroundStyle(RelayPalette.secondary)
+                        Text("The computer/phone playback destination is shared by all listeners. Switching back to phones resumes only listeners who were listening; paused or Phone selections stay paused. Each phone still chooses its own headphones or speaker.").font(.footnote).foregroundStyle(RelayPalette.secondary)
                     }.padding(24)
                 }
             }.navigationTitle("Listen together").navigationBarTitleDisplayMode(.inline)

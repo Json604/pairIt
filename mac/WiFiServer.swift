@@ -25,6 +25,8 @@ final class WiFiServer {
     var releaseMicrophone: () -> Void = {}
     var onMicrophoneStatus: ((String) -> Void)?
     var onStatus: ((String) -> Void)?
+    // Delivered on the network queue after token authentication, without capture.
+    var onPairingConfirmed: (() -> Void)?
     init(port: UInt16 = 5002, upstreamPort: UInt16 = 5001, upstreamToken: String,
          identityProvider: @escaping () throws -> LocalIdentity = { try LocalIdentity.load() },
          makeMicrophone: @escaping () -> MicrophoneSink = { MicrophoneOutput() }) {
@@ -80,6 +82,7 @@ final class WiFiServer {
             let id = UUID()
             let peer = WiFiPeer(connection: connection, token: self.config["token"]!, queue: self.queue, upstreamPort: self.upstreamPort, upstreamToken: self.upstreamToken)
             peer.onAuthenticated = { [weak peer] in peer?.connectUpstream() }
+            peer.onPairingConfirmed = { [weak self] in self?.onPairingConfirmed?() }
             peer.onMicrophone = { [weak self] completion in
                 guard let self else { completion(.failure("DISABLED")); return }
                 self.beginMicrophone(completion: completion)
@@ -212,6 +215,7 @@ private final class WiFiPeer {
     let upstreamPort: UInt16
     let upstreamToken: String
     var onAuthenticated: (() -> Void)?
+    var onPairingConfirmed: (() -> Void)?
     var onClose: (() -> Void)?
     var onMicrophone: ((@escaping (MicrophoneAdmission) -> Void) -> Void)?
     var onMicrophoneStarted: (() -> Void)?
@@ -255,14 +259,20 @@ private final class WiFiPeer {
                 let line = self.prefix.prefix(upTo: newline)
                 let suffix = Data(" MIC1".utf8)
                 let mic = line.suffix(suffix.count) == suffix
-                let supplied = mic ? line.dropLast(suffix.count) : line
+                let pairingSuffix = Data(" PAIR1".utf8)
+                let pairing = line.suffix(pairingSuffix.count) == pairingSuffix
+                let supplied = mic ? line.dropLast(suffix.count) : pairing ? line.dropLast(pairingSuffix.count) : line
                 let expected = Data(self.token.utf8)
                 var difference = UInt8(supplied.count == expected.count ? 0 : 1)
                 if supplied.count == expected.count { for (a, b) in zip(supplied, expected) { difference |= a ^ b } }
                 guard difference == 0 else { self.stop(); return }
                 self.prefix.removeSubrange(...newline)
                 self.authenticated = true; self.lastActivity = ProcessInfo.processInfo.systemUptime
-                if mic {
+                if pairing {
+                    guard self.prefix.isEmpty else { self.stop(); return }
+                    self.onPairingConfirmed?()
+                    self.connection.send(content: Data("OK PAIR1\n".utf8), completion: .contentProcessed { [weak self] _ in self?.stop() })
+                } else if mic {
                     guard self.prefix.isEmpty else { self.stop(); return }
                     self.isMicrophone = true; self.microphonePending = true
                     // Keep an EOF watcher while CoreAudio opens. No client PCM is

@@ -36,7 +36,7 @@ struct ReceiverView: View {
                         }.frost(14).buttonStyle(RelayControlButtonStyle()).accessibilityLabel("Settings")
                     }.padding(.bottom, 30)
                     ReleaseUpdateNotice(updates: updates).padding(.bottom, updates.available == nil ? 0 : 16)
-                    RelayStatusPill(title: pairing.mac == nil && !preview ? "LET’S GET CONNECTED" : status, active: receiver.phase == .playing, busy: connecting || request != nil)
+                    RelayStatusPill(title: pairing.mac == nil && !preview ? "LET’S GET CONNECTED" : status, active: receiver.phase == .playing || receiver.phase == .computerOutput, busy: connecting || request != nil)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     HStack(alignment: .center, spacing: 12) {
                         Text(pairing.mac == nil && !preview ? "Your sound.\nYour space." : receiver.title)
@@ -109,6 +109,7 @@ struct ReceiverView: View {
         if request == .mac { return "CONNECTING" }
         switch receiver.phase {
         case .playing: return "CONNECTED"
+        case .computerOutput: return "PLAYING ON COMPUTER"
         case .paused: return "PAUSED"
         case .connecting: return "CONNECTING"
         case .buffering: return "GETTING READY"
@@ -127,6 +128,24 @@ struct ReceiverView: View {
                 source("iPhone", icon: "iphone", selected: receiver.phase == .phone, busy: request == .phone) { perform(.phone) }
             }
             Rectangle().fill(RelayPalette.line).frame(height: 1)
+            if receiver.supportsOutputControl {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("COMPUTER AUDIO PLAYS ON").font(.system(size: 10, weight: .semibold)).tracking(1).foregroundStyle(RelayPalette.secondary)
+                    Picker("Playback destination", selection: Binding(get: { receiver.computerOutput }, set: {
+                        if $0 { receiver.listenOnComputer() } else { receiver.connect() }
+                    })) {
+                        Text("This iPhone").tag(false)
+                        Text("Computer").tag(true)
+                    }.pickerStyle(.segmented)
+                    if receiver.computerOutput {
+                        Button("Listen here") { receiver.connect() }.buttonStyle(RelayQuietButtonStyle())
+                    }
+                    Text(receiver.computerOutput ? "Computer output selected for all listeners." : "Phones selected. Paused listeners stay paused.")
+                        .font(.caption).foregroundStyle(RelayPalette.secondary)
+                }
+                Rectangle().fill(RelayPalette.line).frame(height: 1)
+            }
+            Text("IPHONE OUTPUT").font(.system(size: 10, weight: .semibold)).tracking(1).foregroundStyle(RelayPalette.secondary)
             HStack(spacing: 12) {
                 Image(systemName: receiver.output.icon).font(.system(size: 22, weight: .light)).foregroundStyle(RelayPalette.blue)
                 VStack(alignment: .leading, spacing: 3) {
@@ -137,7 +156,7 @@ struct ReceiverView: View {
                 AudioRoutePicker().frame(width: 44, height: 44).accessibilityLabel("Choose audio output")
             }
             OutputControls(receiver: receiver)
-            if receiver.phase.macSelected {
+            if receiver.phase.macSelected && receiver.phase != .computerOutput {
                 Button(receiver.phase == .paused ? "Resume audio" : "Pause audio") {
                     if receiver.phase == .paused { receiver.connect() } else { receiver.pauseComputer() }
                 }.buttonStyle(RelayQuietButtonStyle()).disabled(connecting)
@@ -165,7 +184,7 @@ struct ReceiverView: View {
     }
     private func perform(_ action: SourceAction) {
         guard request == nil else { return }
-        if action == .mac && receiver.phase.macSelected && receiver.phase != .paused { return }
+        if action == .mac && receiver.phase.macSelected && receiver.phase != .paused && receiver.phase != .computerOutput { return }
         if action == .phone && receiver.phase == .phone { return }
         request = action; selectionCount += 1
         // Give the button its requested state before beginning a session action.
@@ -274,7 +293,8 @@ struct ReceiverSettings: View {
                         VStack(alignment: .leading, spacing: 13) {
                             Text("How it works").font(.headline)
                             Text("Keep your computer and iPhone on the same local network. Select Bluetooth, iPhone speaker or wired audio, choose that route in the system picker, then tap Computer. Tap iPhone to release audio to your phone apps.")
-                            Text("Several phones can listen, with different output delays. Updated Mac companions hold output during phone interruptions or a lost connection. Media may continue silently: pause it in the computer player if needed. Choose Computer here to return, or Use Mac speakers in the Mac app to release it.")
+                            Text("Several phones can listen, with different output delays. On updated companions, choose Computer under the playback destination to hear the computer output while staying connected, or Listen here to return to your iPhone. This destination applies to all listeners; paused phones stay paused. Your iPhone output picker only chooses this phone’s headphones, speaker or wired route.")
+                            Text("Phone interruptions and lost connections stop local playback. Updated Mac companions hold their relay output, so media may continue silently; pause the computer player if needed. Return to PairIt explicitly after an interruption or background suspension.")
                             Text("Audio keeps playing with the screen locked. Use the Home/Lock Screen widget to switch sources. Headphone play/pause pauses and resumes this iPhone’s live relay without selecting iPhone. Track changes stay in the computer’s player. Volume stays on your iPhone or headphones.")
                         }.font(.subheadline).foregroundStyle(RelayPalette.secondary).padding(22).frost()
                         VStack(alignment: .leading, spacing: 12) {

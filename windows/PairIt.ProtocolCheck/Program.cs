@@ -30,6 +30,7 @@ internal static class Integration
         var certificate = windowsCertificate ?? generated;
         CryptographicOperations.ZeroMemory(syntheticPfx);
         var token = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
+        await OutputSwitchIntegration.RunAsync(certificate, token);
         var audio = new SyntheticEndpoints();
         var sessions = new DesktopSessions(audio);
         await using var server = new RelayServer(certificate, token, sessions);
@@ -315,6 +316,7 @@ internal sealed class Receiver : IAsyncDisposable
     private readonly ConcurrentDictionary<long, uint> clockFlags = new();
     private long nextClock;
     public bool Closed { get; private set; }
+    public int Heartbeats;
 
     public Receiver(Connection connection, bool readFrames)
     {
@@ -356,7 +358,7 @@ internal sealed class Receiver : IAsyncDisposable
                 Integration.Require(frames is >= 0 and <= 8192, "Invalid source frame bound.");
                 var pcm = new byte[frames * 4];
                 await connection.Stream.ReadExactlyAsync(pcm, lifetime.Token);
-                if (frames == 0) continue;
+                if (frames == 0) { Interlocked.Increment(ref Heartbeats); continue; }
                 Frames.Enqueue(new(BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(4)), BinaryPrimitives.ReadInt32LittleEndian(header.AsSpan(8)), frames,
                     BinaryPrimitives.ReadInt64LittleEndian(header.AsSpan(16)), Convert.ToHexStringLower(SHA256.HashData(pcm))));
                 while (Frames.Count > 64) Frames.TryDequeue(out _);

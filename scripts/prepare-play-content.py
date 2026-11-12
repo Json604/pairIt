@@ -86,13 +86,13 @@ The app is a general audio utility and is not designed for children. The publish
 
 Install PairIt on your Mac or Windows computer and phone. Keep them on the same local Wi-Fi. On Mac, finish the one-time audio-output setup and allow system audio capture. On Windows, choose the output your apps use and start sharing; local speakers can also play. Open Pair a phone on Mac, or Listen together on Windows, then Scan QR code or paste the code in the phone app. Confirm the computer’s name before saving. Keep the code private.
 
-Pairing saved means the credentials are stored, not that audio is connected. A video or image ad may appear after an explicit pairing is saved; the app waits at most briefly for an already loading ad and continues if none is available. Tap Start audio separately. Deliberately confirming a pairing again is eligible; normal reconnection does not show another interstitial.
+After you confirm pairing, the phone checks the computer over the encrypted connection. Updated companions show Phone paired without starting audio. If the computer cannot be reached, the code stays saved and the phone says confirmation is unavailable. A short ad may appear after saving. Choose Start audio when ready; pairing itself never starts playback. Deliberately confirming a pairing again can be eligible for an ad; normal reconnection does not show another interstitial.
 
 ## Audio relay
 
-Choose Computer to hear your computer through this phone. Choose Phone to release audio to phone apps. Output lets you select Bluetooth headphones, phone speaker or wired headphones. If a private output disconnects, playback stops instead of intentionally moving to the speaker. Adjust listening volume on the phone or headphones. Mac system volume keys may be unavailable with the virtual relay output; this does not mean Phone is the selected source.
+Choose Computer to hear computer audio, or Phone to use your phone’s own apps. Computer audio can play on your phone/headphones or the computer speakers. Use the output selector in the computer companion or the destination control in the phone app. Switching to computer speakers keeps the pairing and control connection; choose Listen here or phone headphones to return. This destination is shared by all listeners, and paused listeners stay paused. Phone output settings separately select Bluetooth headphones, the phone speaker or wired headphones. If a private output disconnects, playback stops instead of intentionally moving to the speaker. Adjust listening volume on the phone or headphones. Mac system volume keys may be unavailable with the virtual relay output; this does not mean Phone is the selected source.
 
-Headphone play/pause pauses or resumes this phone’s live relay while keeping Computer selected. It does not change the selected source or pause other listeners. This is a live stream: the computer player can keep progressing while listening is paused, and resuming returns to live audio. Track skipping stays in the computer player. Volume and noise-control gestures remain controlled by your device/headphone manufacturer. On updated Mac companions, phone audio, paused listening and unexpected connection loss hold the Mac output instead of releasing speakers. The computer player may continue silently; pause it manually when needed. Return with Computer in PairIt. Explicit Disconnect releases your live connection; if the phone has already lost contact, use Use Mac speakers in the Mac app. Quitting or stopping sharing releases the usual Mac output.
+Headphone play/pause pauses or resumes this phone’s live relay while keeping Computer selected. It does not change the selected source or pause other listeners. This is a live stream: the computer player can keep progressing while listening is paused, and resuming returns to live audio. Track skipping stays in the computer player. Volume and noise-control gestures remain controlled by your device/headphone manufacturer. On updated Mac companions, phone audio, paused listening and unexpected connection loss hold the Mac output instead of releasing speakers. The computer player may continue silently; pause it manually when needed. Return with Computer in PairIt. Disconnect ends this phone’s live connection but keeps its saved pairing. Choosing Mac speakers only changes the audio destination and keeps connected phones available. Stop sharing or Quit ends the computer’s live sessions and restores its usual output. Forget this computer removes the saved pairing.
 
 ## Listen together
 
@@ -100,7 +100,7 @@ The most compatible setup uses one phone per listener. Connect each person’s B
 
 Two headphones on one phone requires compatible hardware and the phone’s built-in audio-sharing feature. PairIt cannot add this to unsupported devices. On supported iPhones, Apple’s Share Audio works with compatible AirPods/Beats. Use the system output picker to select outputs before starting the relay. The separate-phone setup is the cross-platform option.
 
-Everyone receives the same stream, but different headphones can have different delays. Only one primary listener controls Mac video compensation. Shared listening is not a guarantee of perfectly synchronized sound across all outputs.
+While phone output is selected, everyone receives the same stream, but different headphones can have different delays. Only one primary listener controls Mac video compensation. Shared listening is not a guarantee of perfectly synchronized sound across all outputs.
 
 ## Background controls
 
@@ -132,7 +132,7 @@ Android 10 or later, iPhone with the supported iOS version, and a compatible Mac
     full=f'''{name} brings computer audio to your phone over an encrypted local connection.
 
 AUDIO RELAY
-Listen to a paired Mac or Windows computer through your phone’s Bluetooth headphones, speaker or wired headphones. Keep your headphones connected to your phone and choose Computer or Phone to switch sources.
+Listen to a paired Mac or Windows computer through your phone’s Bluetooth headphones, speaker or wired headphones. Updated companions confirm pairing before audio starts. Keep your headphones connected to your phone and choose Computer or Phone to switch sources. Change the computer audio destination between phone headphones and computer speakers without losing the pairing. The destination applies to all listeners; paused listeners stay paused.
 
 Playback keeps going when the screen is locked. Android’s notification and Quick Settings tile keep the source switch nearby. Headphone play/pause pauses or resumes your live relay without selecting Phone. Volume remains on your phone or headphones. The computer player can continue while your relay is paused; resuming returns to the live stream. Updated Mac companions hold output during phone interruptions. Compatible Windows media sessions can pause and offer return when playback resumes; other apps need manual controls. On iPhone, return through PairIt. Track changes stay in the computer player.
 
@@ -151,7 +151,7 @@ Android 10+, a compatible PairIt Mac or Windows companion, and a reachable local
 
 Allow notifications to keep the source switch visible while Phone is selected. Disconnect removes it. System notification settings and Android’s app-stop controls remain in charge.'''
     if email:full+='\n\nSupport: '+email
-    for filename,value in {'title.txt':name,'short-description.txt':short,'full-description.txt':full,'release-notes.txt':'Simplified to audio relay and shared listening. Headphone pause keeps Computer selected. Background source-switch notification, clearer listener setup, and more reliable post-pairing ad handoff.'}.items():
+    for filename,value in {'title.txt':name,'short-description.txt':short,'full-description.txt':full,'release-notes.txt':'Computer companions now confirm pairing before audio starts. Switch between computer speakers and phone headphones without disconnecting. Phone apps show the selected destination; paused listeners stay paused.'}.items():
         (listing/filename).write_text(value+'\n')
     assert len(name)<=30 and len(short)<=80 and len(full)<=4000
     status={'missing_publishing_fields':validate(p),'listing_characters':{'title':len(name),'short':len(short),'full':len(full)},'generated_from':str(PROFILE.relative_to(ROOT))}

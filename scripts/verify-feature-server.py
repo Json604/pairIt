@@ -85,6 +85,16 @@ try:
     stats=json.loads(command('stats'))
     require(stats['starts']==1,'One shared capture for four receivers')
     require(stats['adjustments']==[610],'Secondary SYNC cannot change primary timing')
+    require(wait_for(lambda:all(c.status & 128 for c in clients)),'Computer output controls are advertised')
+    for turn in range(2):
+        command('computer-output')
+        require(wait_for(lambda:all(c.status & 64 for c in clients)),'Computer speaker selection reaches every phone')
+        require(wait_for(lambda:(lambda s:s['starts']==s['stops'])(json.loads(command('stats')))),'Computer speaker selection releases capture and restores output')
+        time.sleep(.3);before=[len(c.packets) for c in clients];clocks=[c.clocks for c in clients]
+        time.sleep(.4)
+        require(all(len(c.packets)==n and c.error is None and c.clocks>clock for c,n,clock in zip(clients,before,clocks)),'Speaker selection retains control connections without sending audio')
+        clients[0].send('OUTPUT PHONE\n')
+        require(wait_for(lambda:all(not(c.status & 64) and len(c.packets)>n for c,n in zip(clients,before))),'Phone output resumes on the same four sockets')
     require(command('reserve')=='BUSY','Microphone rejected during desktop capture')
     with socket.create_connection(('127.0.0.1',port),timeout=2) as fifth:
         fifth.sendall(('AUTH '+gateway_token+'\n').encode())
@@ -173,6 +183,31 @@ try:
     require(wait_for(lambda:replacement.status>>8==2 and replacement.status&32),'Replacement releases its hold')
     replaced.close();replacement.close();clients=[]
     require(wait_for(lambda:(lambda s:s['starts']==s['stops'])(json.loads(command('stats')))),'Late replaced-peer removal cannot resurrect phantom hold')
+    paused=Client(90);active=Client(91);clients=[paused,active]
+    require(wait_for(lambda:paused.status&128 and len(active.packets)>5),'New output-switch check starts with two listeners')
+    paused.send('PARK 1 PAUSE\n')
+    require(wait_for(lambda:paused.status&4),'Listener explicitly parks before output change')
+    active.send('OUTPUT COMPUTER\n')
+    require(wait_for(lambda:paused.status&64 and active.status&64 and paused.status&4),'A parked phone stays parked in speaker mode')
+    time.sleep(.3);paused_count=len(paused.packets);active_count=len(active.packets)
+    command('phone-output')
+    require(wait_for(lambda:not(active.status&64) and len(active.packets)>active_count),'Desktop output selection restores an active listener')
+    time.sleep(.3)
+    require(paused.error is None and len(paused.packets)==paused_count and paused.status&4,'Output change never resumes a paused listener')
+    command('computer-output')
+    require(wait_for(lambda:active.status&64 and (lambda s:s['starts']==s['stops'])(json.loads(command('stats')))),'Speaker selection finishes before failed-return check')
+    before_starts=json.loads(command('stats'))['starts']
+    command('fail-next-start');command('phone-output')
+    require(wait_for(lambda:(lambda s:s['starts']>before_starts and s['starts']==s['stops'])(json.loads(command('stats')))),'Failed return cleans up its capture attempt')
+    before_clocks=active.clocks
+    require(wait_for(lambda:active.status&64 and active.clocks>before_clocks and paused.status&4),'Failed return falls back to speakers with live control and paused intent')
+    require(active.error is None and paused.error is None,'Capture failure keeps both phone connections')
+    active_count=len(active.packets);command('phone-output')
+    require(wait_for(lambda:not(active.status&64) and len(active.packets)>active_count),'Explicit retry resumes audio on the same connection')
+    paused.send('RELEASE 2\n');active.send('RELEASE 1\n')
+    require(wait_for(lambda:paused.status&32 and active.status&32),'Output-switch check releases both listeners')
+    for c in clients:c.close()
+    clients=[]
     require(command('stop')=='STOPPED','Server shutdown completes')
     process.wait(timeout=5)
     require(process.returncode==0,'Harness exits cleanly')

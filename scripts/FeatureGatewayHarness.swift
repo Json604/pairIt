@@ -43,6 +43,9 @@ func runGateway() throws {
                             makeMicrophone: { SyntheticMicrophone() })
     gateway.reserveMicrophone = { source.reserveMicrophone() }
     gateway.releaseMicrophone = { source.releaseMicrophone() }
+    let pairingLock = NSLock()
+    var pairings = 0
+    gateway.onPairingConfirmed = { pairingLock.lock(); pairings += 1; pairingLock.unlock() }
     try source.start(); try gateway.start()
     print("READY"); fflush(stdout)
     while let line = readLine() {
@@ -57,6 +60,7 @@ func runGateway() throws {
                                        "micAccepting": SyntheticMicrophone.accepting, "maxMicAccepting": SyntheticMicrophone.maxAccepting]
             SyntheticMicrophone.lock.unlock()
             Capture.lock.lock(); result["sourceStarts"] = Capture.starts; result["sourceStops"] = Capture.stops; Capture.lock.unlock()
+            pairingLock.lock(); result["pairings"] = pairings; pairingLock.unlock()
             print(String(data: try JSONSerialization.data(withJSONObject: result), encoding: .utf8)!); fflush(stdout)
         } else if line == "stop" { break }
         else { print("OK"); fflush(stdout) }

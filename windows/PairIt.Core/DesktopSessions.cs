@@ -19,14 +19,59 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
     private MicrophoneLease? microphone;
     private uint sequence;
     private string message = "Select a computer audio source to begin.";
-    private bool disposed, mediaHandoffSuppressed;
+    private bool disposed, mediaHandoffSuppressed, computerOutput;
     public event Action<DesktopStatus>? StatusChanged;
+    public event Action? PairingAcknowledged;
     public DesktopSettings CurrentSettings => Volatile.Read(ref settings);
 
     public DesktopStatus Status
     {
-        get { lock (state) return new(receivers.Count, receivers.Values.Count(peer => peer.Active), source != null, microphone != null, message); }
+        get { lock (state) return new(receivers.Count, receivers.Values.Count(peer => peer.Active), source != null, microphone != null, message, computerOutput); }
     }
+
+    internal void AcknowledgePairing()
+    {
+        SetMessage(CurrentSettings.SharingEnabled
+            ? "Phone paired. Choose Start audio on your phone when ready."
+            : "Phone paired. Choose Start sharing here, then Start audio on your phone.");
+        PairingAcknowledged?.Invoke();
+    }
+
+    public async Task SetComputerOutputAsync(bool value)
+    {
+        await lifecycle.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (disposed || computerOutput == value) return;
+            handoff.CancelAll();
+            if (!value && !await handoff.WaitUntilSettledAsync(CancellationToken.None).ConfigureAwait(false))
+            {
+                SetMessage("Windows player pause is still finishing. Choose Phone headphones again after it responds.");
+                return;
+            }
+            lock (state)
+            {
+                computerOutput = value;
+                foreach (var peer in receivers.Values) peer.DiscardQueuedAudio();
+            }
+            try { await UpdateCaptureAsync(CancellationToken.None).ConfigureAwait(false); }
+            catch (Exception)
+            {
+                // Keep paired connections available for an explicit retry after
+                // the selected source becomes available again.
+                lock (state) computerOutput = true;
+                SetMessage("Could not restart the selected source. Check it, then choose Phone headphones again.");
+                return;
+            }
+            PublishOutputStatus();
+        }
+        finally { lifecycle.Release(); }
+    }
+
+    private void PublishOutputStatus() => SetMessage(computerOutput
+        ? "Computer output selected. Phone connections stay ready; Windows local output is unchanged."
+        : Status.ActiveReceivers == 0 ? "Phone headphones selected. Start or resume audio on your phone."
+        : "Sharing computer audio. Windows local output stays unchanged.");
 
     public async Task ConfigureAsync(DesktopSettings value)
     {
@@ -75,7 +120,7 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
                 SetMessage(error is NotSupportedException ? error.Message : "Could not start the selected audio source. Check its format and availability.");
                 return false;
             }
-            SetMessage("Sharing computer audio. Windows local output stays unchanged.");
+            PublishOutputStatus();
             return true;
         }
         finally { lifecycle.Release(); }
@@ -115,7 +160,7 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
                 SetMessage(error is NotSupportedException ? error.Message : "Could not restart the selected audio source. Check its format and availability.");
                 return;
             }
-            SetMessage(Status.ActiveReceivers == 0 ? "Receivers paused. Computer capture stopped." : "Sharing computer audio. Windows local output stays unchanged.");
+            PublishOutputStatus();
         }
         finally { lifecycle.Release(); }
     }
@@ -125,7 +170,8 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
         lock (state)
         {
             peer.HandoffAdvertised = true;
-            return Protocol.ParkSupported | (handoff.IsAvailable ? Protocol.PlayerControl : 0) |
+            return Protocol.ParkSupported | Protocol.OutputControlSupported | (computerOutput ? Protocol.ComputerOutput : 0) |
+                (handoff.IsAvailable ? Protocol.PlayerControl : 0) |
                 (peer.IntentToken << 8) | (peer.Parked ? Protocol.ParkAccepted : 0) |
                 (peer.LastIntent == ReceiverIntent.Release ? Protocol.ReleaseAccepted : 0) |
                 handoff.Flags(peer.Id, peer.IntentToken);
@@ -169,7 +215,8 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
                 SetMessage(error is NotSupportedException ? error.Message : "Could not restart the selected audio source. Check its format and availability.");
                 return;
             }
-            if (intent == ReceiverIntent.Park) handoff.Park(peer.Id, token, reason, lastListener && !mediaHandoffSuppressed);
+            if (intent == ReceiverIntent.Park) handoff.Park(peer.Id, token, reason, lastListener && !mediaHandoffSuppressed && !computerOutput);
+            if (computerOutput) { PublishOutputStatus(); return; }
             SetMessage(Status.ActiveReceivers == 0
                 ? "Relay held. Windows player pause is best effort; unsupported apps can keep playing locally."
                 : "Sharing computer audio. Windows local output stays unchanged.");
@@ -179,6 +226,7 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
 
     private async Task<bool> PrepareActivationAsync(ReceiverSession peer, CancellationToken cancellation)
     {
+        if (computerOutput) return true;
         handoff.CancelAll();
         if (handoff.HasUnsettledCommand) SetMessage("Waiting for a Windows player command before starting audio.");
         if (await handoff.WaitUntilSettledAsync(cancellation).ConfigureAwait(false))
@@ -247,7 +295,7 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
 
     private async Task UpdateCaptureAsync(CancellationToken cancellation)
     {
-        var hasActive = Status.ActiveReceivers != 0;
+        var hasActive = Status.ActiveReceivers != 0 && !computerOutput;
         if (!hasActive && source != null)
         {
             var previous = source;
@@ -273,7 +321,7 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
     {
         lock (state)
         {
-            if (source != expected) return;
+            if (source != expected || computerOutput) return;
             if (packet.Discontinuity) sequence += 2;
             var frame = Protocol.Pcm(sequence++, packet);
             foreach (var peer in receivers.Values)

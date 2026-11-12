@@ -16,7 +16,8 @@ public static class Protocol
     public const uint PcmMagic = 0x31415342, ClockMagic = 0x31435342, MicMagic = 0x314d5342;
     public const int Port = 5002, MaximumReceivers = 4;
     public const uint ParkSupported = 1, PlayerControl = 2, ParkAccepted = 4,
-        PlayerPaused = 8, ResumeOffer = 16, ReleaseAccepted = 32, MaximumIntentToken = 0x00ff_ffff;
+        PlayerPaused = 8, ResumeOffer = 16, ReleaseAccepted = 32, ComputerOutput = 64,
+        OutputControlSupported = 128, MaximumIntentToken = 0x00ff_ffff;
 
     public static byte[] Pcm(uint sequence, SourcePacket packet)
     {

@@ -12,13 +12,15 @@ final class Capture: RelayCaptureSource {
     static var starts = 0, stops = 0
     static var starting = 0, stopping = 0
     static var startDelay: TimeInterval = 0
+    static var failNextStart = false
     static var adjustments: [Double] = []
     private var nextTime: UInt64 = 0
     private var sequence: UInt32 = 0
     func start() throws {
         Self.lock.lock(); Self.starts += 1; Self.starting += 1; let delay = Self.startDelay; Self.lock.unlock()
         Thread.sleep(forTimeInterval: delay)
-        Self.lock.lock(); Self.starting -= 1; Self.lock.unlock()
+        Self.lock.lock(); Self.starting -= 1; let fail = Self.failNextStart; Self.failNextStart = false; Self.lock.unlock()
+        if fail { throw AudioFailure(description: "Synthetic capture startup failure") }
     }
     func stop() {
         Self.lock.lock(); Self.stopping += 1; Self.lock.unlock()
@@ -58,9 +60,12 @@ final class Capture: RelayCaptureSource {
         try server.start()
         print("READY " + server.gatewayToken); fflush(stdout)
         while let line = readLine() {
+            if line == "computer-output" { server.setComputerOutput(true); print("OK"); fflush(stdout) }
+            if line == "phone-output" { server.setComputerOutput(false); print("OK"); fflush(stdout) }
             if line == "reserve" { print(server.reserveMicrophone() ? "RESERVED" : "BUSY"); fflush(stdout) }
             if line == "release" { server.releaseMicrophone(); print("RELEASED"); fflush(stdout) }
             if line == "slow-start" { Capture.lock.lock(); Capture.startDelay = 0.3; Capture.lock.unlock(); print("OK"); fflush(stdout) }
+            if line == "fail-next-start" { Capture.lock.lock(); Capture.failNextStart = true; Capture.lock.unlock(); print("OK"); fflush(stdout) }
             if line == "stats" {
                 Capture.lock.lock()
                 let result: [String: Any] = ["starts": Capture.starts, "stops": Capture.stops, "starting": Capture.starting, "stopping": Capture.stopping, "adjustments": Capture.adjustments]

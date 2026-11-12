@@ -73,6 +73,12 @@ with tempfile.TemporaryDirectory(prefix='pairit-synthetic-identity-') as directo
         with connect('0'*64) as s:require(closed(s),'Wrong credentials rejected before source/sink start')
         with connect(token+' MIC2') as s:require(closed(s),'Unsupported role rejected without starting source')
         require(stats()['sourceStarts']==0,'Rejected authentication never starts capture')
+        with connect('0'*64+' PAIR1') as s:require(closed(s),'Pairing confirmation requires the correct token')
+        require(stats()['pairings']==0,'Invalid pairing confirmation cannot produce desktop success')
+        with connect(token+' PAIR1') as s:
+            require(line(s)==b'OK PAIR1\n','Pairing confirmation reaches the computer before audio starts')
+            require(closed(s),'Pairing confirmation ends without opening an audio session')
+        require(stats()['pairings']==1 and stats()['sourceStarts']==0,'Confirmed pairing produces feedback without starting capture')
         with connect(token+' MIC1') as s:require(line(s)==b'ERR DISABLED\n','Mic requires desktop opt-in')
         command('enable');time.sleep(.05)
         with connect(token+' MIC1') as s:

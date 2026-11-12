@@ -26,6 +26,8 @@ final class MacCompanionModel: ObservableObject {
     @Published var receiverCount = 0
     @Published var parkedCount = 0
     @Published var outputHeld = false
+    @Published var computerOutput = false
+    @Published var pairingConfirmed = false
     @Published var receiverDetail = "No active listeners"
     let macName = Host.current().localizedName ?? "This Mac"
     private var history = [0]
@@ -38,11 +40,13 @@ final class MacCompanionModel: ObservableObject {
     var openPermissions: () -> Void = {}
     var quit: () -> Void = {}
     var changeAddress: () -> Void = {}
+    var selectOutput: (Bool) -> Void = { _ in }
     var needsAudioPermission: Bool { outputInstalled && detail.hasPrefix("Capture failed") }
     var connectionFailed: Bool { detail.hasPrefix("Couldn’t start") || network.hasPrefix("Wi-Fi unavailable") }
 
     func navigate(to destination: Int) {
         guard page != destination else { return }
+        if destination == 1 { pairingConfirmed = false }
         if let index = history.firstIndex(of: destination) {
             history = Array(history.prefix(index + 1)); forward = false
         } else { history.append(destination); forward = true }
@@ -166,28 +170,36 @@ struct MacCompanionView: View {
     private var stateTitle: String {
         if model.sharingAction == .starting { return "Starting sharing" }
         if model.sharingAction == .pausing { return "Pausing sharing" }
+        if model.needsAudioPermission { return "Mac audio needs attention" }
+        if model.computerOutput && model.sharing { return "Mac speakers selected" }
         if model.outputHeld { return "Mac output held" }
-        return model.needsAudioPermission ? "Allow Mac audio" : model.connectionFailed ? "Connection unavailable" : model.connected ? "\(model.receiverCount) \(model.receiverCount == 1 ? "phone" : "phones") connected" : !model.outputInstalled ? "Set up Mac audio" : model.sharing ? "Ready to connect" : "Sharing paused"
+        if model.pairingConfirmed && !model.connected && model.sharing { return "Phone paired" }
+        return model.needsAudioPermission ? "Allow Mac audio" : model.connectionFailed ? "Connection unavailable" : model.connected ? "\(model.receiverCount) \(model.receiverCount == 1 ? "phone" : "phones") connected" : !model.outputInstalled ? "Set up Mac audio" : model.sharing ? "Ready to connect" : "Sharing stopped"
     }
     private var stateDetail: String {
         if model.sharingAction == .starting { return "Making your Mac available on local Wi-Fi." }
         if model.sharingAction == .pausing { return "Returning audio to your Mac’s usual output." }
+        if model.needsAudioPermission { return "Mac audio could not start. Check audio recording permission, then choose Phone headphones to retry. Your phones stay connected." }
+        if model.computerOutput && model.sharing { return "Audio plays on your Mac. Your phones stay connected. Paused listeners resume from their phones." }
         if model.outputHeld { return (model.detail.hasPrefix("Phone unavailable") ? "Phone unavailable. " : "") + "Resume in PairIt on your phone. Media may still be playing silently; pause it in the player if needed." }
         if model.receiverCount > 1 || model.parkedCount > 0 { return model.receiverDetail }
+        if model.pairingConfirmed && !model.connected && model.sharing { return "Pairing confirmed. Choose Start audio on your phone when you’re ready." }
         if model.connectionFailed { return model.detail.hasPrefix("Couldn’t start") ? model.detail : model.network }
         return model.needsAudioPermission ? "Allow audio recording in System Settings, then reconnect your phone." : model.connectionFailed ? "Check your local network, then try sharing again." : model.connected ? "Audio plays through your phone. Adjust volume on the phone or headphones." : !model.outputInstalled ? "A one-time setup helps compatible players align video and sound." : model.sharing ? "Pair your phone to listen through its headphones." : "Make this Mac available to your phone again."
     }
     private var primaryTitle: String {
         if model.sharingAction == .starting { return "Starting…" }
         if model.sharingAction == .pausing { return "Pausing…" }
+        if model.needsAudioPermission { return "Open audio permissions" }
+        if model.computerOutput && model.connected { return "Use phone headphones" }
         if model.outputHeld { return "Use Mac speakers" }
-        return model.needsAudioPermission ? "Open audio permissions" : model.connectionFailed ? "Try again" : !model.outputInstalled ? "Set up audio" : !model.sharing ? "Resume sharing" : model.connected ? "Pause sharing" : "Pair a phone"
+        return model.needsAudioPermission ? "Open audio permissions" : model.connectionFailed ? "Try again" : !model.outputInstalled ? "Set up audio" : !model.sharing ? "Start sharing" : model.connected ? "Use Mac speakers" : "Pair a phone"
     }
     private var overview: some View {
         VStack(alignment: .leading, spacing: 0) {
             RelayStatusPill(title: stateTitle.uppercased(), active: model.connected, busy: model.sharingAction != nil).padding(.top, 16)
             Text(model.sharing && !model.needsAudioPermission && !model.connectionFailed && model.outputInstalled && model.sharingAction == nil
-                 ? (model.outputHeld ? "Your phone.\nYour next move." : model.connected ? "Connected.\nKeep listening." : "Your Mac.\nAnywhere you listen.") : stateTitle)
+                 ? (model.computerOutput ? "Your Mac.\nYour speakers." : model.outputHeld ? "Your phone.\nYour next move." : model.connected ? "Connected.\nKeep listening." : model.pairingConfirmed ? "Paired.\nReady to listen." : "Your Mac.\nAnywhere you listen.") : stateTitle)
                 .font(RelayTypography.display(28)).tracking(-0.6).fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8)
             Text(stateDetail).font(.system(size: 13)).foregroundStyle(RelayPalette.secondary)
@@ -205,11 +217,13 @@ struct MacCompanionView: View {
                     Circle().fill(model.sharing && !model.connectionFailed ? Color(red: 0.16, green: 0.55, blue: 0.43) : RelayPalette.secondary.opacity(0.4)).frame(width: 6, height: 6)
                 }.padding(.vertical, 15)
                 Divider().opacity(0.4)
-                HStack(spacing: 12) {
-                    Image(systemName: "waveform.path").font(.system(size: 18)).frame(width: 32)
-                    Text("Video sync").font(.system(size: 13)); Spacer()
-                    Text(model.outputInstalled ? model.receiverCount > 1 ? "Primary phone" : "Automatic" : "Setup needed").font(.system(size: 12)).foregroundStyle(RelayPalette.secondary)
-                }.padding(.vertical, 14)
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("PLAY COMPUTER AUDIO ON").font(.system(size: 10, weight: .medium)).foregroundStyle(RelayPalette.secondary)
+                    Picker("Computer audio output", selection: Binding(get: { model.computerOutput }, set: { model.selectOutput($0) })) {
+                        Text("Phone headphones").tag(false)
+                        Text("Mac speakers").tag(true)
+                    }.pickerStyle(.segmented).labelsHidden().disabled(!model.sharing || model.sharingAction != nil)
+                }.padding(.vertical, 12)
             }.padding(.horizontal, 16).frost(18)
             Button(action: primaryAction) {
                 HStack(spacing: 8) {
@@ -226,9 +240,8 @@ struct MacCompanionView: View {
                 }.font(.system(size: 12)).padding(14).frost(14)
             }.buttonStyle(RelayControlButtonStyle()).padding(.top, 14)
             HStack {
-                if model.connected { Button { model.navigate(to: 1) } label: { Text("Pair another phone").frame(height: 32) } }
-                else if model.sharing {
-                    Button(action: model.toggleSharing) { Text(model.sharingAction == .pausing ? "Pausing…" : "Pause sharing").frame(height: 32) }
+                if model.sharing {
+                    Button(action: model.toggleSharing) { Text(model.sharingAction == .pausing ? "Pausing…" : "Stop sharing").frame(height: 32) }
                         .disabled(model.sharingAction != nil)
                 }
                 Spacer()
@@ -240,7 +253,8 @@ struct MacCompanionView: View {
         if model.needsAudioPermission { model.openPermissions() }
         else if model.connectionFailed { model.retrySharing() }
         else if !model.outputInstalled { model.installOutput() }
-        else if !model.sharing || model.connected || model.outputHeld { model.toggleSharing() }
+        else if !model.sharing { model.toggleSharing() }
+        else if model.connected || model.outputHeld { model.selectOutput(!model.computerOutput) }
         else { model.navigate(to: 1) }
     }
     private var phoneDownloads: some View {
@@ -254,12 +268,23 @@ struct MacCompanionView: View {
     }
     private var pairing: some View {
         VStack(spacing: 18) {
-            phoneDownloads
-            Text("Make the connection.").font(RelayTypography.display(25)).tracking(-0.5)
-            Text("Keep your phone and Mac on the same Wi-Fi.").font(.system(size: 12)).foregroundStyle(RelayPalette.secondary).multilineTextAlignment(.center)
-            if !model.sharing || model.sharingAction != nil || model.connectionFailed {
+            if !model.pairingConfirmed { phoneDownloads }
+            if model.pairingConfirmed {
+                Label("Phone paired", systemImage: "checkmark.circle.fill").font(RelayTypography.display(25)).foregroundStyle(Color(red: 0.16, green: 0.55, blue: 0.43))
+                Text(model.connected ? "Your phone is connected. Choose where computer audio plays from the main screen." : "Pairing confirmed. Choose Start audio on your phone when you’re ready.")
+                    .font(.system(size: 12)).foregroundStyle(RelayPalette.secondary).multilineTextAlignment(.center)
+                Button("Done") { model.navigate(to: 0) }.buttonStyle(RelayPrimaryButtonStyle())
+                Button("Pair another phone") { model.pairingConfirmed = false }.buttonStyle(RelayQuietButtonStyle())
+            } else {
+                Text("Make the connection.").font(RelayTypography.display(25)).tracking(-0.5)
+                Text("Keep your phone and Mac on the same Wi-Fi.").font(.system(size: 12)).foregroundStyle(RelayPalette.secondary).multilineTextAlignment(.center)
+            }
+            if model.pairingConfirmed {
+                Text("Switch between Mac speakers and phone headphones from the main screen. Your pairing stays saved.")
+                    .font(.system(size: 12)).foregroundStyle(RelayPalette.secondary).multilineTextAlignment(.center)
+            } else if !model.sharing || model.sharingAction != nil || model.connectionFailed {
                 Image(systemName: "wifi.slash").font(.system(size: 40, weight: .light)).padding(28)
-                Button(model.sharingAction != nil ? "Starting…" : model.connectionFailed ? "Try again" : "Resume sharing") {
+                Button(model.sharingAction != nil ? "Starting…" : model.connectionFailed ? "Try again" : "Start sharing") {
                     if model.connectionFailed { model.retrySharing() } else { model.toggleSharing() }
                 }.buttonStyle(RelayPrimaryButtonStyle()).disabled(model.sharingAction != nil)
             } else {
@@ -285,7 +310,8 @@ struct MacCompanionView: View {
     private var sharedListening: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Same audio.\nMore company.").font(RelayTypography.display(26))
-            Text("\(model.receiverCount) listening · \(model.parkedCount) paused · Up to 4 phones").font(.system(size: 13, weight: .medium))
+            Text(model.computerOutput ? "\(model.receiverCount + model.parkedCount) connected · Mac speakers selected" : "\(model.receiverCount) listening · \(model.parkedCount) paused · Up to 4 phones").font(.system(size: 13, weight: .medium))
+            Text("Output selection applies to everyone. Switching to Mac speakers keeps phones paired; paused listeners resume from their own phones.").font(.system(size: 12)).foregroundStyle(RelayPalette.secondary)
             VStack(alignment: .leading, spacing: 14) {
                 Label("Each listener connects headphones to their own phone.", systemImage: "headphones")
                 Label("Keep every phone on the same Wi-Fi as this Mac.", systemImage: "wifi")

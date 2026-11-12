@@ -10,11 +10,23 @@ import javax.net.ssl.*;
 final class RelayConnection {
     static Socket open(String host, RelaySettings settings, boolean microphone) throws Exception {
         if (!settings.paired() || !RelaySettings.validHost(host)) throw new IOException("Pair a computer first");
-        final String expectedPin = settings.pin(), token = settings.token();
+        return open(host, 5002, settings.pin(), settings.token(), microphone ? " MIC1" : "", socket -> { });
+    }
+    static boolean confirmPairing(String host, int port, String pin, String token,
+                                  java.util.function.Consumer<Socket> opened) throws Exception {
+        try (Socket connection = open(host, port, pin, token, " PAIR1", opened)) {
+            return "OK PAIR1".equals(readLine(connection, 64, 2500));
+        }
+    }
+    private static Socket open(String host, int port, String expectedPin, String token, String role,
+                               java.util.function.Consumer<Socket> opened) throws Exception {
+        if (!RelaySettings.validHost(host) || !expectedPin.matches("[a-f0-9]{64}") || !token.matches("[a-f0-9]{64}"))
+            throw new IOException("Invalid pairing credentials");
         Socket raw = new Socket();
+        opened.accept(raw);
         try {
             raw.setTcpNoDelay(true);
-            raw.connect(new InetSocketAddress(host, 5002), 4000);
+            raw.connect(new InetSocketAddress(host, port), 4000);
             raw.setSoTimeout(4000);
             raw.setKeepAlive(true);
             X509TrustManager pinned = new X509TrustManager() {
@@ -34,10 +46,10 @@ final class RelayConnection {
             };
             SSLContext context = SSLContext.getInstance("TLS");
             context.init(null, new TrustManager[]{pinned}, null);
-            SSLSocket tls = (SSLSocket)context.getSocketFactory().createSocket(raw, host, 5002, true);
+            SSLSocket tls = (SSLSocket)context.getSocketFactory().createSocket(raw, host, port, true);
             tls.setEnabledProtocols(new String[]{"TLSv1.3", "TLSv1.2"});
             tls.startHandshake();
-            tls.getOutputStream().write((token + (microphone ? " MIC1\n" : "\n")).getBytes(StandardCharsets.US_ASCII));
+            tls.getOutputStream().write((token + role + "\n").getBytes(StandardCharsets.US_ASCII));
             tls.getOutputStream().flush();
             return new PinnedSocket(raw, tls);
         } catch (Exception e) { raw.close(); throw e; }

@@ -25,6 +25,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
         if !interfacePreview { SyncOutput.recoverAfterCrash() }
         model.toggleSharing = { [weak self] in self?.toggleSharing() }
+        model.selectOutput = { [weak self] speakers in
+            guard let self, self.model.sharing, self.model.sharingAction == nil else { return }
+            self.server.setComputerOutput(speakers)
+        }
         model.retrySharing = { [weak self] in self?.startSharing() }
         model.installOutput = { [weak self] in self?.installOutput() }
         model.openPermissions = {
@@ -86,7 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             open.target = self; menu.addItem(open)
             let pair = NSMenuItem(title: "Pair a phone…", action: #selector(pairPhone), keyEquivalent: "")
             pair.target = self; menu.addItem(pair)
-            let sharing = NSMenuItem(title: model.sharing ? "Pause sharing" : "Resume sharing", action: #selector(toggleSharing), keyEquivalent: "")
+            let sharing = NSMenuItem(title: model.sharing ? "Stop sharing" : "Start sharing", action: #selector(toggleSharing), keyEquivalent: "")
             sharing.target = self; sharing.isEnabled = model.sharingAction == nil
             menu.autoenablesItems = false; menu.addItem(sharing); menu.addItem(.separator())
             menu.addItem(NSMenuItem(title: "Quit PairIt", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
@@ -140,11 +144,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             currentWiFi.stop(); currentServer.stop()
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                self.model.sharing = false; self.model.connected = false; self.model.receiverCount = 0; self.model.parkedCount = 0; self.model.outputHeld = false
-                self.model.detail = "Sharing paused. Your Mac is using its normal audio output."
+                self.model.sharing = false; self.model.connected = false; self.model.receiverCount = 0; self.model.parkedCount = 0; self.model.outputHeld = false; self.model.computerOutput = false
+                self.model.detail = "Sharing stopped. Your Mac is using its normal audio output."
                 self.model.network = "Paused"; self.model.sharingAction = nil
-                self.item.button?.toolTip = "PairIt · Sharing paused"
-                self.model.announce("Sharing paused.")
+                self.item.button?.toolTip = "PairIt · Sharing stopped"
+                self.model.announce("Sharing stopped.")
             }
         }
     }
@@ -169,7 +173,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             guard let self, self.server === nextServer, self.model.sharingAction != .pausing else { return }
             self.item.button?.toolTip = "PairIt · " + value
             self.model.outputHeld = value.contains("output held")
-            if self.model.connected != value.hasPrefix("Relaying") { self.model.connected = value.hasPrefix("Relaying") }
             if self.model.detail != value { self.model.detail = value }
         }
         nextWiFi.onStatus = { [weak self, weak nextWiFi] value in
@@ -178,7 +181,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
         nextServer.onReceivers = { [weak self, weak nextServer] count, parked, detail in
             guard let self, self.server === nextServer else { return }
+            let previouslyConnected = self.model.connected
             self.model.receiverCount = count; self.model.parkedCount = parked; self.model.receiverDetail = detail
+            self.model.connected = count + parked > 0
+            if self.model.connected && !previouslyConnected { self.model.pairingConfirmed = true }
+        }
+        nextServer.onOutputChanged = { [weak self, weak nextServer] speakers in
+            guard let self, self.server === nextServer else { return }
+            let changed = self.model.computerOutput != speakers
+            self.model.computerOutput = speakers
+            if changed { self.model.announce(speakers ? "Mac speakers selected. Phones stay connected." : "Phone headphones selected. Paused listeners resume on their phones.") }
+        }
+        nextWiFi.onPairingConfirmed = { [weak self, weak nextWiFi] in
+            DispatchQueue.main.async {
+                guard let self, self.wifi === nextWiFi else { return }
+                self.model.pairingConfirmed = true
+                self.model.showFeedback("Phone paired. Start audio on your phone when you’re ready.")
+                self.item.button?.toolTip = "PairIt · Phone paired"
+            }
         }
         lifecycle.async { [weak self] in
             previousWiFi.stop(); previousServer.stop()

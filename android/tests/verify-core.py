@@ -8,6 +8,10 @@ android = Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory(prefix="pairit-android-check-") as temporary:
     subprocess.run(["javac", "-d", temporary,
                     str(android / "src/dev/bluetoothswitch/relay/ReleaseDownloadLink.java"),
-                    str(android / "tests/ReleaseDownloadLinkCheck.java")], check=True)
+                    str(android / "src/dev/bluetoothswitch/relay/RelayHandoff.java"),
+                    str(android / "tests/ReleaseDownloadLinkCheck.java"),
+                    str(android / "tests/RelayHandoffCheck.java")], check=True)
     subprocess.run(["java", "-cp", temporary,
                     "dev.bluetoothswitch.relay.ReleaseDownloadLinkCheck"], check=True)
+    subprocess.run(["java", "-cp", temporary,
+                    "dev.bluetoothswitch.relay.RelayHandoffCheck"], check=True)

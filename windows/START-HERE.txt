@@ -1,4 +1,4 @@
-PairIt for Windows — 1.1.0 preview 8
+PairIt for Windows — 1.1.0 preview 9
 
 Extract the complete ZIP, then open PairIt.exe inside it.
 Keep the DLLs, runtime, Fonts and licenses folders together. The .NET runtime
@@ -12,6 +12,11 @@ Open PairIt from its notification-area icon. There are two tabs:
   pairing code into each phone. Pairing saves first; start audio on the phone.
 Keep phones on a reachable local network and allow TCP 5002 on that trusted
 private network if Windows asks. Clear the clipboard after pairing.
+
+Choose Phone headphones or Computer speakers under Listen on to switch while
+keeping phone connections ready. Computer speakers stops sending phone audio;
+Windows keeps its existing local output. Switching back resumes active phones,
+while paused phones stay paused. Stop sharing ends the connections separately.
 
 Please check on Windows:
 1. The tray icon, both tabs, keyboard controls and your display scaling.

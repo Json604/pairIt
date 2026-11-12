@@ -30,7 +30,9 @@ uses test ads.
 3. On Mac, complete audio-output setup and allow system audio capture. On Windows,
    extract the entire ZIP, select the output your apps use, and start sharing.
 4. Open pairing on the computer. Scan its QR code or paste the full pairing link
-   in the phone app, then confirm the computer.
+   in the phone app, then confirm the computer. Updated companions show **Phone paired**
+   before audio starts. If the computer is offline, the phone keeps the code saved
+   and tells you confirmation is unavailable.
 5. Choose **Computer** to listen or **Phone** to return to phone audio. For shared
    listening, pair each listener's phone with the same computer.
 
@@ -42,11 +44,17 @@ to keep the source switch available while Phone is selected. iPhone supports med
 controls and Home/Lock Screen shortcuts. Headphone play/pause keeps Computer selected;
 it pauses this phone's live relay, while the computer player may keep progressing.
 
+Choose **Phone headphones** or **Computer speakers** in the computer companion to
+change where computer audio plays. Updated phone apps show the destination and let
+you change it too. This keeps live connections and saved pairings; the choice applies
+to all listeners, and paused phones stay paused. **Stop sharing** ends live sessions;
+**Forget this computer** removes a phone’s saved pairing.
+
 ## Playback and connection limits
 
 - **Mac:** the companion holds its output during phone interruptions and unexpected
   connection loss. Media can continue silently. Return through PairIt, or choose
-  **Use Mac speakers** on the computer. Universal player pause is not implemented.
+  **Mac speakers** on the computer; this keeps its phone connections. Universal player pause is not implemented.
 - **Windows:** local speakers keep playing. For silent local output, use a separately
   installed virtual render device. Supported players can respond to a best-effort
   pause request; PairIt never sends automatic Play. Windows has no bundled virtual
