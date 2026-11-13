@@ -17,6 +17,6 @@ case "$variant" in
 esac
 output_dir="${PAIRIT_IOS_OUTPUT_DIR:-artifacts}"
 mkdir -p "$output_dir"
-xcodebuild -project ios/AudioRelay.xcodeproj -scheme AudioRelay -configuration "$configuration" -destination "$destination" -derivedDataPath "$output_dir/ios-build" "${signing_options[@]}" build > "$output_dir/ios-$variant-build.log" 2>&1 || { tail -80 "$output_dir/ios-$variant-build.log"; exit 1; }
+xcodebuild -project ios/AudioRelay.xcodeproj -scheme AudioRelay -configuration "$configuration" -destination "$destination" -derivedDataPath "$output_dir/ios-build" "${signing_options[@]}" build > "$output_dir/ios-$variant-build.log" 2>&1 || { grep -n -B 4 -A 8 "error:" "$output_dir/ios-$variant-build.log" || true; tail -80 "$output_dir/ios-$variant-build.log"; exit 1; }
 ditto "$output_dir/ios-build/Build/Products/$product/Audio Relay.app" "$output_dir/Audio Relay iOS $suffix.app"
 echo "Built $output_dir/Audio Relay iOS $suffix.app"

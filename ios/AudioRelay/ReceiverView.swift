@@ -286,6 +286,7 @@ struct ReceiverView: View {
                 if let mac = pairing.mac {
                     Button("Connect to \(mac.displayName)") { connectExplicitly(mac, host: pairing.hostOverride) }.font(.caption).frame(maxWidth: .infinity, minHeight: 30)
                 }
+                ComputerDownloadLinks()
             }.padding(18).foregroundStyle(RelayPalette.ink).frost(26)
         }
     }
@@ -553,7 +554,7 @@ struct ReceiverSettings: View {
 struct ComputerDownloadLinks: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("First, install PairIt on your computer").font(.footnote).foregroundStyle(RelayPalette.secondary)
+            Text("Get computer app").font(.footnote).foregroundStyle(RelayPalette.secondary)
             HStack(spacing: 8) {
                 download("Mac", icon: "apple.logo", anchor: "mac")
                 download("Windows", icon: "desktopcomputer", anchor: "windows")

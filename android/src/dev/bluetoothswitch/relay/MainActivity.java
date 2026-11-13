@@ -71,7 +71,7 @@ public class MainActivity extends Activity {
     private RelayState.Phase observedPhase;
     private DiscoveryField field;
     private FrameLayout stage;
-    private LinearLayout card, devicesArea, nav;
+    private LinearLayout card, devicesArea, nav, computerDownloads;
     private TextView cardTitle, cardDetail, nearbyStatus;
     private Button primary, scanAnother, outputRoute;
     private SeekBar volume;
@@ -116,6 +116,9 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams scanParams=new LinearLayout.LayoutParams(-1,dp(44));scanParams.topMargin=dp(8);card.addView(scanAnother,scanParams);
         route=text("",12,MUTED,false);route.setPadding(0,dp(10),0,dp(4));route.setOnClickListener(v->outputDialog());route.setFocusable(true);card.addView(route);
         volume=new SeekBar(this);volume.setMax(100);android.media.AudioManager audio=getSystemService(android.media.AudioManager.class);volume.setProgress(audio.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)*100/Math.max(1,audio.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)));volume.setContentDescription("Phone volume");volume.setProgressTintList(ColorStateList.valueOf(INK));volume.setThumbTintList(ColorStateList.valueOf(INK));volume.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onStartTrackingTouch(SeekBar b){} public void onStopTrackingTouch(SeekBar b){} public void onProgressChanged(SeekBar b,int value,boolean user){if(user)audio.setStreamVolume(android.media.AudioManager.STREAM_MUSIC,Math.round(value*audio.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)/100f),0);}});card.addView(volume,new LinearLayout.LayoutParams(-1,dp(36)));
+        computerDownloads=column();computerDownloads.setPadding(0,dp(10),0,0);
+        computerDownloads.addView(text("Get computer app",11,MUTED,false));space(computerDownloads,5);
+        computerDownloads.addView(computerDownloadButtons());card.addView(computerDownloads);
         disconnect=button("Disconnect",this::disconnect);disconnect.setBackgroundColor(Color.TRANSPARENT);disconnect.setTextSize(12);disconnect.setTextColor(MUTED);disconnect.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);LinearLayout audioActions=row();refreshAudio=button("Refresh audio",()->{if(RelayService.state.phase==RelayState.Phase.PLAYING)dispatch("RESYNC");});refreshAudio.setBackgroundColor(Color.TRANSPARENT);refreshAudio.setTextSize(12);refreshAudio.setTextColor(INK);refreshAudio.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);for(Button action:new Button[]{refreshAudio,disconnect}){action.setMinWidth(0);action.setMinimumWidth(0);action.setPadding(dp(12),0,dp(12),0);action.setGravity(Gravity.CENTER);action.setBackground(shape(0xffeaeaea,12,Color.TRANSPARENT));}audioActions.addView(refreshAudio,new LinearLayout.LayoutParams(-2,dp(44)));View actionGap=new View(this);audioActions.addView(actionGap,new LinearLayout.LayoutParams(0,1,1));audioActions.addView(disconnect,new LinearLayout.LayoutParams(-2,dp(44)));card.addView(audioActions);
 
         space(layout,14);nav=row();nav.setClipChildren(true);nav.setClipToPadding(true);nav.setPadding(dp(6),dp(6),dp(6),dp(6));navFrame=new FrameLayout(this);navFrame.setClipChildren(true);navFrame.setClipToPadding(true);navFrame.setBackground(shape(0xff111111,32,0xff333333));navIndicator=new View(this);navIndicator.setBackground(shape(0xffeeeeee,27,Color.TRANSPARENT));FrameLayout.LayoutParams indicatorParams=new FrameLayout.LayoutParams(0,dp(56));indicatorParams.setMargins(dp(6),dp(6),0,0);navFrame.addView(navIndicator,indicatorParams);navFrame.addView(nav,new FrameLayout.LayoutParams(-1,-2));navFrame.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob)->{if(r-l!=or-ol)moveIndicator(false);});
@@ -233,7 +236,7 @@ public class MainActivity extends Activity {
         LinearLayout links=row();
         for (String platform : new String[]{"Mac", "Windows", "Linux"}) {
             Button link=button(platform,()->openDownload(platform.toLowerCase(java.util.Locale.ROOT)));
-            style(link,false);link.setTextSize(12);GlassUI.Glyph icon=new GlassUI.Glyph(platform.equals("Mac")?"laptop":platform.equals("Windows")?"windows":"linux",INK);icon.setBounds(0,0,dp(20),dp(20));link.setCompoundDrawables(null,icon,null,null);links.addView(link,new LinearLayout.LayoutParams(0,dp(64),1));
+            style(link,false);link.setTextSize(11);link.setPadding(dp(5),0,dp(5),0);GlassUI.Glyph icon=new GlassUI.Glyph(platform.equals("Mac")?"laptop":platform.equals("Windows")?"windows":"linux",INK);icon.setBounds(0,0,dp(16),dp(16));link.setCompoundDrawables(icon,null,null,null);link.setCompoundDrawablePadding(dp(4));link.setContentDescription("Download PairIt for "+platform);LinearLayout.LayoutParams size=new LinearLayout.LayoutParams(0,dp(44),1);if(links.getChildCount()>0)size.setMarginStart(dp(5));links.addView(link,size);
         }
         return links;
     }
@@ -297,6 +300,7 @@ public class MainActivity extends Activity {
         primary.setText(preferences?"Open settings":together?"Share app":!settings.paired()?"Scan QR code":!connected?"Connect":state.phase==RelayState.Phase.PLAYING?"Pause audio":"Start audio");primary.setEnabled(inFlight==null);primary.setVisibility(!together&&!preferences&&RelayService.computerOutputSelected?View.INVISIBLE:View.VISIBLE);GlassUI.Glyph actionIcon=new GlassUI.Glyph(together?"people":settings.paired()?"headphones":"qr",Color.WHITE);actionIcon.setBounds(0,0,dp(18),dp(18));primary.setCompoundDrawables(actionIcon,null,null,null);primary.setCompoundDrawablePadding(dp(8));
         scanAnother.setVisibility(!together&&!preferences&&settings.paired()&&!connected?View.VISIBLE:View.GONE);
         scanAnother.setEnabled(!verifyingConnection&&inFlight==null);
+        computerDownloads.setVisibility(!together&&!preferences&&!connected?View.VISIBLE:View.GONE);
         android.media.AudioManager routeManager=getSystemService(android.media.AudioManager.class);
         android.media.AudioDeviceInfo selectedRoute=settings.output().find(routeManager,settings.outputDeviceId());
         String routeName=selectedRoute==null?"Choose audio output":settings.output()==OutputRoute.SPEAKER?"Phone speaker":selectedRoute.getProductName().toString();
