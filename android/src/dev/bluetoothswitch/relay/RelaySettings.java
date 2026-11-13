@@ -7,6 +7,11 @@ import java.util.UUID;
 final class RelaySettings {
     private final SharedPreferences prefs;
     RelaySettings(Context context) { prefs = context.getSharedPreferences("relay", Context.MODE_PRIVATE); }
+    boolean soundFeedback() { return prefs.getBoolean("sound_feedback",true); }
+    void soundFeedback(boolean value) { prefs.edit().putBoolean("sound_feedback",value).apply(); }
+    boolean autoReconnect() { return prefs.getBoolean("auto_reconnect", true); }
+    void autoReconnect(boolean value) { prefs.edit().putBoolean("auto_reconnect",value).apply(); }
+    boolean reducedMotion() { return !android.animation.ValueAnimator.areAnimatorsEnabled(); }
     String host() { return prefs.getString("host", ""); }
     String pin() { return prefs.getString("pin", ""); }
     String token() { return prefs.getString("token", ""); }
@@ -14,9 +19,13 @@ final class RelaySettings {
     boolean wifi() { return true; }
     String overrideHost() { return prefs.getString("host_override", ""); }
     void host(String host) { prefs.edit().putString("host_override", host.trim()).apply(); }
+    private static final class Candidate {final String pin,host;Candidate(String pin,String host){this.pin=pin;this.host=host;}}
+    private static volatile Candidate candidate;
+    void discovered(String host,String pin){if(pin.equals(pin())&&validHost(host))candidate=new Candidate(pin,host);}
     String connectionHost(String discovered) {
         if (!overrideHost().isEmpty()) return overrideHost();
-        return discovered == null || discovered.isEmpty() ? host() : discovered;
+        Candidate savedCandidate=candidate;
+        return discovered == null || discovered.isEmpty() ? (savedCandidate!=null&&savedCandidate.pin.equals(pin())?savedCandidate.host:host()) : discovered;
     }
     String computerName() { return prefs.getString("computer_name", "Computer"); }
     String platform() { return prefs.getString("computer_platform", ""); }
@@ -29,7 +38,9 @@ final class RelaySettings {
         return id;
     }
     OutputRoute output() { return OutputRoute.from(prefs.getString("output", "BLUETOOTH")); }
-    void output(OutputRoute route) { prefs.edit().putString("output", route.name()).apply(); }
+    void output(OutputRoute route) { prefs.edit().putString("output", route.name()).remove("output_device_id").apply(); }
+    int outputDeviceId() { return prefs.getInt("output_device_id", -1); }
+    void output(OutputRoute route, int deviceId) { prefs.edit().putString("output",route.name()).putInt("output_device_id",deviceId).apply(); }
     boolean interactive() { return false; } // The two-feature app uses the proven Reliable path.
     void interactive(boolean value) { prefs.edit().putBoolean("interactive", value).apply(); }
     String timingRoute(String actualRoute, boolean interactive) {

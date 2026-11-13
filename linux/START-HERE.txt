@@ -10,14 +10,17 @@ PipeWire desktops also need their pipewire-pulse user service running.
 No .NET installation is required for the published self-contained download.
 
 Extract the entire archive. Run ./PairIt as your normal desktop user, never root.
-Choose the audio output your apps use, then Start sharing. On the same local
-network, scan the QR code or paste the pairing code into PairIt on your phone.
+Choose the output your apps use in Settings, then select Pair a phone. On the
+same local network, scan the QR code or paste the pairing code into PairIt on
+your phone. Sharing captures audio only when a phone requests it.
 If you have several network addresses, choose the one reachable by the phone.
 Confirm pairing, then start audio on your phone. PairIt shows Phone paired.
 Allow incoming TCP 5002 from your trusted local network if a firewall blocks it.
 Do not forward that port through your router.
+Nearby discovery uses multicast UDP 5353 on the local network. If blocked,
+QR pairing still works. Discovery never broadcasts the private pairing token.
 
-Phone headphones / Computer speakers preserves live phone connections.
+The Phone / Computer switch preserves live phone connections.
 Like the Windows preview, Linux captures an output monitor and does not mute or
 reroute local speakers. To listen silently on the computer, route your apps to
 a virtual output using your system audio tools, then select it in PairIt.
@@ -30,7 +33,7 @@ $XDG_DATA_HOME/PairIt (normally ~/.local/share/PairIt). Do not delete identity.j
 to fix a startup problem: existing phones trust that identity. The directory
 must have mode 700, and identity.json mode 600. Never share those files or codes.
 
-Use Check for updates to open a newer official release. Updates are downloaded
+Use Check for updates in Settings to open a newer official release. Updates are downloaded
 and installed manually; GitHub releases do not replace a running application.
 Replace the extracted app files after closing PairIt; keep your user data.
 

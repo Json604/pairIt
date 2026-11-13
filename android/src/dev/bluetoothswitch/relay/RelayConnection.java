@@ -22,6 +22,11 @@ final class RelayConnection {
                                java.util.function.Consumer<Socket> opened) throws Exception {
         if (!RelaySettings.validHost(host) || !expectedPin.matches("[a-f0-9]{64}") || !token.matches("[a-f0-9]{64}"))
             throw new IOException("Invalid pairing credentials");
+        return openPinned(host,port,expectedPin,token+role,opened);
+    }
+    static Socket openPinned(String host,int port,String expectedPin,String message,
+                             java.util.function.Consumer<Socket> opened) throws Exception {
+        if(!RelaySettings.validHost(host)||!expectedPin.matches("[a-f0-9]{64}"))throw new IOException("Invalid computer identity");
         Socket raw = new Socket();
         opened.accept(raw);
         try {
@@ -49,7 +54,7 @@ final class RelayConnection {
             SSLSocket tls = (SSLSocket)context.getSocketFactory().createSocket(raw, host, port, true);
             tls.setEnabledProtocols(new String[]{"TLSv1.3", "TLSv1.2"});
             tls.startHandshake();
-            tls.getOutputStream().write((token + role + "\n").getBytes(StandardCharsets.US_ASCII));
+            tls.getOutputStream().write((message + "\n").getBytes(StandardCharsets.US_ASCII));
             tls.getOutputStream().flush();
             return new PinnedSocket(raw, tls);
         } catch (Exception e) { raw.close(); throw e; }

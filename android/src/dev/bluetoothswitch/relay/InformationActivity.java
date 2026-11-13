@@ -29,7 +29,7 @@ public final class InformationActivity extends Activity {
         boolean privacy = "privacy".equals(getIntent().getStringExtra("section"));
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
         getWindow().setStatusBarColor(Color.TRANSPARENT);getWindow().setNavigationBarColor(0xfff5f4f2);
-        FrameLayout root = new FrameLayout(this);root.addView(new GlassUI.Backdrop(this),new FrameLayout.LayoutParams(-1,-1));
+        FrameLayout root = new FrameLayout(this);root.setBackgroundColor(Color.WHITE);
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setVerticalScrollBarEnabled(false);
         GlassUI.ContentColumn content=new GlassUI.ContentColumn(this);content.setPadding(dp(24),dp(12),dp(24),dp(32));
         scroll.addView(content,new FrameLayout.LayoutParams(-1,-2,Gravity.TOP|Gravity.CENTER_HORIZONTAL));

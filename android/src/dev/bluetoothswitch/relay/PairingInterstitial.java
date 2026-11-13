@@ -9,9 +9,9 @@ import com.google.android.gms.ads.*;
 import com.google.android.gms.ads.interstitial.*;
 import java.util.function.BooleanSupplier;
 
-/** One optional-to-serve ad at a completed pairing boundary, never an audio start. */
+/** Optional ad between an explicit verified connect action and its guarded continuation. */
 final class PairingInterstitial {
-    private static final long PRESENTATION_WINDOW_MS = 1_200;
+    private static final long PRESENTATION_WINDOW_MS = 5_000;
     private static volatile boolean presenting;
     private final Activity activity;
     private final BannerAds consentOwner;
@@ -22,10 +22,10 @@ final class PairingInterstitial {
     private final Runnable checkPresentation = this::attemptPresentation;
     private InterstitialAd cached, onscreen;
     private boolean pairing, loading, destroyed, showing;
-    private long generation, loadedAt, retryAfter;
+    private long generation, loadGeneration, loadedAt, retryAfter;
     private long pendingFlow, pendingConsentRevision, presentationDeadline;
     private Runnable afterAd, pendingCompletion;
-    private String status = "Waiting for a new pairing", loadFailure = "No ad ready";
+    private String status = "Waiting for an explicit connection", loadFailure = "No ad ready";
 
     PairingInterstitial(Activity activity, BannerAds consentOwner, BooleanSupplier idleAndVisible, Runnable visibilityChanged) {
         this.activity = activity; this.consentOwner = consentOwner;
@@ -33,27 +33,23 @@ final class PairingInterstitial {
         preferences = activity.getSharedPreferences("advertising", Activity.MODE_PRIVATE);
     }
     static boolean isPresenting() { return presenting; }
-    String diagnostics() { return "Pairing ad: " + status; }
+    String diagnostics() { return "Connection ad: " + status; }
     void presentationWindowChanged() { if (pendingCompletion != null) attemptPresentation(); }
-    private boolean coolingDown() {
-        long elapsed = System.currentTimeMillis() - preferences.getLong("lastPairingVideo", 0);
-        return elapsed >= 0 && elapsed < 5 * 60_000;
-    }
     long begin() { cancelUnshown(); pairing = true; prepare(); return generation; }
-    void consentChanged() { cancelUnshown(); }
+    void consentChanged() { loadGeneration++; loading=false; cached=null; cancelUnshown(); }
     void prepare() {
-        if (destroyed || !pairing || loading || cached != null || pendingCompletion != null) return;
-        if (coolingDown()) { setStatus("Five-minute frequency limit"); return; }
+        if(cached!=null&&SystemClock.elapsedRealtime()-loadedAt>=55*60_000)cached=null;
+        if (destroyed || showing || loading || cached != null) return;
         if (SystemClock.elapsedRealtime() < retryAfter) { setStatus(loadFailure); return; }
         if (!idleAndVisible.getAsBoolean()) { setStatus("Audio active or app hidden"); return; }
         if (!consentOwner.canRequestFullscreen()) { setStatus("Ad privacy or SDK not ready"); return; }
         if (BuildConfig.INTERSTITIAL_AD_UNIT_ID.isEmpty()) { setStatus("Ad unit not configured"); return; }
-        loading = true; long ticket = generation, consentRevision = consentOwner.consentRevision();
+        loading = true; long ticket = loadGeneration, consentRevision = consentOwner.consentRevision();
         loadFailure = "No ad ready"; setStatus("Loading");
         try {
             InterstitialAd.load(activity, BuildConfig.INTERSTITIAL_AD_UNIT_ID, new AdRequest.Builder().build(), new InterstitialAdLoadCallback() {
                 @Override public void onAdLoaded(InterstitialAd value) {
-                    if (destroyed || ticket != generation || !pairing) return;
+                    if (destroyed || ticket != loadGeneration) return;
                     loading = false;
                     if (consentRevision != consentOwner.consentRevision() || !consentOwner.canRequestFullscreen()) {
                         setStatus("Ad privacy changed"); attemptPresentation(); return;
@@ -62,7 +58,7 @@ final class PairingInterstitial {
                     attemptPresentation();
                 }
                 @Override public void onAdFailedToLoad(LoadAdError error) {
-                    if (destroyed || ticket != generation || !pairing) return;
+                    if (destroyed || ticket != loadGeneration) return;
                     loading = false; cached = null; retryAfter = SystemClock.elapsedRealtime() + 60_000;
                     loadFailure = "Unavailable (Google load code " + error.getCode() + ")";
                     setStatus(loadFailure); attemptPresentation();
@@ -73,6 +69,7 @@ final class PairingInterstitial {
             loadFailure = "Ad request unavailable"; setStatus(loadFailure); attemptPresentation();
         }
     }
+    void showAfterConnection(long flow, Runnable next) { showAfterPairing(flow, next); }
     void showAfterPairing(long flow, Runnable next) {
         if (flow != generation || !pairing) { next.run(); return; }
         if (pendingCompletion != null) return;
@@ -91,9 +88,8 @@ final class PairingInterstitial {
             skip("Ad privacy or SDK not ready"); return;
         }
         if (BuildConfig.INTERSTITIAL_AD_UNIT_ID.isEmpty()) { skip("Ad unit not configured"); return; }
-        if (coolingDown()) { skip("Five-minute frequency limit"); return; }
         long now = SystemClock.elapsedRealtime();
-        if (now >= presentationDeadline) { skip(cached == null ? "Ad not ready within 1.2 seconds" : "Window not ready within 1.2 seconds"); return; }
+        if (now >= presentationDeadline) { skip(cached == null ? "Ad not ready within 5 seconds" : "Window not ready within 5 seconds"); return; }
         if (cached == null) {
             if (!loading) { skip(loadFailure); return; }
             // Only an existing request may finish here. Never start a new load after pairing.
@@ -107,7 +103,8 @@ final class PairingInterstitial {
             skip("Audio session busy"); return;
         }
         InterstitialAd candidate = cached;
-        Runnable next = clearUnshown();
+        Runnable next = clearUnshown(); cached=null;
+        ConnectionChime.stopSound();
         showing = true; presenting = true; onscreen = candidate; afterAd = next;
         setStatus("Presenting");
         visibilityChanged.run();
@@ -115,7 +112,7 @@ final class PairingInterstitial {
             candidate.setFullScreenContentCallback(new FullScreenContentCallback() {
                 @Override public void onAdShowedFullScreenContent() {
                     if (onscreen != candidate) return;
-                    preferences.edit().putLong("lastPairingVideo", System.currentTimeMillis()).apply();
+                    preferences.edit().putLong("lastPairingVideo", System.currentTimeMillis()).putLong("lastFullscreenAd",System.currentTimeMillis()).apply();
                     setStatus("Shown");
                 }
                 @Override public void onAdDismissedFullScreenContent() { if (onscreen == candidate) finish("Shown; closed"); }
@@ -143,7 +140,7 @@ final class PairingInterstitial {
     private Runnable clearUnshown() {
         Runnable next = pendingCompletion; pendingCompletion = null;
         handler.removeCallbacks(checkPresentation);
-        generation++; pairing = false; loading = false; cached = null;
+        generation++; pairing = false;
         return next;
     }
     void cancelUnshown() {
@@ -154,7 +151,7 @@ final class PairingInterstitial {
     private void setStatus(String value) {
         if (status.equals(value)) return;
         status = value;
-        android.util.Log.i("PairItAds", "Pairing ad: " + value);
+        android.util.Log.i("PairItAds", "Connection ad: " + value);
     }
     void destroy() {
         destroyed = true; cancelUnshown(); afterAd = null;

@@ -36,7 +36,14 @@ public sealed class RelayServer(X509Certificate2 certificate, string pairingToke
         {
             while (!lifetime.IsCancellationRequested)
             {
-                var socket = await listener!.AcceptTcpClientAsync(lifetime.Token).ConfigureAwait(false);
+                TcpClient socket;
+                try { socket = await listener!.AcceptTcpClientAsync(lifetime.Token).ConfigureAwait(false); }
+                catch (SocketException) when (!lifetime.IsCancellationRequested)
+                {
+                    // A transient interface failure must not terminate the accept loop.
+                    await Task.Delay(1000, lifetime.Token).ConfigureAwait(false);
+                    continue;
+                }
                 if (!handshakes.Wait(0)) { socket.Dispose(); continue; }
                 socket.NoDelay = true;
                 socket.SendBufferSize = 32 * 1024;

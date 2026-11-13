@@ -33,12 +33,64 @@ public class RelayService extends Service {
     private volatile int pendingOutputOnConnect = -1;
     private RelayHandoff.Intent parkedIntent = RelayHandoff.Intent.PAUSE;
     private final boolean useWifi = true;
-    private OutputRoute selectedOutput = OutputRoute.BLUETOOTH;
+    private volatile int outputRevision;
+    private volatile OutputRoute selectedOutput = OutputRoute.BLUETOOTH;
     private volatile boolean interactiveMode, profileReady;
     private volatile int selectedDeviceId = -1;
     private volatile String activeProfileKey = "";
     private String sessionPin, sessionOverride;
     private int manualResyncs, connections;
+    private volatile long lastTrafficAt;
+    private final ListeningFeedback listeningFeedback = new ListeningFeedback();
+    private final Runnable connectionWatchdog = new Runnable() {
+        public void run() {
+            if (!running || userStopped) return;
+            if (ConnectionHealth.expired(SystemClock.elapsedRealtime(), lastTrafficAt, requestedMac, computerOutputSelected)) {
+                recoverNetwork();
+                return;
+            }
+            main.postDelayed(this, 500);
+        }
+    };
+    private android.net.ConnectivityManager connectivity;
+    private android.net.Network localNetwork;
+    private volatile boolean networkAvailable = true;
+    private volatile int networkRevision;
+    private final android.net.ConnectivityManager.NetworkCallback networkCallback = new android.net.ConnectivityManager.NetworkCallback() {
+        @Override public void onAvailable(android.net.Network network) {
+            if(liveInstance!=RelayService.this)return;
+            if (network.equals(localNetwork)) return;
+            localNetwork = network; networkAvailable = true; networkRevision++;
+            if(settings.paired())discovery.start(settings.pin());
+            if(running && requestedMac) {
+                recoverNetwork();
+                if(running && requestedMac)locks.reconnectWindow();
+            }
+            if(worker!=null)LockSupport.unpark(worker);
+        }
+        @Override public void onLost(android.net.Network network) {
+            if(liveInstance!=RelayService.this)return;
+            if(!network.equals(localNetwork))return;
+            localNetwork=null;networkAvailable=false;networkRevision++;
+            if(running && requestedMac)recoverNetwork();
+        }
+    };
+    private void recoverNetwork() {
+        if(!running || userStopped || !requestedMac)return;
+        if(!ConnectionHealth.shouldReconnect(settings.autoReconnect(),requestedMac,userStopped)) {
+            pausePlayback(RelayState.Phase.ERROR,"Computer unavailable","Keep both devices on the same Wi-Fi, then tap Connect.");
+            return;
+        }
+        // Retain the user's listening intent and foreground service, not stale audio.
+        // Phone interruptions and explicit pauses still clear requestedMac separately.
+        mute(); generation.incrementAndGet();closeConnection();locks.release();
+        lastTrafficAt=SystemClock.elapsedRealtime();
+        publish(RelayState.Phase.RECONNECTING,"Waiting for your computer","Reconnecting automatically. Keep both devices on the same Wi-Fi and PairIt open on your computer.");
+        foreground(false);
+        main.removeCallbacks(connectionWatchdog);main.postDelayed(connectionWatchdog,500);
+    }
+    static boolean hasControlConnection() { RelayService service=liveInstance; return service!=null&&service.socket!=null; }
+
     private Thread worker;
     private AudioManager audio;
     private PlaybackLocks locks;
@@ -51,13 +103,14 @@ public class RelayService extends Service {
     private final Runnable finishPausedService = () -> { if (!requestedMac && socket == null) stopSelf(); };
     private final AudioAttributes attributes = new AudioAttributes.Builder()
             .setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build();
+    static boolean ownsAudioFocus(){RelayService service=liveInstance;return service!=null&&service.focusGranted&&service.requestedMac;}
     private boolean canPlay() {
         RelayHandoff current = handoff;
         return running && requestedMac && focusGranted && (current == null || !current.computerOutput());
     }
     private final Runnable renewLocks = new Runnable() {
         public void run() {
-            if (canPlay()) locks.acquire(useWifi); else locks.release();
+            if (canPlay() && socket != null) locks.acquire(useWifi); else locks.release();
             if (running) main.postDelayed(this, 60000);
         }
     };
@@ -80,8 +133,16 @@ public class RelayService extends Service {
         }
         locks = new PlaybackLocks(this);
         discovery = new MacDiscovery(this); if (settings.paired()) discovery.start(settings.pin());
+        connectivity=getSystemService(android.net.ConnectivityManager.class);
+        try {
+            connectivity.registerNetworkCallback(new android.net.NetworkRequest.Builder()
+                .addTransportType(android.net.NetworkCapabilities.TRANSPORT_WIFI)
+                .addTransportType(android.net.NetworkCapabilities.TRANSPORT_ETHERNET).build(),networkCallback,main);
+        } catch(SecurityException error) { Log.w(TAG,"Network monitoring unavailable"); }
+
         focus = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN).setAudioAttributes(attributes)
                 .setWillPauseWhenDucked(true).setOnAudioFocusChangeListener(change -> {
+                    if(change<0)ConnectionChime.stopSound();
                     if (change != AudioManager.AUDIOFOCUS_GAIN && requestedMac && !computerOutputSelected) {
                         park(change == AudioManager.AUDIOFOCUS_LOSS && audio.getMode() == AudioManager.MODE_NORMAL
                                 ? RelayHandoff.Intent.PHONE : RelayHandoff.Intent.OUTPUT,
@@ -117,6 +178,18 @@ public class RelayService extends Service {
         foreground(canPlay());
         if ("STOP".equals(action)) { requestStop(); return START_NOT_STICKY; }
         if ("OUTPUT_COMPUTER".equals(action)) { selectComputerOutput(); return START_NOT_STICKY; }
+        if ("LOCAL_OUTPUT".equals(action)) {
+            boolean resume = requestedMac && !computerOutputSelected;
+            if (resume) requestedMac = false;
+            mute(); activeTrack = null;
+            selectedOutput = settings.output();
+            AudioDeviceInfo destination = selectedOutput.find(audio, settings.outputDeviceId());
+            selectedDeviceId = destination == null ? -1 : destination.getId();
+            outputRevision++; generation.incrementAndGet();
+            if (resume) startListening(false);
+            else if (!running) stopSelf();
+            return START_NOT_STICKY;
+        }
         if ("SYNC".equals(action)) return START_NOT_STICKY; // Control thread sends saved calibration.
         if ("RESYNC".equals(action)) {
             if (canPlay()) { manualResyncs++; generation.incrementAndGet(); publish(RelayState.Phase.BUFFERING, "Refreshing audio", "Keeping your selected output connected."); }
@@ -165,7 +238,7 @@ public class RelayService extends Service {
         selectedOutput = settings.output();
         interactiveMode = settings.interactive(); profileReady = false; timingProfileKey = "";
         sessionPin = settings.pin(); sessionOverride = settings.overrideHost();
-        if (selectedOutput.find(audio) == null) {
+        if (selectedOutput.find(audio,settings.outputDeviceId()) == null) {
             publish(RelayState.Phase.HEADPHONES, "Output unavailable", "Connect " + selectedOutput.label.toLowerCase(Locale.ROOT) + ", or choose another output in Settings.");
             if (!running) stopSelf();
             return;
@@ -203,14 +276,17 @@ public class RelayService extends Service {
             if (!running) stopSelf();
             return;
         }
+        lastTrafficAt=SystemClock.elapsedRealtime();
+        main.removeCallbacks(connectionWatchdog);main.post(connectionWatchdog);
         locks.acquire(useWifi);
         if (current != null) current.request(RelayHandoff.Intent.LISTEN);
         mediaSession.setActive(true);
         settings.controlsSource("computer");
         publish(RelayState.Phase.CONNECTING, "Connecting to " + settings.computerName(), "Keep the desktop companion open.");
         if (!running) {
-            running = true; main.removeCallbacks(renewLocks); main.post(renewLocks);
+            running = true; main.removeCallbacks(renewLocks);main.removeCallbacks(connectionWatchdog); main.post(renewLocks);
             worker = new Thread(this::receive, "relay-playback"); worker.start();
+            main.post(connectionWatchdog);
         }
     }
 
@@ -248,7 +324,7 @@ public class RelayService extends Service {
     }
     private void pausePlayback(RelayState.Phase phase, String title, String detail) {
         ++startTicket; main.removeCallbacks(finishPausedService);
-        main.removeCallbacks(renewLocks);
+        main.removeCallbacks(renewLocks);main.removeCallbacks(connectionWatchdog);
         requestedMac = false; focusGranted = false; running = false; profileReady = false;
         generation.incrementAndGet(); mute(); closeConnection(); locks.release();
         audio.abandonAudioFocusRequest(focus);
@@ -301,6 +377,11 @@ public class RelayService extends Service {
                         && control.computerOutputConfirmed() && state.title.equals("Switching to computer")) holdForComputerOutput();
                 return;
             }
+            // The authenticated desktop has accepted LISTEN. Silence is not a failed connection.
+            if (control.supported() && control.readyForAudio() && canPlay() && !listeningFeedback.established()) {
+                listeningFeedback.audioStarted();
+                acknowledgeConnection(connections,0);
+            }
             boolean returningFromComputer = computerOutputSelected;
             computerOutputSelected = false;
             if (returningFromComputer && requestedMac) {
@@ -317,7 +398,7 @@ public class RelayService extends Service {
             if (resumeOffer && control.isCurrentOffer(value) && state.phase == RelayState.Phase.PHONE
                     && audio.getMode() == AudioManager.MODE_NORMAL && PhoneAudioSession.availableTo(this)
                     && selectedOutput == settings.output()) {
-                AudioDeviceInfo route = selectedOutput.find(audio);
+                AudioDeviceInfo route = selectedOutput.find(audio,settings.outputDeviceId());
                 if (route != null && route.getId() == selectedDeviceId) startListening(false);
             }
         });
@@ -326,7 +407,7 @@ public class RelayService extends Service {
         OutputUnavailable(String message) { super(message); }
     }
     private AudioTrack newTrack(int rate) throws IOException {
-        AudioDeviceInfo device = selectedOutput.find(audio);
+        AudioDeviceInfo device = selectedOutput.find(audio,settings.outputDeviceId());
         if (device == null) throw new OutputUnavailable("Selected output disconnected");
         selectedDeviceId = device.getId();
         headphoneName = device.getProductName().toString();
@@ -360,10 +441,14 @@ public class RelayService extends Service {
         int failures = 0;
         try { while (running) {
             if (!requestedMac) { LockSupport.parkNanos(100_000_000L); continue; }
+            if (!networkAvailable) { LockSupport.parkNanos(1_000_000_000L); continue; }
+            final int attemptNetwork=networkRevision;
             String host = settings.connectionHost(discovery.host);
             try (Socket connection = RelayConnection.open(host, settings, false)) {
-                if (!running || userStopped) continue;
+                if (!running || userStopped || attemptNetwork!=networkRevision || !networkAvailable) continue;
                 socket = connection; connections++; profileReady = false;
+                lastTrafficAt=SystemClock.elapsedRealtime();
+                main.post(()->{if(socket==connection&&requestedMac&&focusGranted){locks.acquire(useWifi);foreground(true);}});
                 handoff = new RelayHandoff(requestedMac ? RelayHandoff.Intent.LISTEN : parkedIntent);
                 int pendingOutput = pendingOutputOnConnect;
                 if (pendingOutput >= 0) handoff.requestOutput(pendingOutput == 1);
@@ -374,7 +459,7 @@ public class RelayService extends Service {
             } catch (Exception error) {
                 if (!running) break;
                 Log.w(TAG, "Connection interrupted: " + error.getClass().getSimpleName());
-                if (error instanceof javax.net.ssl.SSLHandshakeException) {
+                if (ConnectionHealth.identityRejected(error)) {
                     main.post(() -> pausePlayback(RelayState.Phase.ERROR, "Pair with your computer again", "Open pairing in the desktop companion and enter its new code in Connection settings."));
                     break;
                 } else if (error instanceof OutputUnavailable) {
@@ -382,17 +467,20 @@ public class RelayService extends Service {
                     break;
                 } else if (requestedMac) {
                     failures++;
+                    if(!ConnectionHealth.shouldReconnect(settings.autoReconnect(),requestedMac,userStopped)) {
+                        main.post(()->pausePlayback(RelayState.Phase.ERROR,"Computer unavailable","Keep both devices on the same Wi-Fi, then tap Connect."));break;
+                    }
+                    main.post(()->{if(liveInstance==this&&running&&socket==null){locks.release();foreground(false);}});
                     publish(RelayState.Phase.RECONNECTING, "Reconnecting to your computer", "Check the local network and desktop companion. Audio returns after a secure connection.");
                 }
             } finally {
+                main.post(this::endListeningFeedback);
                 socket = null; handoff = null;
-                outputControlSupported = false;
+                outputControlSupported = false; computerOutputSelected = false;
                 if (!requestedMac) {
                     main.post(() -> {
                         if (!requestedMac && socket == null) {
-                            if (!userStopped) publish(state.phase, state.title, "macos".equals(settings.platform())
-                                    ? "Control connection ended. Your Mac may still hold output. Choose Computer to reconnect, or release it in the Mac app."
-                                    : "Control connection ended. Choose Computer to reconnect.");
+                            if (!userStopped) publish(RelayState.Phase.ERROR, "Computer disconnected", "Keep both devices on the same Wi-Fi and open PairIt on your computer, then reconnect.");
                             stopSelf();
                         }
                     });
@@ -400,17 +488,19 @@ public class RelayService extends Service {
                 }
             }
             long until = SystemClock.elapsedRealtime() + Math.min(5000, 500L << Math.min(failures, 3));
-            while (running && requestedMac && SystemClock.elapsedRealtime() < until) LockSupport.parkNanos(50_000_000L);
+            while (running && requestedMac && SystemClock.elapsedRealtime() < until && attemptNetwork==networkRevision) LockSupport.parkNanos(50_000_000L);
         } } finally { PhoneAudioSession.release(this); }
     }
 
     private void playSession(Socket connection) throws Exception {
         PcmInbox inbox = new PcmInbox();
         RelayHandoff control = handoff;
+        inbox.onHeartbeat = () -> lastTrafficAt=SystemClock.elapsedRealtime();
         inbox.onControlStatus = value -> controlStatus(connection, control, value);
         InputStream input = connection.getInputStream();
         Thread reader = new Thread(() -> inbox.read(input), "relay-network"); reader.start();
         AudioTrack track = null;
+        int seenOutputRevision = outputRevision;
         int rate = 0, seenGeneration = -1, underruns = 0, primedFrames = 0, leadFrames = 0;
         int cushionMs = PlayoutTiming.CUSHION_MS;
         InteractivePlayback interactive = interactiveMode ? new InteractivePlayback() : null;
@@ -425,6 +515,10 @@ public class RelayService extends Service {
         try {
             while (running && socket == connection) {
               try {
+                if (seenOutputRevision != outputRevision) {
+                    if (track != null) { activeTrack = null; releaseTrack(track); track = null; }
+                    seenOutputRevision = outputRevision; inbox.clear();
+                }
                 if (!canPlay()) {
                     if (track != null) { activeTrack = null; releaseTrack(track); track = null; }
                     main.post(() -> { if (!canPlay()) PhoneAudioSession.release(this); });
@@ -436,13 +530,15 @@ public class RelayService extends Service {
                     int previousRecoveries = timing.recoveries;
                     timing = new PlayoutTiming(); timing.recoveries = previousRecoveries;
                     track.setVolume(0); track.pause(); track.flush();
-                    AudioDeviceInfo fallbackRoute = selectedOutput.find(audio);
+                    AudioDeviceInfo fallbackRoute = selectedOutput.find(audio,settings.outputDeviceId());
                     if (fallbackRoute == null) throw new OutputUnavailable("Selected output disconnected");
                     policy = new PlaybackBuffer(); policy.configure(track, fallbackRoute, rate); routeConfigured = true;
                     profileReady = false; generation.incrementAndGet();
                     publish(RelayState.Phase.BUFFERING, "Using Reliable for this session", "Interactive preview could not keep a stable playback window.");
                 }
                 PcmInbox.Packet packet = inbox.next();
+                if (seenOutputRevision != outputRevision) continue;
+                if(packet!=null)lastTrafficAt=SystemClock.elapsedRealtime();
                 if (packet == null) {
                     if (learning && interactive != null) interactive.timedOut();
                     if (canPlay() && track == null && state.phase != RelayState.Phase.BUFFERING)
@@ -610,14 +706,14 @@ public class RelayService extends Service {
         PendingIntent open = PendingIntent.getActivity(this, 0, new Intent(this, MainActivity.class), PendingIntent.FLAG_IMMUTABLE);
         boolean paused = !requestedMac || computerOutputSelected;
         PendingIntent playback = PendingIntent.getForegroundService(this, 3, new Intent(this, RelayService.class).setAction(paused ? "PLAY" : "MEDIA_PAUSE"), PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-        PendingIntent phone = PendingIntent.getForegroundService(this, 1, new Intent(this, RelayService.class).setAction("USE_PHONE"), PendingIntent.FLAG_IMMUTABLE);
+        PendingIntent phone = PendingIntent.getForegroundService(this, 1, new Intent(this, RelayService.class).setAction("OUTPUT_COMPUTER"), PendingIntent.FLAG_IMMUTABLE);
         PendingIntent stop = PendingIntent.getService(this, 2, new Intent(this, RelayService.class).setAction("STOP"), PendingIntent.FLAG_IMMUTABLE);
         return new Notification.Builder(this, "relay").setSmallIcon(R.drawable.ic_notification)
-                .setContentTitle(state.title).setContentText(state.detail).setContentIntent(open).setOnlyAlertOnce(true).setOngoing(true)
+                .setContentTitle(settings.computerName()).setContentText(computerOutputSelected ? "Playing on computer" : paused ? "Audio paused" : state.phase == RelayState.Phase.PLAYING ? "Playing on phone" : state.title).setContentIntent(open).setOnlyAlertOnce(true).setOngoing(true)
                 .setCategory(Notification.CATEGORY_SERVICE).setVisibility(Notification.VISIBILITY_PUBLIC)
-                .setStyle(new Notification.BigTextStyle().bigText(state.detail))
-                .addAction(new Notification.Action.Builder(android.graphics.drawable.Icon.createWithResource(this, paused ? R.drawable.ic_play : R.drawable.ic_pause), computerOutputSelected ? "Listen here" : paused ? "Resume computer" : "Pause audio", playback).build())
-                .addAction(new Notification.Action.Builder(null, "Use phone", phone).build())
+
+                .addAction(new Notification.Action.Builder(android.graphics.drawable.Icon.createWithResource(this, paused ? R.drawable.ic_play : R.drawable.ic_pause), computerOutputSelected ? "Listen here" : paused ? "Resume" : "Pause", playback).build())
+                .addAction(new Notification.Action.Builder(null, "Computer", phone).build())
                 .addAction(new Notification.Action.Builder(null, "Disconnect", stop).build()).build();
     }
     @android.annotation.SuppressLint("UnspecifiedImmutableFlag")
@@ -638,10 +734,10 @@ public class RelayService extends Service {
         PendingIntent end = PendingIntent.getBroadcast(context, 12, new Intent(context, RelayControlsReceiver.class).setAction("DISCONNECT"), PendingIntent.FLAG_IMMUTABLE);
         PendingIntent open = PendingIntent.getActivity(context, 0, new Intent(context, MainActivity.class), PendingIntent.FLAG_IMMUTABLE);
         manager.notify(1, new Notification.Builder(context, "relay").setSmallIcon(R.drawable.ic_notification)
-                .setContentTitle(paused ? "Listening paused" : "Phone audio · PairIt ready")
-                .setContentText("Switch back to " + saved.computerName() + " without opening PairIt.")
+                .setContentTitle(saved.computerName())
+                .setContentText(paused ? "Paused" : "Ready to listen")
                 .setContentIntent(open).setOnlyAlertOnce(true).setOngoing(true)
-                .addAction(new Notification.Action.Builder(null, paused ? "Resume computer" : "Use computer", computer).build())
+                .addAction(new Notification.Action.Builder(null, paused ? "Resume" : "Start audio", computer).build())
                 .addAction(new Notification.Action.Builder(null, "Disconnect", end).build()).build());
     }
     @android.annotation.SuppressLint("NotificationPermission")
@@ -649,7 +745,19 @@ public class RelayService extends Service {
         if ((phase == RelayState.Phase.PLAYING || phase == RelayState.Phase.BUFFERING || phase == RelayState.Phase.RECONNECTING) && !canPlay()) return;
         state = new RelayState(phase, title, detail);
         Log.i(TAG, "STATE " + phase + " " + title);
-        main.post(() -> { updateMediaState();if (mediaSession != null && (running || state.phase == RelayState.Phase.PAUSED)) getSystemService(NotificationManager.class).notify(1, notification()); });
+        main.post(() -> {
+            if(phase==RelayState.Phase.RECONNECTING||phase==RelayState.Phase.ERROR||phase==RelayState.Phase.HEADPHONES)endListeningFeedback();
+            else if(phase==RelayState.Phase.PLAYING&&state.phase==RelayState.Phase.PLAYING){listeningFeedback.audioStarted();acknowledgeConnection(connections,0);}
+            updateMediaState();if (mediaSession != null && (running || state.phase == RelayState.Phase.PAUSED)) getSystemService(NotificationManager.class).notify(1, notification()); });
+    }
+    private void endListeningFeedback() {
+        if(listeningFeedback.disconnected())ConnectionChime.disconnected(this,settings);
+    }
+    private void acknowledgeConnection(int connection, int attempt) {
+        if(liveInstance!=this||userStopped||connections!=connection||(state.phase!=RelayState.Phase.PLAYING && (handoff==null||!handoff.supported()||!handoff.readyForAudio()))||!canPlay())return;
+        ConnectionChime.connected(this,settings);
+        // A Bluetooth route can settle after the desktop accepts the listening session.
+        if(attempt<4)main.postDelayed(()->acknowledgeConnection(connection,attempt+1),500);
     }
     private void mediaAction(String action) {
         try { startService(new Intent(this,RelayService.class).setAction(action)); }
@@ -666,6 +774,7 @@ public class RelayService extends Service {
         }
     }
     private void requestStop() {
+        endListeningFeedback();
         ++startTicket; settings.controlsSource(""); main.removeCallbacks(finishPausedService);
         pendingOutputOnConnect = -1;
         userStopped = true; requestedMac = false; focusGranted = false; profileReady = false;
@@ -713,10 +822,12 @@ public class RelayService extends Service {
         }, "relay-disconnect").start();
     }
     @Override public void onDestroy() {
+        endListeningFeedback();
         if (liveInstance == this) liveInstance = null;
         running = false; requestedMac = false; focusGranted = false; outputControlSupported = false; computerOutputSelected = false;
         generation.incrementAndGet(); mute(); closeConnection();
         if (worker != null) worker.interrupt();
+        try { connectivity.unregisterNetworkCallback(networkCallback); } catch(IllegalArgumentException ignored) { }
         main.removeCallbacksAndMessages(null); locks.release(); discovery.stop();
         audio.unregisterAudioDeviceCallback(devices); unregisterReceiver(noisy); audio.abandonAudioFocusRequest(focus);
         if (worker == null || !worker.isAlive()) PhoneAudioSession.release(this);

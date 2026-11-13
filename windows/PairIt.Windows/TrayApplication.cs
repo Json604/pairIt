@@ -20,11 +20,11 @@ internal sealed class TrayApplication : ApplicationContext
         icon = CreateIcon();
         form = new CompanionForm(sessions, identity) { Icon = icon };
         var menu = new ContextMenuStrip();
-        menu.Items.Add("Open PairIt", null, (_, _) => form.Reveal());
+        menu.Items.Add("Open PairIt - AudioRelay", null, (_, _) => form.Reveal());
         menu.Items.Add("Stop all audio", null, async (_, _) => await form.StopAllAsync());
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Exit PairIt", null, async (_, _) => await ExitAsync());
-        tray = new NotifyIcon { Text = "PairIt · Windows preview", Icon = icon, Visible = true, ContextMenuStrip = menu };
+        menu.Items.Add("Exit PairIt - AudioRelay", null, async (_, _) => await ExitAsync());
+        tray = new NotifyIcon { Text = "PairIt - AudioRelay", Icon = icon, Visible = true, ContextMenuStrip = menu };
         tray.MouseClick += (_, args) => { if (args.Button == MouseButtons.Left) { if (form.Visible) form.Hide(); else form.Reveal(); } };
         sessions.StatusChanged += StatusChanged;
         sessions.PairingAcknowledged += PairingAcknowledged;
@@ -42,14 +42,16 @@ internal sealed class TrayApplication : ApplicationContext
             form.BeginInvoke(() =>
             {
                 if (!exiting && !form.IsDisposed)
-                    tray.ShowBalloonTip(4000, "Phone paired", "Pairing saved. Open PairIt to choose where to listen.", ToolTipIcon.Info);
+                {
+                    form.ShowPaired();
+                }
             });
         }
         catch (InvalidOperationException) { /* Shutdown raced the pairing acknowledgment. */ }
     }
     private async void PowerChanged(object sender, PowerModeChangedEventArgs args)
     {
-        if (args.Mode == PowerModes.Suspend) await StopForSystemEventAsync();
+        if (args.Mode == PowerModes.Suspend) await StopForSystemEventAsync(preserveSharing: true);
     }
     private async void SessionChanged(object sender, SessionSwitchEventArgs args)
     {
@@ -62,9 +64,15 @@ internal sealed class TrayApplication : ApplicationContext
             catch { /* Shutdown may already be draining the same resources. */ }
         }
     }
-    private async Task StopForSystemEventAsync()
+    private async Task StopForSystemEventAsync(bool preserveSharing = false)
     {
-        try { await sessions.ConfigureAsync(sessions.CurrentSettings with { MicrophoneEnabled = false, SharingEnabled = false }); }
+        try {
+            // End live capture before sleep, but retain the user's sharing choice.
+            // The listener can admit a fresh authenticated phone after wake; an
+            // explicit Stop still clears SharingEnabled and is never undone here.
+            var current = sessions.CurrentSettings;
+            await sessions.ConfigureAsync(current with { MicrophoneEnabled = false, SharingEnabled = preserveSharing && current.SharingEnabled });
+        }
         catch { /* Shutdown may already be draining the same resources. */ }
     }
 
@@ -104,8 +112,9 @@ internal sealed class TrayApplication : ApplicationContext
         using var graphics = Graphics.FromImage(bitmap);
         graphics.SmoothingMode = SmoothingMode.AntiAlias;
         using var accent = new Pen(PairItAppearance.Orange, 3.5f);
-        graphics.DrawEllipse(accent, 3, 8, 16, 16);
-        graphics.DrawEllipse(accent, 13, 8, 16, 16);
+        graphics.DrawArc(accent, 6, 4, 20, 24, 180, 180);
+        graphics.DrawLine(accent, 6, 16, 6, 26);
+        graphics.DrawLine(accent, 26, 16, 26, 26);
         var handle = bitmap.GetHicon();
         try { using var borrowed = Icon.FromHandle(handle); return (Icon)borrowed.Clone(); }
         finally { DestroyIcon(handle); }

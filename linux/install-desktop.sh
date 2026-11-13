@@ -7,7 +7,7 @@ mkdir -p "$launcher_dir"
 cat > "$launcher_dir/pairit.desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application
-Name=PairIt
+Name=PairIt - AudioRelay
 Comment=Computer audio through your phone
 Exec="$app_dir/PairIt"
 Icon=$app_dir/PairIt.ico

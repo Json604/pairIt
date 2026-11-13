@@ -24,8 +24,9 @@ enum OutputRoute {
         return type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP || (Build.VERSION.SDK_INT >= 31
                 && (type == AudioDeviceInfo.TYPE_BLE_HEADSET || type == AudioDeviceInfo.TYPE_BLE_SPEAKER));
     }
-    AudioDeviceInfo find(AudioManager audio) {
-        try { for (AudioDeviceInfo device : audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS)) if (accepts(device)) return device; }
+    AudioDeviceInfo find(AudioManager audio) { return find(audio, -1); }
+    AudioDeviceInfo find(AudioManager audio, int selectedId) {
+        try { for (AudioDeviceInfo device : audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS)) if (accepts(device) && (selectedId < 0 || device.getId() == selectedId)) return device; }
         catch (SecurityException ignored) { }
         return null;
     }

@@ -14,6 +14,8 @@ final class RelayPlayback {
     private var started: Double = 0
     private var previous: UInt32?
     private var fadeFrames = 0
+    private var feedbackFrame: Int?
+    func requestConnectionFeedback() { feedbackFrame = 0 }
     private var estimates: [Double] = []
     private var lastEstimate: Double = 0
     private var lockedEstimate = false
@@ -44,6 +46,7 @@ final class RelayPlayback {
     }
     private func resetEpoch() {
         scheduled = 0; sourceAnchor = 0; previous = nil; playing = false
+        feedbackFrame = nil
         fadeFrames = 0; estimates.removeAll(); lockedEstimate = false; lastEstimate = 0
         lastDrift = 0; referencePhase = nil; filteredError = 0; speed.rate = 1
     }
@@ -81,9 +84,11 @@ final class RelayPlayback {
             for frame in 0..<Int(packet.frames) {
                 let totalFade = max(1, Int(format.sampleRate * 0.005))
                 let gain: Float = fadeFrames > 0 ? Float(totalFade - fadeFrames) / Float(totalFade) : 1
+                let feedback = feedbackFrame.map { ConnectionTone.sample(frame: $0, rate: format.sampleRate) } ?? 0
+                if let frame = feedbackFrame { feedbackFrame = frame + 1 < Int(format.sampleRate * ConnectionTone.duration) ? frame + 1 : nil }
                 for channel in 0..<2 {
                     let value = Int16(littleEndian: raw.loadUnaligned(fromByteOffset: (frame * 2 + channel) * 2, as: Int16.self))
-                    channels[channel][frame] = Float(value) / 32768 * gain
+                    channels[channel][frame] = max(-1, min(1, Float(value) / 32768 * gain + feedback))
                 }
                 fadeFrames = max(0, fadeFrames - 1)
             }

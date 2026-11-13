@@ -79,6 +79,35 @@ with tempfile.TemporaryDirectory(prefix='pairit-synthetic-identity-') as directo
             require(line(s)==b'OK PAIR1\n','Pairing confirmation reaches the computer before audio starts')
             require(closed(s),'Pairing confirmation ends without opening an audio session')
         require(stats()['pairings']==1 and stats()['sourceStarts']==0,'Confirmed pairing produces feedback without starting capture')
+        with connect('REQUEST1 bad') as s:
+            require(closed(s),'Malformed nearby request cannot open approval or obtain credentials')
+        nonce=secrets.token_hex(32)
+        with connect('REQUEST1 '+nonce) as s:
+            expected=hashlib.sha256((pin+nonce).encode()).hexdigest()[:16].upper()
+            expected=' '.join(expected[i:i+4] for i in range(0,16,4))
+            require(wait_for(lambda: stats()['requestCode']==expected),'Comparison code binds certificate and request nonce')
+            with connect('REQUEST1 '+secrets.token_hex(32)) as second:
+                require(closed(second),'Only one pending nearby request is admitted')
+            s.settimeout(.15)
+            try:
+                s.recv(1)
+                raise AssertionError('Credentials sent before approval')
+            except socket.timeout: pass
+            s.settimeout(3)
+            command('decline')
+            require(closed(s),'Declining nearby request releases no credentials')
+        with connect('REQUEST1 '+secrets.token_hex(32)) as s:
+            require(closed(s),'Repeated nearby prompts are rate limited')
+        require(stats()['sourceStarts']==0,'Nearby requests do not start audio capture')
+        time.sleep(10.1)
+        nonce=secrets.token_hex(32)
+        with connect('REQUEST1 '+nonce) as s:
+            expected=hashlib.sha256((pin+nonce).encode()).hexdigest()[:16].upper()
+            expected=' '.join(expected[i:i+4] for i in range(0,16,4))
+            require(wait_for(lambda: stats()['requestCode']==expected),'New request obtains a fresh comparison code')
+            command('approve')
+            require(line(s)==('OK REQUEST1 '+token+'\n').encode(),'Explicit desktop approval returns credentials over pinned TLS')
+            require(closed(s),'Approved request closes without starting playback')
         with connect(token+' MIC1') as s:require(line(s)==b'ERR DISABLED\n','Mic requires desktop opt-in')
         command('enable');time.sleep(.05)
         with connect(token+' MIC1') as s:

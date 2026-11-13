@@ -10,31 +10,21 @@ func draw(size: Int, mac: Bool, insetTile: Bool = true) -> CGImage {
     let context = CGContext(data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: size * 4, space: space, bitmapInfo: info)!
     context.scaleBy(x: CGFloat(size) / 1024, y: CGFloat(size) / 1024)
     if mac { context.addPath(CGPath(roundedRect: CGRect(x: 62, y: 62, width: 900, height: 900), cornerWidth: 202, cornerHeight: 202, transform: nil)); context.clip() }
-    let gradient = CGGradient(colorsSpace: space, colors: [rgb(1,0.35,0.12),rgb(1,0.80,0.66),rgb(0.99,0.99,0.98)] as CFArray, locations: [0,0.5,1])!
-    context.drawLinearGradient(gradient, start: CGPoint(x: 850,y: 0), end: CGPoint(x: 220,y: 1024), options: [.drawsBeforeStartLocation,.drawsAfterEndLocation])
-    context.setFillColor(rgb(1,1,1,0.10)); context.fillEllipse(in: CGRect(x: -100, y: 420, width: 1060, height: 1060))
-    if insetTile {
-        context.setStrokeColor(rgb(1,1,1,0.27)); context.setLineWidth(2)
-        context.strokeEllipse(in: CGRect(x: 160,y: 160,width: 704,height: 704))
-        let card = CGPath(roundedRect: CGRect(x: 238,y: 236,width: 548,height: 548), cornerWidth: 142, cornerHeight: 142, transform: nil)
-        context.saveGState(); context.addPath(card); context.clip()
-        let frost = CGGradient(colorsSpace: space, colors: [rgb(1,1,1,0.08),rgb(1,1,1,0.46)] as CFArray, locations: [0,1])!
-        context.drawLinearGradient(frost, start: CGPoint(x: 760,y: 220), end: CGPoint(x: 260,y: 820), options: [])
-        context.restoreGState(); context.addPath(card); context.setStrokeColor(rgb(1,1,1,0.65)); context.setLineWidth(3); context.strokePath()
-    } else {
-        // iOS supplies the outer icon mask. Keep the artwork edge-to-edge.
-        context.translateBy(x: 512, y: 512)
-        context.scaleBy(x: 1.35, y: 1.35)
-        context.translateBy(x: -512, y: -512)
+    // Keep the approved mark identical across platforms; only the outer mask differs.
+    let gradient = CGGradient(colorsSpace: space, colors: [rgb(0.04,0.42,0.86),rgb(0.025,0.12,0.26),rgb(0,0,0)] as CFArray, locations: [0,0.55,1])!
+    context.drawLinearGradient(gradient, start: CGPoint(x: 900,y: 0), end: CGPoint(x: 180,y: 1024), options: [.drawsBeforeStartLocation,.drawsAfterEndLocation])
+    // Original PairIt headphones, recolored for the approved blue/black palette.
+    context.translateBy(x: 512,y: 512)
+    context.scaleBy(x: 1.5,y: 1.5)
+    context.translateBy(x: -512,y: -512)
+    context.setStrokeColor(rgb(0.97,0.97,0.97));context.setLineWidth(35);context.setLineCap(.round)
+    let arch = CGMutablePath();arch.move(to:CGPoint(x:356,y:445));arch.addLine(to:CGPoint(x:356,y:535))
+    arch.addCurve(to:CGPoint(x:668,y:535),control1:CGPoint(x:356,y:750),control2:CGPoint(x:668,y:750));arch.addLine(to:CGPoint(x:668,y:445))
+    context.addPath(arch);context.strokePath()
+    context.setFillColor(rgb(0.97,0.97,0.97))
+    for x in [337,605] {
+        context.addPath(CGPath(roundedRect:CGRect(x:x,y:367,width:82,height:162),cornerWidth:38,cornerHeight:38,transform:nil));context.fillPath()
     }
-    context.setShadow(offset: CGSize(width: 0,height: -5), blur: 12,color: rgb(0.2,0.1,0.05,0.12))
-    context.setStrokeColor(rgb(0.098,0.098,0.098)); context.setLineWidth(35); context.setLineCap(.round)
-    let arch = CGMutablePath(); arch.move(to: CGPoint(x: 356,y: 445)); arch.addLine(to: CGPoint(x: 356,y: 535))
-    arch.addCurve(to: CGPoint(x: 668,y: 535), control1: CGPoint(x: 356,y: 750), control2: CGPoint(x: 668,y: 750)); arch.addLine(to: CGPoint(x: 668,y: 445))
-    context.addPath(arch); context.strokePath()
-    context.setFillColor(rgb(0.098,0.098,0.098))
-    context.addPath(CGPath(roundedRect: CGRect(x: 337,y: 367,width: 82,height: 162), cornerWidth: 38,cornerHeight: 38,transform: nil)); context.fillPath()
-    context.addPath(CGPath(roundedRect: CGRect(x: 605,y: 367,width: 82,height: 162), cornerWidth: 38,cornerHeight: 38,transform: nil)); context.fillPath()
     return context.makeImage()!
 }
 func save(_ image: CGImage, _ path: String) {

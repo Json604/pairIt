@@ -26,6 +26,7 @@ struct PairedMac: Codable {
         raw += String(repeating: "=", count: (4 - raw.count % 4) % 4)
         guard let data = Data(base64Encoded: raw), let value = try? JSONDecoder().decode(PairedMac.self, from: data),
               validHost(value.host),
+              value.pin.utf8.count == 64, value.token.utf8.count == 64,
               value.pin.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil,
               value.token.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil else { throw PairingError.invalidCode }
         return value

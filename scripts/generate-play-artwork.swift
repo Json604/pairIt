@@ -21,13 +21,13 @@ func text(_ c:CGContext,_ text:String,_ x:CGFloat,_ y:CGFloat,_ size:CGFloat,_ w
 let iconURL = root.appendingPathComponent("design/PlayStoreIcon.png")
 let iconData = try! Data(contentsOf: iconURL)
 try! iconData.write(to: root.appendingPathComponent("release/google-play/graphics/icon-512.png"))
-let feature=context(1024,500);feature.setFillColor(color(0.99,0.98,0.97));feature.fill(CGRect(x:0,y:0,width:1024,height:500))
-let wash=CGGradient(colorsSpace:space,colors:[color(0.99,0.98,0.97),color(1,0.77,0.60)] as CFArray,locations:[0,1])!
+let feature=context(1024,500);feature.setFillColor(color(0,0,0));feature.fill(CGRect(x:0,y:0,width:1024,height:500))
+let wash=CGGradient(colorsSpace:space,colors:[color(0,0,0),color(0.08,0.35,0.77)] as CFArray,locations:[0,1])!
 feature.drawLinearGradient(wash,start:CGPoint(x:500,y:250),end:CGPoint(x:1024,y:250),options:[])
-let ink=NSColor(red:0.10,green:0.10,blue:0.10,alpha:1)
+let ink=NSColor.white
 text(feature,"PairIt",64,400,24,.semibold,ink)
 text(feature,"Computer audio.",64,272,56,.semibold,ink);text(feature,"Same headphones.",64,202,56,.semibold,ink)
-text(feature,"Keep them connected to your phone.",67,137,22,.regular,NSColor(red:0.36,green:0.32,blue:0.29,alpha:1))
-headphones(feature,704,135,265,color(0.10,0.10,0.10))
-text(feature,"MAC / WINDOWS → ANDROID",67,53,13,.medium,NSColor(red:0.36,green:0.32,blue:0.29,alpha:1))
+text(feature,"Keep them connected to your phone.",67,137,22,.regular,NSColor(white:0.8,alpha:1))
+headphones(feature,704,135,265,color(1,1,1))
+text(feature,"MAC / WINDOWS / LINUX → ANDROID / IPHONE",67,53,13,.medium,NSColor(white:0.8,alpha:1))
 save(feature,"release/google-play/graphics/feature-1024x500.png")

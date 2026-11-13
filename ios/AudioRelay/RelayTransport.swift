@@ -31,8 +31,27 @@ final class RelayTransport {
     private let port: NWEndpoint.Port
     private var connection: NWConnection?
     private var browser: NWBrowser?
+    private var pathMonitor: NWPathMonitor?
     private var discovered: NWEndpoint?
     private var timer: DispatchSourceTimer?
+    private var healthTimer: DispatchSourceTimer?
+    private var lastTrafficAt = RelayClock.nanoseconds
+    var onUnavailable: (() -> Void)?
+    private func watchConnection() {
+        healthTimer?.cancel()
+        lastTrafficAt = RelayClock.nanoseconds
+        let health = DispatchSource.makeTimerSource(queue: queue)
+        health.schedule(deadline: .now() + .milliseconds(500), repeating: .milliseconds(500))
+        health.setEventHandler { [weak self] in
+            guard let self, self.running else { return }
+            if self.intent != "RESUME" || self.controlStatus & 192 == 192 { self.lastTrafficAt = RelayClock.nanoseconds; return }
+            if RelayClock.nanoseconds - self.lastTrafficAt >= 15_000_000_000 {
+                self.lastTrafficAt = RelayClock.nanoseconds
+                self.reconnect()
+            }
+        }
+        healthTimer = health; health.resume()
+    }
     private var bytes = Data()
     private var running = false
     private var retry = 0, pingCount = 0
@@ -45,6 +64,12 @@ final class RelayTransport {
     private var compensation: Int?
     private var intent = "RESUME", intentToken: UInt32 = 1, sentToken: UInt32 = 0
     private var controlStatus: UInt32 = 0
+    private var acknowledgedConnection = 0
+    /// Called only after authenticated audio has actually started, on the transport queue.
+    func claimConnectionFeedback() -> Bool {
+        guard connections > 0, acknowledgedConnection != connections else { return false }
+        acknowledgedConnection = connections; return true
+    }
     private var capabilitiesKnown = false
     private var requestedComputerOutput: Bool?
     private var outputRequestPing: Int64?
@@ -64,11 +89,33 @@ final class RelayTransport {
     func start() {
         if running && connection != nil { return }
         running = true
+        browser?.cancel(); pathMonitor?.cancel()
+        let monitor = NWPathMonitor()
+        var receivedInitialPath = false
+        monitor.pathUpdateHandler = { [weak self, weak monitor] path in
+            guard let self, let monitor, self.pathMonitor === monitor, self.running, self.intent == "RESUME",
+                  UserDefaults.standard.object(forKey: "trustedAutoReconnect") as? Bool != false else { return }
+            // NWPathMonitor first reports the existing path immediately. Treat it
+            // as a baseline, not a network change that cancels the initial TLS attempt.
+            guard receivedInitialPath else { receivedInitialPath = true; return }
+            if path.status == .satisfied, self.connection?.state != .ready {
+                self.retryTicket += 1
+                let old = self.connection; self.connection = nil; old?.cancel()
+                self.connect()
+            }
+        }
+        pathMonitor = monitor; monitor.start(queue: queue)
+        watchConnection()
         let browser = NWBrowser(for: .bonjour(type: "_audiorelay._tcp", domain: nil), using: .tcp)
-        browser.browseResultsChangedHandler = { [weak self] results, _ in
-            guard let self else { return }
+        browser.browseResultsChangedHandler = { [weak self, weak browser] results, _ in
+            guard let self, let browser, self.browser === browser, self.running else { return }
             self.discovered = results.first(where: { result in
-                if case .service(let name, _, _, _) = result.endpoint { return name == "AudioRelay-" + self.mac.pin.prefix(8) }
+                if case .service(let name, _, _, _) = result.endpoint {
+                    let expected = "AudioRelay-" + self.mac.pin.prefix(8)
+                    // Bonjour adds a numeric suffix after a name collision. The full
+                    // certificate pin still authenticates the resolved endpoint.
+                    return name == expected || name.range(of: "^" + NSRegularExpression.escapedPattern(for: expected) + " [(][2-9][0-9]?[)]$", options: .regularExpression) != nil
+                }
                 return false
             })?.endpoint
         }
@@ -80,7 +127,7 @@ final class RelayTransport {
         guard connection != nil else { suspend(); return }
         setIntent("RELEASE")
         // Keep this transport alive for its correlated release ACK. A lost
-        // connection deliberately leaves a desktop hold, never a speaker burst.
+        // connection restores the desktop output when its last live listener leaves.
         let ticket = intentToken
         queue.asyncAfter(deadline: .now() + 2) { [self] in
             if intent == "RELEASE", intentToken == ticket { suspend() }
@@ -88,11 +135,14 @@ final class RelayTransport {
     }
     func suspend() {
         running = false; retryTicket += 1
+        healthTimer?.cancel(); healthTimer = nil
         timer?.cancel(); timer = nil; browser?.cancel(); browser = nil
+        pathMonitor?.cancel(); pathMonitor = nil
         let old = connection; connection = nil; old?.cancel(); bytes.removeAll()
     }
     func park(_ reason: String) { setIntent(reason) }
     func resume() {
+        watchConnection()
         setIntent("RESUME")
         // Playback may have been rebuilt while this control socket remained
         // connected. Reapply the current destination even when its bits did not change.
@@ -161,7 +211,8 @@ final class RelayTransport {
         clockSamples = 0; bestRTT = .max; clockWindow = 0; pingCount = 0; bytes.removeAll()
         capabilitiesKnown = false; controlStatus = 0; intentToken = 1; sentToken = 0
         outputRequestPing = nil // Retry an unacknowledged user choice on the new socket.
-        let parameters = RelaySecurity.parameters(pin: mac.pin, queue: queue)
+        var identityRejected = false
+        let parameters = RelaySecurity.parameters(pin: mac.pin, queue: queue) { identityRejected = true }
         let endpoint = hostOverride.map { NWEndpoint.hostPort(host: .init($0), port: port) } ?? discovered ?? .hostPort(host: .init(mac.host), port: port)
         let current = NWConnection(to: endpoint, using: parameters); connection = current
         current.stateUpdateHandler = { [weak self, weak current] state in
@@ -172,7 +223,9 @@ final class RelayTransport {
                 self.send(self.mac.token + "\nHELLO " + RelayInstallation.identifier + "\n")
                 if let value = self.compensation { self.send("SYNC \(value)\n") }
                 self.onState?("Getting audio ready"); self.startTimer(); self.receive(current)
-            case .failed: self.reconnect()
+            case .failed:
+                if identityRejected { self.suspend(); self.onUnavailable?() }
+                else { self.reconnect() }
             case .waiting: self.onState?("Waiting for your computer and local network")
             default: break
             }
@@ -186,8 +239,8 @@ final class RelayTransport {
     }
     private func reconnect() {
         guard running, connection != nil else { return }
-        if intent != "RESUME" {
-            suspend(); onState?("Control connection ended. Resume in PairIt to reconnect."); return
+        if intent != "RESUME" || UserDefaults.standard.object(forKey: "trustedAutoReconnect") as? Bool == false {
+            suspend(); onUnavailable?(); return
         }
         let old = connection; connection = nil; old?.cancel(); timer?.cancel(); timer = nil
         bytes.removeAll(); onReset?(); onState?("Reconnecting to your computer")
@@ -243,18 +296,20 @@ final class RelayTransport {
                     if roundTrip < bestRTT { bestRTT = roundTrip; clockOffset = Int64(clamping: sent) + roundTrip / 2 - Int64(clamping: server) }
                     clockSamples += 1
                 }
+                lastTrafficAt = RelayClock.nanoseconds
                 bytes.removeFirst(24); acceptControl(status, echoedPing: sent); continue
             }
             guard magic == 0x31415342 else { return false }
             let sequence: UInt32 = integer(at: 4), rate: UInt32 = integer(at: 8), frames: UInt32 = integer(at: 12)
             let captured: UInt64 = integer(at: 16)
-            if frames == 0 && captured == 0 && rate == 48000 { bytes.removeFirst(24); continue }
+            if frames == 0 && captured == 0 && rate == 48000 { lastTrafficAt = RelayClock.nanoseconds; bytes.removeFirst(24); continue }
             guard (rate == 48000 || rate == 44100), frames > 0, frames <= 8192, captured <= UInt64(Int64.max) else { return false }
             let length = 24 + Int(frames) * 4
             guard bytes.count >= length else { return true }
             let pcm = Data(bytes.dropFirst(24).prefix(Int(frames) * 4)); bytes.removeFirst(length)
             if clockSamples >= 3, intent == "RESUME", capabilitiesKnown, requestedComputerOutput != true, controlStatus & 192 != 192,
                controlStatus & 1 == 0 || (controlStatus >> 8 == intentToken && controlStatus & 4 == 0) {
+                lastTrafficAt = RelayClock.nanoseconds
                 onPacket?(RelayPacket(sequence: sequence, rate: rate, frames: frames, capturedAt: Int64(captured), pcm: pcm), clockOffset)
             }
         }

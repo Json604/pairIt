@@ -46,9 +46,18 @@ func runGateway() throws {
     let pairingLock = NSLock()
     var pairings = 0
     gateway.onPairingConfirmed = { pairingLock.lock(); pairings += 1; pairingLock.unlock() }
+    var pendingApproval: ((Bool) -> Void)?
+    var requestCode = ""
+    gateway.onPairingRequest = { code, completion in
+        pairingLock.lock(); requestCode = code; pendingApproval = completion; pairingLock.unlock()
+    }
     try source.start(); try gateway.start()
     print("READY"); fflush(stdout)
     while let line = readLine() {
+        if line == "approve" || line == "decline" {
+            pairingLock.lock(); let answer = pendingApproval; pendingApproval = nil; pairingLock.unlock()
+            answer?(line == "approve")
+        }
         if line == "enable" { gateway.configureMicrophone(enabled: true, uid: "synthetic") }
         if line == "disable" { gateway.configureMicrophone(enabled: false, uid: "synthetic") }
         if line == "bad-output" { gateway.configureMicrophone(enabled: true, uid: "fail") }
@@ -60,7 +69,7 @@ func runGateway() throws {
                                        "micAccepting": SyntheticMicrophone.accepting, "maxMicAccepting": SyntheticMicrophone.maxAccepting]
             SyntheticMicrophone.lock.unlock()
             Capture.lock.lock(); result["sourceStarts"] = Capture.starts; result["sourceStops"] = Capture.stops; Capture.lock.unlock()
-            pairingLock.lock(); result["pairings"] = pairings; pairingLock.unlock()
+            pairingLock.lock(); result["pairings"] = pairings; result["requestCode"] = requestCode; pairingLock.unlock()
             print(String(data: try JSONSerialization.data(withJSONObject: result), encoding: .utf8)!); fflush(stdout)
         } else if line == "stop" { break }
         else { print("OK"); fflush(stdout) }

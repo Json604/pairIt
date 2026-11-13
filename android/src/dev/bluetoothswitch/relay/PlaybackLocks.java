@@ -20,6 +20,7 @@ final class PlaybackLocks {
         if (network && !wifi.isHeld()) wifi.acquire();
         if (!network && wifi.isHeld()) wifi.release();
     }
+    void reconnectWindow() { cpu.acquire(10000); }
     void release() {
         if (cpu.isHeld()) cpu.release();
         if (wifi.isHeld()) wifi.release();

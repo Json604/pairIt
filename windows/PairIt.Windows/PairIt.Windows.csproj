@@ -8,11 +8,11 @@
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
     <AssemblyName>PairIt</AssemblyName>
-    <Version>1.1.0-preview.10</Version>
+    <Version>1.1.0-preview.11</Version>
     <AssemblyVersion>1.1.0.0</AssemblyVersion>
-    <FileVersion>1.1.0.10</FileVersion>
+    <FileVersion>1.1.0.11</FileVersion>
     <Company>PairIt</Company>
-    <Product>PairIt Windows Preview</Product>
+    <Product>PairIt - AudioRelay</Product><AssemblyTitle>PairIt - AudioRelay</AssemblyTitle>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>PairIt.ico</ApplicationIcon>
   </PropertyGroup>
@@ -21,6 +21,7 @@
     <FrameworkReference Update="Microsoft.WindowsDesktop.App.WindowsForms" RuntimeFrameworkVersion="10.0.15" />
     <ProjectReference Include="../PairIt.Core/PairIt.Core.csproj" />
     <PackageReference Include="NAudio.Wasapi" Version="[2.2.1]" />
+    <PackageReference Include="QRCoder" Version="[1.8.1]" />
     <None Include="../licenses/*" Link="licenses/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="../../design/fonts/*" Link="Fonts/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="../../README.md" Link="README.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />

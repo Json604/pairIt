@@ -12,6 +12,15 @@ final class PairingCode {
         this.host = host; this.pin = pin; this.token = token; this.name = name; this.platform = platform;
     }
 
+    static PairingCode approved(NearbyDevices.Device device,String token) {
+        if(!RelaySettings.validHost(device.host)||!device.pin.matches("[a-f0-9]{64}")||!token.matches("[a-f0-9]{64}"))throw new IllegalArgumentException("Invalid pairing response");
+        return new PairingCode(device.host,device.pin,token,device.name,device.platform);
+    }
+    static PairingCode saved(RelaySettings settings,String host) {
+        if(!settings.paired()||!RelaySettings.validHost(host))throw new IllegalArgumentException("Invalid saved pairing");
+        return new PairingCode(host,settings.pin(),settings.token(),settings.computerName(),settings.platform());
+    }
+
     static PairingCode parse(String code) throws Exception {
         if (code == null || code.length() > 4096) throw new IllegalArgumentException("Invalid pairing code");
         String encoded = code.trim().replaceFirst("^audiorelay://pair/", "");

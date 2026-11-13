@@ -15,6 +15,7 @@ struct PairingView: View {
     @State private var saving = false
     @State private var savedName: String?
     @State private var confirmation: Bool?
+    @State private var automaticStart = false
     @State private var finishedAdvertisement = false
     @State private var mounted = false
     @State private var adFlow: Int?
@@ -34,11 +35,13 @@ struct PairingView: View {
                                      : confirmation == nil ? "Saved on this iPhone. Confirming with \(savedName)…"
                                      : "Saved on this iPhone. Your computer has not confirmed yet. Keep PairIt open on the same local network; you can still try Start audio.")
                                     .font(.subheadline).foregroundStyle(RelayPalette.secondary)
+                                if automaticStart { ProgressView("Connecting…") } else {
                                 Button("Start audio") {
                                     receiver.connect()
                                     dismiss()
                                 }.buttonStyle(RelayPrimaryButtonStyle()).disabled(!finishedAdvertisement)
                                 Button("Later") { dismiss() }.buttonStyle(RelayQuietButtonStyle())
+                                }
                             }.padding(.top, 24)
                         } else {
                         VStack(alignment: .leading, spacing: 12) {
@@ -52,7 +55,7 @@ struct PairingView: View {
                                 .frame(width: 90, height: 90).background(RelayPalette.sand, in: RoundedRectangle(cornerRadius: 24))
                             Button { error = ""; scanning = true } label: { Label("Scan QR code", systemImage: "camera") }
                                 .buttonStyle(RelayPrimaryButtonStyle())
-                            Text("Camera images stay on your iPhone. You’ll confirm before connecting.")
+                            Text("Scan your computer’s PairIt code to pair.")
                                 .font(.caption).foregroundStyle(RelayPalette.secondary)
                         }.padding(.vertical, 12)
                         VStack(alignment: .leading, spacing: 13) {
@@ -67,7 +70,7 @@ struct PairingView: View {
                                     .font(.subheadline).foregroundStyle(RelayPalette.deep)
                             }
                             if !error.isEmpty { Text(error).font(.footnote).foregroundStyle(Color(red: 0.6, green: 0.16, blue: 0.12)).accessibilityLabel("Error: \(error)") }
-                            Button(action: save) {
+                            Button(action: { save() }) {
                                 HStack(spacing: 8) {
                                     if saving { ProgressView().tint(.white).accessibilityHidden(true) }
                                     Text(saving ? "Saving…" : "Pair computer")
@@ -96,6 +99,7 @@ struct PairingView: View {
                 }
                 .onChange(of: scenePhase) { _, phase in
                     if phase != .active {
+                        if automaticStart { actionGeneration += 1; automaticStart = false; saving = false; finishedAdvertisement = true }
                         if let adFlow { ads.pairingVideo.cancelUnshown(flow: adFlow) }
                         if !ads.fullscreenActive { finishedAdvertisement = true }
                     } else if mounted, savedName == nil { adFlow = ads.pairingVideo.begin(audioIdle: receiver.audioIdleForAdvertisement) }
@@ -109,7 +113,10 @@ struct PairingView: View {
                     ScannerSheet { result in
                         scanning = false
                         switch result {
-                        case .success(let value): code = value; error = ""
+                        case .success(let value):
+                            code = value; error = ""
+                            if (try? PairedMac.parse(value)) != nil { save(immediate: true) }
+                            else { error = "This is not a PairIt pairing code." }
                         case .failure(let message): error = message.localizedDescription
                         }
                     }
@@ -119,25 +126,44 @@ struct PairingView: View {
                 } message: { Text("You can pair again using the code in the desktop app.") }
         }.tint(RelayPalette.deep).foregroundStyle(RelayPalette.ink)
     }
-    private func save() {
+    private func save(immediate: Bool = false) {
         guard !saving else { return }
         do {
             let mac = try PairedMac.parse(code)
             let action = actionGeneration, flow = adFlow
-            saving = true; finishedAdvertisement = false
-            DispatchQueue.main.async {
+            saving = true; finishedAdvertisement = false; automaticStart = immediate
+            Task { @MainActor in
+                if immediate {
+                    // Verify scanned credentials before replacing a working saved pairing.
+                    let verified = await PairingConfirmation.confirm(mac)
+                    guard mounted, action == actionGeneration, scenePhase == .active else { return }
+                    guard verified else {
+                        saving = false; automaticStart = false
+                        error = "Couldn’t verify this computer. Keep PairIt open on the same Wi-Fi and scan again."
+                        return
+                    }
+                }
                 guard mounted, action == actionGeneration else { return }
                 do {
-                    receiver.disconnect(); try pairing.save(mac)
-                    savedName = mac.displayName; saving = false; code = ""; confirmation = nil
-                    let hostOverride = pairing.hostOverride
-                    Task { @MainActor in
-                        let confirmed = await PairingConfirmation.confirm(mac, hostOverride: hostOverride)
-                        guard mounted, action == actionGeneration, pairing.mac?.pin == mac.pin else { return }
-                        confirmation = confirmed
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
-                        guard mounted, action == actionGeneration, savedName != nil else { return }
+                    // Save first, so Keychain errors cannot tear down the current session.
+                    try pairing.save(mac); receiver.disconnect()
+                    savedName = mac.displayName; saving = false; code = ""; confirmation = immediate ? true : nil
+                    if immediate {
+                        let start = {
+                            guard mounted, action == actionGeneration, pairing.mac?.pin == mac.pin, scenePhase == .active, !scanning else { return }
+                            finishedAdvertisement = true; receiver.connect(); dismiss()
+                        }
+                        if let flow {
+                            ads.pairingVideo.showAfterConnection(flow: flow, eligible: {
+                                mounted && action == actionGeneration && scenePhase == .active && !scanning && receiver.audioIdleForAdvertisement
+                            }, next: start)
+                        } else { start() }
+                    } else {
+                        Task { @MainActor in
+                            let confirmed = await PairingConfirmation.confirm(mac, hostOverride: pairing.hostOverride)
+                            guard mounted, action == actionGeneration, pairing.mac?.pin == mac.pin else { return }
+                            confirmation = confirmed
+                        }
                         guard let flow else { finishedAdvertisement = true; return }
                         ads.pairingVideo.showAfterPairing(flow: flow, eligible: {
                             mounted && action == actionGeneration && adFlow == flow && savedName != nil
@@ -147,7 +173,7 @@ struct PairingView: View {
                             finishedAdvertisement = true
                         }
                     }
-                } catch { showError(error) }
+                } catch { automaticStart = false; showError(error) }
             }
         } catch { showError(error) }
     }

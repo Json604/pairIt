@@ -17,16 +17,24 @@ enum RelayMotion {
     }
     static var allowsSpatialMotion: Bool {
         #if os(macOS)
-        return !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion && !keyboardInteraction
+        return false
         #else
         return !UIAccessibility.isReduceMotionEnabled
         #endif
     }
     static func feedback(reduced: Bool, pressed: Bool = false) -> Animation? {
-        keyboardInteraction ? nil : .timingCurve(0.23, 1, 0.32, 1, duration: reduced ? 0.1 : pressed ? 0.1 : 0.16)
+        #if os(macOS)
+        return .linear(duration: 0.08)
+        #else
+        return keyboardInteraction ? nil : .timingCurve(0.23, 1, 0.32, 1, duration: reduced ? 0.1 : pressed ? 0.1 : 0.16)
+        #endif
     }
     static var navigation: Animation? {
-        keyboardInteraction ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: allowsSpatialMotion ? 0.22 : 0.12)
+        #if os(macOS)
+        return nil
+        #else
+        return keyboardInteraction ? nil : allowsSpatialMotion ? .spring(response: 0.65, dampingFraction: 0.82) : .linear(duration: 0.12)
+        #endif
     }
 }
 
@@ -60,12 +68,12 @@ struct RelayControlButtonStyle: ButtonStyle {
 
 enum RelayPalette {
     static let ink = Color(red: 0.098, green: 0.098, blue: 0.098)
-    static let secondary = Color(red: 0.349, green: 0.329, blue: 0.322)
-    static let accent = Color(red: 1, green: 0.353, blue: 0.122)
+    static let secondary = Color(white: 0.38)
+    static let accent = Color(white: 0.1)
     // Compatibility names used by the existing views and route picker.
-    static let blue = Color(red: 0.72, green: 0.23, blue: 0.08)
+    static let blue = Color(white: 0.15)
     static let deep = ink
-    static let ice = Color(red: 0.961, green: 0.957, blue: 0.949)
+    static let ice = Color(white: 0.96)
     static let paper = Color(red: 0.985, green: 0.985, blue: 0.98)
     static let sand = Color.white.opacity(0.46)
     static let line = ink.opacity(0.10)
@@ -81,27 +89,14 @@ enum RelayTypography {
     }()
     static func display(_ size: CGFloat, strong: Bool = false) -> Font {
         _ = registered
-        return .custom(strong ? "ChakraPetch-SemiBold" : "ChakraPetch-Regular", size: size, relativeTo: .title2)
+        return .system(size: size, weight: strong ? .bold : .semibold)
     }
 }
 
 struct RelayBackdrop: View {
     @Environment(\.accessibilityReduceTransparency) private var reduced
     var body: some View {
-        GeometryReader { geometry in
-            ZStack {
-                LinearGradient(colors: [.white, RelayPalette.ice], startPoint: .topLeading, endPoint: .bottomTrailing)
-                if !reduced {
-                    RadialGradient(colors: [Color(red: 1, green: 0.79, blue: 0.61).opacity(0.72), .clear],
-                                   center: UnitPoint(x: -0.1, y: 0.8), startRadius: 0, endRadius: geometry.size.width * 1.05)
-                    RadialGradient(stops: [.init(color: RelayPalette.accent.opacity(0.64), location: 0),
-                                           .init(color: RelayPalette.accent.opacity(0.20), location: 0.42),
-                                           .init(color: .clear, location: 1)],
-                                   center: UnitPoint(x: 0.98, y: 0.93), startRadius: 0,
-                                   endRadius: max(geometry.size.width, geometry.size.height) * 0.77)
-                }
-            }
-        }.ignoresSafeArea().allowsHitTesting(false).accessibilityHidden(true)
+        Color(white: 0.97).ignoresSafeArea().allowsHitTesting(false).accessibilityHidden(true)
     }
 }
 
@@ -109,17 +104,8 @@ struct FrostSurface: ViewModifier {
     @Environment(\.accessibilityReduceTransparency) private var reduced
     var radius: CGFloat = 18
     func body(content: Content) -> some View {
-        content
-            .background {
-                if reduced { RoundedRectangle(cornerRadius: radius, style: .continuous).fill(RelayPalette.paper) }
-                else {
-                    RoundedRectangle(cornerRadius: radius, style: .continuous).fill(.ultraThinMaterial).opacity(0.62)
-                    RoundedRectangle(cornerRadius: radius, style: .continuous).fill(.white.opacity(0.24))
-                }
-            }
-            .overlay { RoundedRectangle(cornerRadius: radius, style: .continuous)
-                .strokeBorder(reduced ? RelayPalette.line : .white.opacity(0.85), lineWidth: 1) }
-            .shadow(color: .black.opacity(reduced ? 0 : 0.025), radius: 10, y: 4)
+        content.background(RoundedRectangle(cornerRadius: radius, style: .continuous).fill(RelayPalette.paper))
+            .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(RelayPalette.line, lineWidth: 1))
     }
 }
 
@@ -153,8 +139,8 @@ struct RelayQuietButtonStyle: ButtonStyle {
 struct RelayBrand: View {
     var body: some View {
         HStack(spacing: 8) {
-            Text("PairIt").font(RelayTypography.display(25, strong: true)).tracking(-0.7)
-            Circle().fill(RelayPalette.accent).frame(width: 6, height: 6).padding(.top, 12)
+            PairItMark().frame(width: 26, height: 26)
+            Text("PairIt").font(.system(size: 18, weight: .semibold)).tracking(-0.5)
         }.foregroundStyle(RelayPalette.ink)
     }
 }
@@ -208,5 +194,13 @@ struct RelaySettingRow: View {
                 Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(RelayPalette.secondary)
             }.contentShape(Rectangle()).padding(.vertical, 12)
         }.buttonStyle(RelayControlButtonStyle(scales: false))
+    }
+}
+
+/// Original headphones mark, shared by compact app headers.
+struct PairItMark: View {
+    var tint: Color = RelayPalette.ink
+    var body: some View {
+        Image(systemName: "headphones").resizable().scaledToFit().foregroundStyle(tint).accessibilityHidden(true)
     }
 }

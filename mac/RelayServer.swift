@@ -30,12 +30,6 @@ final class RelayServer {
     private var stopped = false
     private var micLease = false
     private var computerOutput = false
-    // A dropped parked phone must never turn a still-playing Mac into speakers.
-    // Bounded installation-owned intents survive dead peers. One phone must not
-    // release another missing listener's hold; overflow needs explicit Stop sharing.
-    private var orphanHolds = Set<String>()
-    private var unidentifiedHold = false
-    private var orphanHold: Bool { unidentifiedHold || !orphanHolds.isEmpty }
     private var primary: UUID?
     private var appliedCompensation: Double?
     private var captureFailure: String?
@@ -134,7 +128,6 @@ final class RelayServer {
             peer.intentToken = token; peer.released = command == "RELEASE"
             peer.parked = command == "PARK"; peer.active = command == "RESUME"
             peer.clear()
-            if peer.active || peer.released, let identity = peer.identity { orphanHolds.remove(identity) }
         }
         else if line == "ACTIVE 0" && peer.intentToken == 0 { peer.active = false; peer.clear() }
         else if line == "ACTIVE 1" {
@@ -148,9 +141,7 @@ final class RelayServer {
                 peer.identity = identity
                 // A reconnect may replace only the same installation's stale session.
                 for (otherID, other) in peers where otherID != id && other.identity == identity {
-                    // Transfer before stopping: a late remove must not resurrect
-                    // an old hold after the replacement's explicit RESUME.
-                    if other.parked || (other.intentToken > 0 && !other.released) { retainHold(other) }
+                    // Replace the stale connection for this installation.
                     other.parked = false; other.released = true
                     other.stop()
                 }
@@ -160,14 +151,8 @@ final class RelayServer {
     }
     private func remove(_ id: UUID) {
         lock.lock()
-        if !stopped && !computerOutput, let peer = peers[id], peer.parked || (peer.intentToken > 0 && !peer.released) { retainHold(peer) }
         peers.removeValue(forKey: id); order.removeAll { $0 == id }; lock.unlock()
         reconcile()
-    }
-    // Caller holds the server lock. Storage never grows with reconnect history.
-    private func retainHold(_ peer: RelayPeer) {
-        if let identity = peer.identity, orphanHolds.contains(identity) || orphanHolds.count < 4 { orphanHolds.insert(identity) }
-        else { unidentifiedHold = true }
     }
     private func reconcile() {
         lock.lock()
@@ -184,9 +169,8 @@ final class RelayServer {
         guard !stopped, !micLease, computerOutput != enabled else { lock.unlock(); return }
         computerOutput = enabled
         if enabled {
-            // Explicit speaker selection releases missing-listener holds, while
-            // retaining each connected phone's own playback/paused intent.
-            orphanHolds.removeAll(); unidentifiedHold = false
+            // Preserve each connected phone’s playback/paused intent.
+
             for peer in peers.values { peer.discardAudio() }
         }
         lock.unlock(); reconcile()
@@ -199,8 +183,7 @@ final class RelayServer {
         let desired = primary.flatMap { peers[$0]?.compensation }
         let count = active.count
         let parkedCount = peers.values.filter { $0.parked && !$0.closed }.count
-        let held = orphanHold || peers.values.contains { $0.parked }
-        let unavailable = orphanHold
+        let held = peers.values.contains { $0.parked && !$0.closed }
         let microphoneActive = micLease
         let speakers = computerOutput
         let shouldCapture = !stopped && !micLease && !speakers && (count > 0 || held)
@@ -225,7 +208,7 @@ final class RelayServer {
             do {
                 try next.start()
                 lock.lock()
-                if stopped || micLease || computerOutput || !(orphanHold || peers.values.contains(where: { $0.parked || ($0.active && !$0.closed) })) {
+                if stopped || micLease || computerOutput || !(peers.values.contains(where: { $0.closed == false && ($0.parked || $0.active) })) {
                     // The newly opened tap is still live until its cancellation teardown returns.
                     stoppingCapture = true; lock.unlock(); next.stop()
                     lock.lock(); startingCapture = false; stoppingCapture = false; lock.unlock(); return
@@ -241,7 +224,7 @@ final class RelayServer {
                 // Keep the control channel and listening intent so a permission
                 // or device failure can be retried without pairing/reconnecting.
                 computerOutput = true
-                orphanHolds.removeAll(); unidentifiedHold = false
+
                 for peer in peers.values { peer.discardAudio() }
                 lock.unlock()
                 captureFailure = "Capture failed: \(error)"
@@ -259,7 +242,7 @@ final class RelayServer {
                 preferences.set(desired, forKey: "videoCompensationMs")
             } catch { update("Video timing could not update. Reconnect the primary phone.") }
         }
-        update(count == 0 && held ? (unavailable ? "Phone unavailable — Mac output held" : "Mac output held for your phone") : "Relaying Mac audio → \(count) \(count == 1 ? "phone" : "phones")")
+        update(count == 0 && held ? "Mac output held for your phone" : "Relaying Mac audio → \(count) \(count == 1 ? "phone" : "phones")")
         publishReceivers(count, parkedCount, count == 0 && held ? "\(parkedCount) paused · Resume in PairIt on your phone. Media may still be playing silently." : parkedCount > 0 ? "\(count) listening · \(parkedCount) paused. Each phone returns independently." : count > 1 ? "One primary phone controls video sync. Other outputs may differ." : "Automatic timing for the active phone")
     }
     private func dispatchPackets() {
@@ -310,7 +293,7 @@ final class RelayServer {
         current.forEach { $0.stop() }
     }
     func stop() {
-        lock.lock(); stopped = true; orphanHolds.removeAll(); unidentifiedHold = false
+        lock.lock(); stopped = true;
         if listener >= 0 { shutdown(listener, SHUT_RDWR); close(listener); listener = -1 }
         let current = Array(peers.values); lock.unlock()
         current.forEach { $0.stop() }

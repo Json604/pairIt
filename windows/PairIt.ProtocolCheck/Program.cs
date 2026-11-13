@@ -20,6 +20,7 @@ internal static class Integration
     public static async Task RunAsync()
     {
         CheckReleaseDestinations();
+        DiscoveryChecks.Run();
         using var rsa = RSA.Create(2048);
         var request = new CertificateRequest("CN=PairIt synthetic integration", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         using var generated = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
@@ -115,6 +116,19 @@ internal static class Integration
         await UntilAsync(() => sessions.Status.Receivers == 0 && !sessions.Status.Capturing, "last receiver cleanup");
         Require(audio.MaximumSources == 1 && audio.SourceStarts == audio.SourceStops, "Source lifetime leaked or overlapped.");
         Console.WriteLine("PASS: slow-peer isolation, malformed-control isolation, ACTIVE transitions and last-receiver cleanup.");
+
+        // Sleep drops active sessions but preserves sharing eligibility for wake.
+        await using (var sleeping = await connector.ReceiverAsync())
+        {
+            await UntilAsync(() => sessions.Status.Capturing, "capture before sleep cleanup");
+            await sessions.ConfigureAsync(sessions.CurrentSettings with { MicrophoneEnabled = false });
+            await UntilAsync(() => sleeping.Closed && !sessions.Status.Capturing, "sleep releases capture and socket");
+            Require(sessions.CurrentSettings.SharingEnabled, "Sleep erased sharing intent.");
+        }
+        await using (var waking = await connector.ReceiverAsync())
+            await UntilAsync(() => sessions.Status.Capturing, "fresh authenticated receiver after wake");
+        await UntilAsync(() => sessions.Status.Receivers == 0 && !sessions.Status.Capturing, "wake receiver cleanup");
+        Console.WriteLine("PASS: sleep cleanup preserves sharing, and a fresh authenticated receiver can reconnect.");
 
         audio.FailSourceStartup = true;
         await sessions.ConfigureAsync(new(SourceEndpointId: "synthetic", SharingEnabled: true));

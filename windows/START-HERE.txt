@@ -1,4 +1,4 @@
-PairIt for Windows — 1.1.0 preview 9
+PairIt for Windows — 1.1.0 preview
 
 Extract the complete ZIP, then open PairIt.exe inside it.
 Keep the DLLs, runtime, Fonts and licenses folders together. The .NET runtime
@@ -6,20 +6,22 @@ is included. This x64 preview is unsigned and has not run on Windows
 in our build environment. Its API minimum is Windows 10 build 19041; use a
 supported Windows installation. ARM64 is not offered.
 
-Open PairIt from its notification-area icon. There are two tabs:
-- Audio relay: choose the Windows output your apps use, then Start sharing.
-- Listen together: select a reachable local address and copy the private
-  pairing code into each phone. Pairing saves first; start audio on the phone.
+Open PairIt from its notification-area icon. Choose Pair a phone to show a
+private QR code, then scan it in the phone app. Settings contains the audio
+source and update controls. Pair a phone enables sharing from the selected
+source; actual capture begins only when a phone requests audio.
 Keep phones on a reachable local network and allow TCP 5002 on that trusted
 private network if Windows asks. Clear the clipboard after pairing.
+Nearby discovery uses multicast UDP 5353 on the local network. If blocked,
+QR pairing still works. Discovery never broadcasts the private pairing token.
 
-Choose Phone headphones or Computer speakers under Listen on to switch while
+Choose Phone or Computer under Audio output to switch while
 keeping phone connections ready. Computer speakers stops sending phone audio;
 Windows keeps its existing local output. Switching back resumes active phones,
 while paused phones stay paused. Stop sharing ends the connections separately.
 
 Please check on Windows:
-1. The tray icon, both tabs, keyboard controls and your display scaling.
+1. The tray icon, settings and pairing windows, keyboard controls and your display scaling.
 2. Audio reaches your phone/headphones; Stop, reconnect and closing/reopening
    the tray window work. Ordinary listening continues when Windows locks.
 3. Up to four phones share one source; a held phone still occupies a slot.
@@ -46,5 +48,5 @@ visible errors. Never include private pairing codes, identity files or audio.
 Build and synthetic TLS checks passed; physical Windows/audio checks remain.
 
 Update notices: PairIt checks for new releases while in use. When available,
-Get update stays visible until you update. Download, quit PairIt, then replace
+Check for updates is available in Settings. Download, quit PairIt, then replace
 the complete extracted folder. Your pairing identity remains in your profile.

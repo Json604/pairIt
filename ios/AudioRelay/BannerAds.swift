@@ -14,11 +14,13 @@ final class BannerAds: ObservableObject {
     @Published private(set) var privacyRequired = false
     @Published var privacyMessage: String?
     @Published var fullscreenActive = false
-    @Published private(set) var pairingAdStatus = "Waiting for a new pairing"
+    @Published var openingScreen = false
+    @Published private(set) var pairingAdStatus = "Waiting for an explicit connection"
     private(set) var bannerStatus = "Not requested"
     private(set) var bannerVisible = false
     private(set) var consentRevision = 0
     lazy var pairingVideo = PairingInterstitial(ads: self)
+    lazy var appOpen = AppOpeningAds(ads: self)
     var canRequestFullscreen: Bool { initialized && !gatheringConsent && permitted }
     @Published var muted = UserDefaults.standard.object(forKey: "adSoundMuted") as? Bool ?? true {
         didSet {
@@ -38,7 +40,7 @@ final class BannerAds: ObservableObject {
         let privacy = gatheringConsent ? "Checking" : Self.testMode ? "Test mode" : permitted ? "Requests allowed" : "Requests blocked"
         return "Ad mode: \(Self.testMode ? "Google test units" : "Live")\nConsent SDK: \(privacy)"
             + "\nAd SDK: \(initialized ? "Ready" : "Not ready")\nLast banner request: \(bannerStatus)"
-            + "\nBanner visibility: \(bannerVisible ? "Visible" : "Hidden")\nPairing ad: \(pairingAdStatus)"
+            + "\nBanner visibility: \(bannerVisible ? "Visible" : "Hidden")\nConnection ad: \(pairingAdStatus)"
     }
     func updatePairingAdStatus(_ value: String) { if pairingAdStatus != value { pairingAdStatus = value } }
     fileprivate func updateBannerStatus(_ value: String) { bannerStatus = value }
@@ -50,7 +52,7 @@ final class BannerAds: ObservableObject {
         if Self.testMode { initializeIfPermitted(); return }
         guard !requestedConsent else { initializeIfPermitted(); return }
         requestedConsent = true; gatheringConsent = true
-        consentRevision += 1; pairingVideo.cancelUnshown()
+        consentRevision += 1; pairingVideo.consentChanged(); appOpen.consentChanged()
         ConsentInformation.shared.requestConsentInfoUpdate(with: RequestParameters()) { [weak self, weak presenter] error in
             Task { @MainActor in
                 guard let self else { return }
@@ -112,7 +114,7 @@ final class BannerAds: ObservableObject {
             return
         }
         setReady(false); gatheringConsent = true
-        consentRevision += 1; pairingVideo.cancelUnshown()
+        consentRevision += 1; pairingVideo.consentChanged(); appOpen.consentChanged()
         ConsentForm.presentPrivacyOptionsForm(from: presenter) { [weak self] error in
             Task { @MainActor in
                 guard let self else { return }
@@ -142,14 +144,13 @@ struct BannerAdSlot: View {
             if height > 0 {
                 Text(BannerAds.testMode ? "Advertisement · test" : "Advertisement")
                     .font(.system(size: 11)).foregroundStyle(RelayPalette.secondary)
-                    .padding(.top, 12)
+                    .padding(.top, 8)
             }
             BannerAdHost(ads: ads, active: active, height: $height)
                 .frame(maxWidth: .infinity)
                 .frame(height: height).clipped()
         }.frame(maxWidth: .infinity)
-            .padding(.bottom, height > 0 ? 4 : 0)
-            .background(.white.opacity(0.9))
+            .background(.white.opacity(0.9), ignoresSafeAreaEdges: [])
     }
 }
 
@@ -210,7 +211,7 @@ private final class BannerHostController: UIViewController, BannerViewDelegate {
         ads.begin(from: self)
         guard ads.ready else { if banner != nil { stop() }; return }
         guard Date() >= nextLoadAt else { scheduleRetry(); return }
-        let width = floor(min(600, view.bounds.width - view.safeAreaInsets.left - view.safeAreaInsets.right))
+        let width = floor(view.bounds.width - view.safeAreaInsets.left - view.safeAreaInsets.right)
         guard width >= 280, width != attemptedWidth else { return }
         stop(); attemptedWidth = width
         let size = currentOrientationAnchoredAdaptiveBanner(width: width)

@@ -90,13 +90,13 @@ final class BannerAds {
         if (destroyed || gatheringConsent || ad != null || !resumed || !allowed || android.os.SystemClock.uptimeMillis() < nextLoadAt
                 || (!BuildConfig.ADS_TEST_MODE && !consent.canRequestAds())) return;
         View parent = (View) container.getParent();
-        int width = Math.min(600, (int) ((parent.getWidth()-parent.getPaddingLeft()-parent.getPaddingRight()) / activity.getResources().getDisplayMetrics().density));
+        int width = (int) ((parent.getWidth()-parent.getPaddingLeft()-parent.getPaddingRight()) / activity.getResources().getDisplayMetrics().density);
         if (width < 1) return;
         AdSize size = AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(activity, width);
         container.setOrientation(LinearLayout.VERTICAL);
         container.setGravity(Gravity.CENTER_HORIZONTAL);
         container.setBackgroundColor(0xe6ffffff);
-        container.setPadding(0, dp(12), 0, dp(4));
+        container.setPadding(0, dp(8), 0, 0);
         TextView label = new TextView(activity);
         label.setText(BuildConfig.ADS_TEST_MODE ? "Advertisement · test" : "Advertisement");
         label.setTextColor(GlassUI.SECONDARY); label.setTextSize(11); label.setGravity(Gravity.CENTER);

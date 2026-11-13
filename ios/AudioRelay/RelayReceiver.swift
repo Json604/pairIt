@@ -36,6 +36,11 @@ final class RelayReceiver: ObservableObject {
     private var intentGeneration = 0
     private var connectionGeneration = 0 // Main thread; invalidates delayed UI callbacks after disconnect or suspension.
     private var routeUID = ""
+    private var choosingOutput = false
+    private var resumeAfterOutputChoice = false
+    var currentOutputName: String { output.currentRoute()?.portName ?? "Choose audio output" }
+    func beginOutputChoice() { choosingOutput = true; resumeAfterOutputChoice = playIntent && !computerOutput }
+    func endOutputChoice() { choosingOutput = false; resumeAfterOutputChoice = false }
     private var generation = 0
     private var reportTimer: DispatchSourceTimer?
     private var holdBackgroundTask: UIBackgroundTaskIdentifier = .invalid
@@ -47,8 +52,23 @@ final class RelayReceiver: ObservableObject {
         output = RelayOutput(rawValue: UserDefaults.standard.string(forKey: "receiverOutput") ?? "") ?? .bluetooth
         playbackMode = .reliable
         let center = NotificationCenter.default
-        observers.append(center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            guard let self, self.playIntent, !self.computerOutput, !self.waitingForComputerOutput else { return }
+        observers.append(center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] notification in
+            guard let self else { return }
+            let reason = (notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt).flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))
+            if self.choosingOutput, reason == .override || reason == .routeConfigurationChange || reason == .newDeviceAvailable {
+                let routes = AVAudioSession.sharedInstance().currentRoute.outputs
+                if let selected = RelayOutput.allCases.first(where: { !routes.isEmpty && routes.allSatisfy($0.matches) }),
+                   let route = routes.first, route.uid != self.routeUID {
+                    let resume = self.resumeAfterOutputChoice
+                    self.endOutputChoice()
+                    self.output = selected; self.headphones = route.portName
+                    UserDefaults.standard.set(selected.rawValue, forKey: "receiverOutput")
+                    self.resetDisplayedTiming()
+                    if resume { self.connect(requestPhoneOutput: false) }
+                    return
+                }
+            }
+            guard self.playIntent, !self.computerOutput, !self.waitingForComputerOutput else { return }
             guard let route = self.output.currentRoute(), route.uid == self.routeUID else {
                 self.parkListening("OUTPUT", phase: .headphones, title: "Audio output changed")
                 return
@@ -122,6 +142,7 @@ final class RelayReceiver: ObservableObject {
     }
     private func resetDisplayedTiming() { estimatedMs = nil; correction = 0; routeUID = ""; activeMode = playbackMode; modeNote = "" }
     func connect(requestPhoneOutput: Bool = true) {
+        DispatchQueue.main.async { ConnectionAcknowledgment.shared.stopSound() }
         guard !AudioPresentationGate.isPresenting else {
             publish(.idle, "Ready to listen", "Close the advertisement, then choose Computer to start audio."); return
         }
@@ -199,7 +220,19 @@ final class RelayReceiver: ObservableObject {
                 }
             }
             transport.onHandoff = { [weak self, weak transport] status in
-                guard let self, let transport, self.transport === transport, !self.desired, status & 4 != 0 else { return }
+                guard let self, let transport, self.transport === transport else { return }
+                // onHandoff only delivers the current acknowledged intent token.
+                // A silent but accepted listening session is already connected.
+                if self.desired, self.localPlaybackReady, status & 1 != 0, status & 4 == 0, status & 64 == 0 {
+                    DispatchQueue.main.async {
+                        guard self.connectionGeneration == connectionTicket, self.playIntent, !self.computerOutput else { return }
+                        if [.connecting, .buffering, .reconnecting].contains(self.phase), !self.waitingForComputerOutput {
+                            self.publish(.buffering, "Connected · play audio on your computer", "")
+                        }
+                        ConnectionAcknowledgment.shared.connected(computer.pin, output: self.output)
+                    }
+                }
+                guard !self.desired, status & 4 != 0 else { return }
                 DispatchQueue.main.async {
                     guard !self.playIntent, [.paused, .phone, .headphones].contains(self.phase) else { return }
                     if self.computerOutput {
@@ -211,8 +244,18 @@ final class RelayReceiver: ObservableObject {
                         : "Mac output is held. Media may still be playing silently. Return here and choose Computer to listen again."
                 }
             }
-            self.playback.onPlaying = { [weak self] in
-                guard let self, self.desired, self.localPlaybackReady, self.generation == generation else { return }
+            self.playback.onPlaying = { [weak self, weak transport] in
+                guard let self, let transport, self.desired, self.localPlaybackReady, self.generation == generation else { return }
+                if transport.claimConnectionFeedback() {
+                    DispatchQueue.main.async {
+                        guard self.connectionGeneration == connectionTicket, self.playIntent,
+                              ConnectionAcknowledgment.shared.claim(computer.pin) else { return }
+                        self.queue.async {
+                            guard self.desired, self.localPlaybackReady, self.generation == generation else { return }
+                            self.playback.requestConnectionFeedback()
+                        }
+                    }
+                }
                 self.publish(.playing, "Listening to \(computer.displayName)", "\(route.portName) · Local network")
                 DispatchQueue.main.async { self.setNowPlaying() }
             }
@@ -244,6 +287,15 @@ final class RelayReceiver: ObservableObject {
             }
             transport.onReset = { [weak self] in
                 guard let self, self.desired, self.generation == generation else { return }; self.playback.reset()
+                DispatchQueue.main.async { if self.connectionGeneration == connectionTicket { ConnectionAcknowledgment.shared.disconnected(output: self.output) } }
+            }
+            transport.onUnavailable = { [weak self] in
+                DispatchQueue.main.async {
+                    guard let self, self.connectionGeneration == connectionTicket else { return }
+                    ConnectionAcknowledgment.shared.disconnected(output: self.output)
+                    self.stopPlayback()
+                    self.publish(.error, "Computer unavailable", "Connection lost or network changed. Keep both devices on the same Wi-Fi and open PairIt on your computer, then try again.")
+                }
             }
             transport.onState = { [weak self] text in
                 guard let self, self.desired, self.generation == generation else { return }
@@ -290,6 +342,7 @@ final class RelayReceiver: ObservableObject {
         parkListening("PAUSE", phase: .phone, title: "Phone audio")
     }
     func disconnect() {
+        DispatchQueue.main.async { ConnectionAcknowledgment.shared.disconnected(output: self.output) }
         stopPlayback()
         publish(.idle, "Ready when you are", "Choose an output, then listen to your computer.")
     }

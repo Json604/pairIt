@@ -1,5 +1,5 @@
 {
-  "app_name": "PairIt",
+  "app_name": "PairIt - AudioRelay",
   "publisher_name": "Kartikey",
   "support_email": "kartikey060105@gmail.com",
   "website_url": "https://pairit.kartikey.xyz",
@@ -7,7 +7,7 @@
   "mac_download_url": "https://pairit.kartikey.xyz/downloads.html",
   "public_name_confirmed": true,
   "version_name": "1.1.0",
-  "version_code": 19,
+  "version_code": 20,
   "application_id": "dev.bluetoothswitch.relay",
   "effective_date": "2026-11-12",
   "release_status": "owner-accepted-internal-candidate",
@@ -17,8 +17,9 @@
     "app_id": "ca-app-pub-1439264473551763~5216633154",
     "banner_id": "ca-app-pub-1439264473551763/4498447855",
     "consent_messages_confirmed": false,
-    "placement": "One bottom banner plus one preloaded video or image interstitial after explicit pairing is saved, while audio is idle; five-minute cap; separate Start audio action.",
-    "interstitial_id": "ca-app-pub-1439264473551763/2765250705"
+    "placement": "Full-width bottom banner remains behind ordinary dialogs. Preloaded interstitial on each verified foreground connection before audio, without a connection cooldown. App Open ads only while opening, at least 30 minutes after the last full-screen ad. Unavailable ads never block playback; no ads interrupt background audio.",
+    "interstitial_id": "ca-app-pub-1439264473551763/2765250705",
+    "app_open_id": "ca-app-pub-1439264473551763/5213188750"
   },
   "release_stage": "feature-preview"
 }

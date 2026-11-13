@@ -9,13 +9,15 @@
 	<key>CFBundleIdentifier</key>
 	<string>dev.bluetoothswitch.macrelay</string>
 	<key>CFBundleName</key>
-	<string>PairIt</string>
+	<string>PairIt - AudioRelay</string>
+	<key>CFBundleDisplayName</key>
+	<string>PairIt - AudioRelay</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>1.1.0</string>
 	<key>CFBundleVersion</key>
-	<string>13</string>
+	<string>14</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.2</string>
 	<key>LSUIElement</key>

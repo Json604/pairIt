@@ -34,6 +34,7 @@ final class MacCompanionModel: ObservableObject {
     private var copyReset: DispatchWorkItem?
     private var feedbackReset: DispatchWorkItem?
     private let qrQueue = DispatchQueue(label: "relay.pairing.image", qos: .userInitiated)
+    var resize: (Int) -> Void = { _ in }
     var toggleSharing: () -> Void = {}
     var retrySharing: () -> Void = {}
     var installOutput: () -> Void = {}
@@ -41,6 +42,8 @@ final class MacCompanionModel: ObservableObject {
     var quit: () -> Void = {}
     var changeAddress: () -> Void = {}
     var selectOutput: (Bool) -> Void = { _ in }
+    var panelWidth: CGFloat { page == 1 ? 500 : 300 }
+    var panelHeight: CGFloat { page == 1 ? 330 : page == 0 ? ((connected || parkedCount > 0) ? 280 : (!outputInstalled || !sharing || connectionFailed ? 240 : 200)) : 440 }
     var needsAudioPermission: Bool { outputInstalled && detail.hasPrefix("Capture failed") }
     var connectionFailed: Bool { detail.hasPrefix("Couldn’t start") || network.hasPrefix("Wi-Fi unavailable") }
 
@@ -50,12 +53,12 @@ final class MacCompanionModel: ObservableObject {
         if let index = history.firstIndex(of: destination) {
             history = Array(history.prefix(index + 1)); forward = false
         } else { history.append(destination); forward = true }
-        withAnimation(RelayMotion.navigation) { page = destination }
+        withAnimation(RelayMotion.navigation) { page = destination }; resize(destination)
     }
     func back() {
         guard history.count > 1 else { return }
         history.removeLast(); forward = false
-        withAnimation(RelayMotion.navigation) { page = history.last ?? 0 }
+        withAnimation(RelayMotion.navigation) { page = history.last ?? 0 }; resize(page)
     }
     func updatePairing(_ code: String) {
         guard code != pairingCode else { return }
@@ -87,7 +90,7 @@ final class MacCompanionModel: ObservableObject {
     }
     func showFeedback(_ message: String, isError: Bool = false) {
         feedbackReset?.cancel()
-        withAnimation(RelayMotion.navigation) { feedback = Feedback(message: message, isError: isError) }
+        feedback = isError ? Feedback(message: message, isError: true) : nil
         announce(message)
         // Errors stay until dismissed; useful instructions remain long enough to read.
         if !isError {
@@ -114,30 +117,21 @@ struct MacCompanionView: View {
             RelayBackdrop()
             VStack(spacing: 0) {
                 header
-                ReleaseUpdateNotice(updates: updates).padding(.horizontal, 20)
+                if let feedback = model.feedback, feedback.isError {
+                    Text(feedback.message).font(.system(size: 11)).foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true).padding(.horizontal, 20).padding(.bottom, 6)
+                }
                 ZStack {
                     Group {
                         if model.page == 0 { ScrollView { overview } }
-                        else { ScrollView { Group { if model.page == 1 { pairing } else if model.page == 3 { sharedListening } else { settings } }.padding(28).padding(.top, 2) } }
+                        else if model.page == 1 { pairing.padding(20).padding(.top, 2) }
+                        else { ScrollView { Group { if model.page == 3 { sharedListening } else { settings } }.padding(28).padding(.top, 2) } }
                     }.id(model.page).transition(pageTransition)
                 }.frame(maxWidth: .infinity, maxHeight: .infinity).clipped()
             }
-            if let feedback = model.feedback {
-                HStack(spacing: 10) {
-                    Image(systemName: feedback.isError ? "exclamationmark.circle" : "checkmark.circle")
-                        .foregroundStyle(feedback.isError ? Color(red: 0.64, green: 0.30, blue: 0.12) : RelayPalette.blue)
-                    Text(feedback.message).font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 0)
-                    Button(action: model.dismissFeedback) { Image(systemName: "xmark").font(.system(size: 10, weight: .semibold)).frame(width: 44, height: 44) }
-                        .buttonStyle(RelayControlButtonStyle()).accessibilityLabel("Dismiss message")
-                }.padding(.leading, 14).padding(.trailing, 6).padding(.vertical, 8)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-                    .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.white.opacity(0.8)))
-                    .shadow(color: .black.opacity(0.08), radius: 10, y: 3)
-                    .padding(16).transition(.opacity).zIndex(2)
-            }
         }.foregroundStyle(RelayPalette.ink).preferredColorScheme(.light)
-            .frame(width: 400, height: 560)
+            .frame(width: model.panelWidth, height: model.panelHeight)
+            .onChange(of: model.panelHeight) { _, _ in model.resize(model.page) }
             .onReceive(Timer.publish(every: 900, on: .main, in: .common).autoconnect()) { _ in updates.check() }
             .onAppear { updates.check() }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in updates.check() }
@@ -162,10 +156,14 @@ struct MacCompanionView: View {
             else { Text(model.page == 1 ? "Pair a phone" : model.page == 3 ? "Listen together" : "Settings")
                 .font(RelayTypography.display(20, strong: true)).contentTransition(.opacity).accessibilityAddTraits(.isHeader) }
             Spacer()
-            Button { model.navigate(to: 2) } label: { Image(systemName: "slider.horizontal.3").frame(width: 44, height: 44).frost(12) }
+            if let update = updates.available, let url = URL(string: update.url) {
+                Link(destination: url) { Image(systemName: "arrow.down.circle").frame(width: 28, height: 32) }
+                    .help("Update PairIt to \(update.version)").accessibilityLabel("Update available")
+            }
+            Button { model.navigate(to: 2) } label: { Image(systemName: "slider.horizontal.3").frame(width: 32, height: 32) }
                 .buttonStyle(RelayControlButtonStyle()).help("Settings").accessibilityLabel("Settings")
                 .opacity(model.page == 2 ? 0 : 1).disabled(model.page == 2).accessibilityHidden(model.page == 2)
-        }.padding(.horizontal, 22).padding(.top, 14).padding(.bottom, 8)
+        }.padding(.horizontal, 18).padding(.top, 6).padding(.bottom, 4)
     }
     private var stateTitle: String {
         if model.sharingAction == .starting { return "Starting sharing" }
@@ -180,12 +178,12 @@ struct MacCompanionView: View {
         if model.sharingAction == .starting { return "Making your Mac available on local Wi-Fi." }
         if model.sharingAction == .pausing { return "Returning audio to your Mac’s usual output." }
         if model.needsAudioPermission { return "Mac audio could not start. Check audio recording permission, then choose Phone headphones to retry. Your phones stay connected." }
-        if model.computerOutput && model.sharing { return "Audio plays on your Mac. Your phones stay connected. Paused listeners resume from their phones." }
+        if model.computerOutput && model.sharing { return "Phones stay connected. Resume paused audio on the phone." }
         if model.outputHeld { return (model.detail.hasPrefix("Phone unavailable") ? "Phone unavailable. " : "") + "Resume in PairIt on your phone. Media may still be playing silently; pause it in the player if needed." }
         if model.receiverCount > 1 || model.parkedCount > 0 { return model.receiverDetail }
-        if model.pairingConfirmed && !model.connected && model.sharing { return "Pairing confirmed. Choose Start audio on your phone when you’re ready." }
+        if model.pairingConfirmed && !model.connected && model.sharing { return "Choose Start audio on your phone." }
         if model.connectionFailed { return model.detail.hasPrefix("Couldn’t start") ? model.detail : model.network }
-        return model.needsAudioPermission ? "Allow audio recording in System Settings, then reconnect your phone." : model.connectionFailed ? "Check your local network, then try sharing again." : model.connected ? "Audio plays through your phone. Adjust volume on the phone or headphones." : !model.outputInstalled ? "A one-time setup helps compatible players align video and sound." : model.sharing ? "Pair your phone to listen through its headphones." : "Make this Mac available to your phone again."
+        return model.needsAudioPermission ? "Allow audio recording in System Settings, then reconnect your phone." : model.connectionFailed ? "Check your local network, then try sharing again." : model.connected ? "Listening through your phone." : !model.outputInstalled ? "A one-time setup helps compatible players align video and sound." : model.sharing ? "Pair your phone to listen through its headphones." : "Make this Mac available to your phone again."
     }
     private var primaryTitle: String {
         if model.sharingAction == .starting { return "Starting…" }
@@ -196,58 +194,44 @@ struct MacCompanionView: View {
         return model.needsAudioPermission ? "Open audio permissions" : model.connectionFailed ? "Try again" : !model.outputInstalled ? "Set up audio" : !model.sharing ? "Start sharing" : model.connected ? "Use Mac speakers" : "Pair a phone"
     }
     private var overview: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            RelayStatusPill(title: stateTitle.uppercased(), active: model.connected, busy: model.sharingAction != nil).padding(.top, 16)
-            Text(model.sharing && !model.needsAudioPermission && !model.connectionFailed && model.outputInstalled && model.sharingAction == nil
-                 ? (model.computerOutput ? "Your Mac.\nYour speakers." : model.outputHeld ? "Your phone.\nYour next move." : model.connected ? "Connected.\nKeep listening." : model.pairingConfirmed ? "Paired.\nReady to listen." : "Your Mac.\nAnywhere you listen.") : stateTitle)
-                .font(RelayTypography.display(28)).tracking(-0.6).fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8)
-            Text(stateDetail).font(.system(size: 13)).foregroundStyle(RelayPalette.secondary)
-                .frame(maxWidth: .infinity, minHeight: 38, alignment: .leading).fixedSize(horizontal: false, vertical: true).padding(.top, 10)
-            Color.clear.frame(height: 18)
-            VStack(spacing: 0) {
-                HStack(spacing: 12) {
-                    Image(systemName: "desktopcomputer").font(.system(size: 22, weight: .light)).frame(width: 32)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(model.macName).font(.system(size: 13, weight: .medium)).lineLimit(1)
-                        Text(model.sharingAction != nil ? "Updating sharing…" : model.connectionFailed ? "Connection needs attention" : model.sharing ? "Available on local Wi-Fi" : "Sharing is off")
-                            .font(.system(size: 11)).foregroundStyle(RelayPalette.secondary)
-                    }
-                    Spacer(minLength: 4)
-                    Circle().fill(model.sharing && !model.connectionFailed ? Color(red: 0.16, green: 0.55, blue: 0.43) : RelayPalette.secondary.opacity(0.4)).frame(width: 6, height: 6)
-                }.padding(.vertical, 15)
-                Divider().opacity(0.4)
-                VStack(alignment: .leading, spacing: 7) {
-                    Text("PLAY COMPUTER AUDIO ON").font(.system(size: 10, weight: .medium)).foregroundStyle(RelayPalette.secondary)
-                    Picker("Computer audio output", selection: Binding(get: { model.computerOutput }, set: { model.selectOutput($0) })) {
-                        Text("Phone headphones").tag(false)
-                        Text("Mac speakers").tag(true)
-                    }.pickerStyle(.segmented).labelsHidden().disabled(!model.sharing || model.sharingAction != nil)
-                }.padding(.vertical, 12)
-            }.padding(.horizontal, 16).frost(18)
-            Button(action: primaryAction) {
-                HStack(spacing: 8) {
-                    if model.sharingAction != nil { ProgressView().controlSize(.small).tint(.white).accessibilityHidden(true) }
-                    Text(primaryTitle); Spacer(); Image(systemName: "arrow.up.right")
-                }.frame(height: 18)
-            }.buttonStyle(RelayPrimaryButtonStyle()).disabled(model.sharingAction != nil).padding(.top, 18)
-            Button { model.navigate(to: 3) } label: {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(model.macName).font(.system(size: 15, weight: .semibold)).lineLimit(2)
+            if model.needsAudioPermission || model.connectionFailed || !model.outputInstalled || !model.sharing {
+                Text(stateTitle).font(.system(size: 12)).foregroundStyle(RelayPalette.secondary)
+                Button(primaryTitle, action: primaryAction).buttonStyle(RelayPrimaryButtonStyle())
+            } else if model.connected || model.parkedCount > 0 {
                 HStack(spacing: 10) {
-                    Image(systemName: "person.2").foregroundStyle(RelayPalette.secondary)
-                    Text("Listen together"); Spacer()
-                    Text("\(model.receiverCount + model.parkedCount)/4").foregroundStyle(RelayPalette.secondary)
-                    Image(systemName: "chevron.right").font(.system(size: 10))
-                }.font(.system(size: 12)).padding(14).frost(14)
-            }.buttonStyle(RelayControlButtonStyle()).padding(.top, 14)
-            HStack {
-                if model.sharing {
-                    Button(action: model.toggleSharing) { Text(model.sharingAction == .pausing ? "Pausing…" : "Stop sharing").frame(height: 32) }
-                        .disabled(model.sharingAction != nil)
+                    Image(systemName: "iphone").font(.system(size: 21)).frame(width: 34, height: 36).background(Color(white: 0.93), in: RoundedRectangle(cornerRadius: 10))
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(model.receiverCount + model.parkedCount > 1 ? "\(model.receiverCount + model.parkedCount) phones" : "Your phone").font(.system(size: 12, weight: .semibold))
+                        Text(model.computerOutput ? "Computer output" : model.receiverCount > 0 ? "Listening" : "Paused").font(.system(size: 11)).foregroundStyle(RelayPalette.secondary)
+                    }
+                    Spacer(); Image(systemName: "checkmark").font(.system(size: 12))
                 }
-                Spacer()
-                Label("Local & encrypted", systemImage: "lock").font(.system(size: 10))
-            }.buttonStyle(RelayControlButtonStyle(scales: false)).font(.system(size: 11)).foregroundStyle(RelayPalette.secondary).frame(height: 42)
-        }.padding(.horizontal, 26).padding(.bottom, 18)
+                Divider()
+                Text("Audio output").font(.system(size: 11)).foregroundStyle(RelayPalette.secondary)
+                HStack(spacing: 4) {
+                    outputButton("Phone", icon: "headphones", computer: false)
+                    outputButton("Computer", icon: "desktopcomputer", computer: true)
+                }.padding(5).background(Color(white: 0.92), in: RoundedRectangle(cornerRadius: 15)).clipShape(RoundedRectangle(cornerRadius: 15))
+                HStack {
+                    Button("Pair a phone") { model.navigate(to: 1) }
+                    Spacer()
+                    Button("Disconnect", action: model.toggleSharing)
+                }.buttonStyle(.plain).font(.system(size: 11)).padding(.top, 2)
+            } else {
+                Text(model.sharingAction == nil ? "No phones connected" : "Connecting…").font(.system(size: 12)).foregroundStyle(RelayPalette.secondary)
+                Button { model.navigate(to: 1) } label: { Label("Pair a phone", systemImage: "qrcode") }.buttonStyle(RelayPrimaryButtonStyle())
+            }
+        }.padding(.horizontal, 18).padding(.top, 10).padding(.bottom, 14)
+    }
+    private func outputButton(_ title: String, icon: String, computer: Bool) -> some View {
+        let selected = model.computerOutput == computer
+        return Button { model.selectOutput(computer) } label: {
+            Label(title, systemImage: icon).font(.system(size: 11, weight: .medium)).frame(maxWidth: .infinity, minHeight: 38)
+                .foregroundStyle(selected ? Color.white : Color(white: 0.4))
+                .background(selected ? Color(white: 0.06) : .clear, in: RoundedRectangle(cornerRadius: 11))
+        }.buttonStyle(RelayControlButtonStyle()).disabled(model.sharingAction != nil)
     }
     private func primaryAction() {
         if model.needsAudioPermission { model.openPermissions() }
@@ -260,67 +244,91 @@ struct MacCompanionView: View {
     private var phoneDownloads: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Install PairIt on your phone").font(.system(size: 12, weight: .medium))
-            HStack(spacing: 20) {
-                Link("Android downloads ↗", destination: URL(string: "https://pairit.kartikey.xyz/downloads.html#android")!)
-                Link("iPhone availability ↗", destination: URL(string: "https://pairit.kartikey.xyz/downloads.html#iphone")!)
-            }.font(.system(size: 12)).frame(minHeight: 32).tint(RelayPalette.deep)
+            HStack(spacing: 8) {
+                Link(destination: URL(string: "https://pairit.kartikey.xyz/downloads.html#android")!) {
+                    HStack(spacing: 6) { AndroidDownloadMark().frame(width: 15, height: 15); Text("Android"); Image(systemName: "arrow.up.right").font(.system(size: 9)) }
+                        .frame(maxWidth: .infinity, minHeight: 34)
+                }
+                Link(destination: URL(string: "https://pairit.kartikey.xyz/downloads.html#iphone")!) {
+                    HStack(spacing: 6) { Image(systemName: "apple.logo"); Text("iPhone"); Image(systemName: "arrow.up.right").font(.system(size: 9)) }
+                        .frame(maxWidth: .infinity, minHeight: 34)
+                }
+            }.font(.system(size: 12)).buttonStyle(.plain).tint(RelayPalette.ink)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(RelayPalette.line))
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
     private var pairing: some View {
-        VStack(spacing: 18) {
-            if !model.pairingConfirmed { phoneDownloads }
+        Group {
             if model.pairingConfirmed {
-                Label("Phone paired", systemImage: "checkmark.circle.fill").font(RelayTypography.display(25)).foregroundStyle(Color(red: 0.16, green: 0.55, blue: 0.43))
-                Text(model.connected ? "Your phone is connected. Choose where computer audio plays from the main screen." : "Pairing confirmed. Choose Start audio on your phone when you’re ready.")
-                    .font(.system(size: 12)).foregroundStyle(RelayPalette.secondary).multilineTextAlignment(.center)
-                Button("Done") { model.navigate(to: 0) }.buttonStyle(RelayPrimaryButtonStyle())
-                Button("Pair another phone") { model.pairingConfirmed = false }.buttonStyle(RelayQuietButtonStyle())
-            } else {
-                Text("Make the connection.").font(RelayTypography.display(25)).tracking(-0.5)
-                Text("Keep your phone and Mac on the same Wi-Fi.").font(.system(size: 12)).foregroundStyle(RelayPalette.secondary).multilineTextAlignment(.center)
-            }
-            if model.pairingConfirmed {
-                Text("Switch between Mac speakers and phone headphones from the main screen. Your pairing stays saved.")
-                    .font(.system(size: 12)).foregroundStyle(RelayPalette.secondary).multilineTextAlignment(.center)
+                VStack(spacing: 14) {
+                    Label("Phone paired", systemImage: "checkmark.circle").font(.system(size: 22, weight: .semibold))
+                    Text(model.connected ? "Your phone is connected." : "Pairing confirmed on your phone.")
+                        .font(.system(size: 12)).foregroundStyle(RelayPalette.secondary)
+                    HStack(spacing: 12) {
+                        Button("Done") { model.navigate(to: 0) }.buttonStyle(RelayPrimaryButtonStyle())
+                        Button("Pair another phone") { model.pairingConfirmed = false }.buttonStyle(RelayQuietButtonStyle())
+                    }
+                }
             } else if !model.sharing || model.sharingAction != nil || model.connectionFailed {
-                Image(systemName: "wifi.slash").font(.system(size: 40, weight: .light)).padding(28)
-                Button(model.sharingAction != nil ? "Starting…" : model.connectionFailed ? "Try again" : "Start sharing") {
-                    if model.connectionFailed { model.retrySharing() } else { model.toggleSharing() }
-                }.buttonStyle(RelayPrimaryButtonStyle()).disabled(model.sharingAction != nil)
+                VStack(spacing: 14) {
+                    Image(systemName: "wifi.slash").font(.system(size: 32, weight: .light))
+                    Text("Start sharing to pair a phone.").font(.system(size: 13))
+                    Button(model.sharingAction != nil ? "Starting…" : model.connectionFailed ? "Try again" : "Start sharing") {
+                        if model.connectionFailed { model.retrySharing() } else { model.toggleSharing() }
+                    }.buttonStyle(RelayPrimaryButtonStyle()).disabled(model.sharingAction != nil)
+                }
             } else {
-                ZStack {
-                    if let image = model.qrImage { Image(nsImage: image).interpolation(.none).resizable().scaledToFit() }
-                    else { ProgressView("Preparing code…").controlSize(.small) }
-                }.frame(width: 184, height: 184).padding(14)
-                    .background(.white, in: RoundedRectangle(cornerRadius: 18))
-                    .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(RelayPalette.ink.opacity(0.06)))
-                    .accessibilityLabel("Pairing QR code. Copy pairing code is also available.")
-                Text("Open PairIt on Android or iPhone and choose Scan QR code.")
-                    .font(.system(size: 12)).foregroundStyle(RelayPalette.secondary).multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                Button(action: model.copyCode) {
-                    Label(model.copied ? "Copied" : "Copy pairing code", systemImage: model.copied ? "checkmark" : "doc.on.doc")
-                        .frame(width: 180).contentTransition(.opacity)
-                }.buttonStyle(RelayQuietButtonStyle()).disabled(model.pairingCode.isEmpty)
-                Text(model.copied ? "Paste it into PairIt on your phone." : "Keep this code private.")
-                    .font(.system(size: 10)).foregroundStyle(RelayPalette.secondary).frame(height: 14)
+                HStack(alignment: .center, spacing: 18) {
+                    ZStack {
+                        if let image = model.qrImage { Image(nsImage: image).interpolation(.none).resizable().scaledToFit() }
+                        else { ProgressView("Preparing code…").controlSize(.small) }
+                    }.frame(width: 188, height: 188).padding(12)
+                        .background(.white, in: RoundedRectangle(cornerRadius: 16))
+                        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(RelayPalette.line))
+                        .accessibilityLabel("Pairing QR code. Copy pairing code is also available.")
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Scan with PairIt").font(.system(size: 17, weight: .semibold))
+                        Text("Keep both devices on the same Wi-Fi. On your phone, choose Scan QR code.")
+                            .font(.system(size: 12)).foregroundStyle(RelayPalette.secondary).fixedSize(horizontal: false, vertical: true)
+                        HStack(spacing: 8) {
+                            Link(destination: URL(string: "https://pairit.kartikey.xyz/downloads.html#android")!) {
+                                HStack(spacing: 5) { AndroidDownloadMark().frame(width: 14, height: 14); Text("Android") }
+                                    .font(.system(size: 11, weight: .medium)).frame(maxWidth: .infinity, minHeight: 34)
+                                    .background(Color.white, in: RoundedRectangle(cornerRadius: 9))
+                                    .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(RelayPalette.line))
+                            }
+                            Link(destination: URL(string: "https://pairit.kartikey.xyz/downloads.html#iphone")!) {
+                                Label("iPhone", systemImage: "apple.logo").font(.system(size: 11, weight: .medium))
+                                    .frame(maxWidth: .infinity, minHeight: 34)
+                                    .background(Color.white, in: RoundedRectangle(cornerRadius: 9))
+                                    .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(RelayPalette.line))
+                            }
+                        }.buttonStyle(.plain).tint(RelayPalette.ink)
+                        Button(action: model.copyCode) {
+                            Label(model.copied ? "Copied" : "Copy pairing code", systemImage: model.copied ? "checkmark" : "doc.on.doc")
+                                .font(.system(size: 11, weight: .medium)).frame(maxWidth: .infinity, minHeight: 36)
+                                .foregroundStyle(.white).background(RelayPalette.ink, in: RoundedRectangle(cornerRadius: 10))
+                        }.buttonStyle(RelayControlButtonStyle()).disabled(model.pairingCode.isEmpty)
+                        Text(model.copied ? "Paste it into PairIt on your phone." : "Keep this code private.")
+                            .font(.system(size: 10)).foregroundStyle(RelayPalette.secondary).fixedSize(horizontal: false, vertical: true)
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
-        }.frame(maxWidth: .infinity)
+        }.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     private var sharedListening: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Same audio.\nMore company.").font(RelayTypography.display(26))
             Text(model.computerOutput ? "\(model.receiverCount + model.parkedCount) connected · Mac speakers selected" : "\(model.receiverCount) listening · \(model.parkedCount) paused · Up to 4 phones").font(.system(size: 13, weight: .medium))
             Text("Output selection applies to everyone. Switching to Mac speakers keeps phones paired; paused listeners resume from their own phones.").font(.system(size: 12)).foregroundStyle(RelayPalette.secondary)
             VStack(alignment: .leading, spacing: 14) {
                 Label("Each listener connects headphones to their own phone.", systemImage: "headphones")
                 Label("Keep every phone on the same Wi-Fi as this Mac.", systemImage: "wifi")
-                Label("Pair each phone, then choose Computer on each one.", systemImage: "qrcode")
+                Label("Pair each phone, then choose Start audio.", systemImage: "qrcode")
             }.font(.system(size: 13)).padding(18).frost()
             Button { model.navigate(to: 1) } label: { Text(model.receiverCount + model.parkedCount >= 4 ? "Four listeners connected" : "Pair another phone").frame(maxWidth: .infinity) }
                 .buttonStyle(RelayPrimaryButtonStyle()).disabled(model.receiverCount + model.parkedCount >= 4)
-            Text("Each listener controls their own volume and pause. Their headphones stay connected to their phone.").font(.system(size: 12)).foregroundStyle(RelayPalette.secondary)
-            Text("Different headphones can have different delays. Only the primary listener controls Mac video timing; this is not guaranteed acoustic synchronization.").font(.system(size: 11)).foregroundStyle(RelayPalette.secondary)
+            Text("Headphone delays can vary. The first listener controls video timing.").font(.system(size: 11)).foregroundStyle(RelayPalette.secondary)
         }
     }
     private var settings: some View {
@@ -358,9 +366,25 @@ struct MacCompanionView: View {
             Text("Audio travels directly between your devices. No accounts, cloud audio servers or analytics.")
                 .font(.system(size: 11)).foregroundStyle(RelayPalette.secondary).fixedSize(horizontal: false, vertical: true)
             HStack {
-                Text("PairIt 1.1 · Audio relay").foregroundStyle(RelayPalette.secondary)
+                Text("PairIt - AudioRelay 1.1").foregroundStyle(RelayPalette.secondary)
                 Spacer(); Button(action: model.quit) { Text("Quit").frame(minWidth: 32, minHeight: 28) }.buttonStyle(RelayControlButtonStyle(scales: false))
             }.font(.system(size: 11))
         }
+    }
+}
+
+private struct AndroidDownloadMark: View {
+    var body: some View {
+        Canvas { context, size in
+            context.scaleBy(x: size.width / 14, y: size.height / 14)
+            var head = Path()
+            head.move(to: CGPoint(x: 2, y: 10)); head.addCurve(to: CGPoint(x: 12, y: 10), control1: CGPoint(x: 2, y: 2), control2: CGPoint(x: 12, y: 2)); head.closeSubpath()
+            context.fill(head, with: .color(RelayPalette.ink))
+            var antenna = Path()
+            antenna.move(to: CGPoint(x: 4, y: 5)); antenna.addLine(to: CGPoint(x: 2, y: 2))
+            antenna.move(to: CGPoint(x: 10, y: 5)); antenna.addLine(to: CGPoint(x: 12, y: 2))
+            context.stroke(antenna, with: .color(RelayPalette.ink), style: StrokeStyle(lineWidth: 1.1, lineCap: .round))
+            for x in [4.3, 8.3] { context.fill(Path(ellipseIn: CGRect(x: x, y: 7, width: 1.4, height: 1.4)), with: .color(.white)) }
+        }.accessibilityHidden(true)
     }
 }

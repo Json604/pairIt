@@ -51,6 +51,7 @@ for name in ['Debug','Release']:
     settings['PAIRIT_ADMOB_APP_ID'] = 'ca-app-pub-3940256099942544~1458002511' if name == 'Debug' else admob['app_id']
     settings['PAIRIT_ADMOB_BANNER_ID'] = 'ca-app-pub-3940256099942544/2435281174' if name == 'Debug' else admob['banner_id']
     settings['PAIRIT_ADMOB_INTERSTITIAL_ID'] = 'ca-app-pub-3940256099942544/4411468910' if name == 'Debug' else admob.get('interstitial_id', '')
+    settings['PAIRIT_ADMOB_APP_OPEN_ID'] = 'ca-app-pub-3940256099942544/5575463023' if name == 'Debug' else admob.get('app_open_id', '')
     settings['OTHER_LDFLAGS'] = '$(inherited) -ObjC'
     config=add('target:'+name,'isa = XCBuildConfiguration; buildSettings = {'+' '.join(f'{k} = {q(v)};' for k,v in settings.items())+'}; name = '+name+';'); targetconfigs.append(config)
 pconfigs=add('projectconfigs',f'isa = XCConfigurationList; buildConfigurations = ({",".join(projectconfigs)},); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;')

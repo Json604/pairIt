@@ -8,11 +8,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let lifecycle = DispatchQueue(label: "relay.companion.lifecycle", qos: .userInitiated)
     private var item: NSStatusItem!
     private let popover = NSPopover()
+    private var pairingApprovalActive = false
     private var terminationSignal: DispatchSourceSignal?
     private var setupTimer: Timer?
     private var presentationRetry: DispatchWorkItem?
     private var popoverRetryCount = 0
     private var escapeMonitor: Any?
+    private var outsideClickMonitor: Any?
+    private var localClickMonitor: Any?
     private let interfacePreview = ProcessInfo.processInfo.arguments.contains("--ui-preview") || ProcessInfo.processInfo.environment["PAIRIT_UI_PREVIEW"] == "1"
     private func traceUI(_ message: String) {
         if ProcessInfo.processInfo.arguments.contains("--ui-diagnostics") { log("UI " + message) }
@@ -41,19 +44,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = item.button {
-            button.image = NSImage(systemSymbolName: "headphones", accessibilityDescription: "PairIt")
-            button.toolTip = "PairIt"
+            button.image = NSImage(systemSymbolName: "headphones", accessibilityDescription: "PairIt - AudioRelay")
+            button.toolTip = "PairIt - AudioRelay"
             button.target = self; button.action = #selector(statusClicked)
-            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+            button.sendAction(on: [.leftMouseDown, .rightMouseUp])
         }
-        // A development-only review mode keeps the panel visible when the UI
-        // inspection tool changes focus. Normal launches dismiss natively.
-        popover.behavior = interfacePreview || ProcessInfo.processInfo.arguments.contains("--ui-review") ? .applicationDefined : .transient
+        // Own dismissal so AppKit cannot close on mouse-down and let the same
+        // status-item click reopen the panel. Each click has exactly one owner.
+        popover.behavior = .applicationDefined
         popover.delegate = self
-        popover.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        popover.contentSize = NSSize(width: 400, height: 560)
+        popover.animates = false
+        popover.contentSize = NSSize(width: model.panelWidth, height: model.panelHeight)
         let controller = NSHostingController(rootView: MacCompanionView(model: model))
         popover.contentViewController = controller
+        model.resize = { [weak self] _ in guard let self else { return }; self.popover.contentSize = NSSize(width: self.model.panelWidth, height: self.model.panelHeight) }
         // Build/layout the small control surface before the first click, rather
         // than doing its initial layout during the popover's opening animation.
         controller.view.frame.size = popover.contentSize
@@ -63,7 +67,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             self.closePopover(animated: false); return nil
         }
         let menu = NSMenu(), appMenu = NSMenu(), entry = NSMenuItem()
-        appMenu.addItem(NSMenuItem(title: "Quit PairIt", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        appMenu.addItem(NSMenuItem(title: "Quit PairIt - AudioRelay", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         entry.submenu = appMenu; menu.addItem(entry); NSApp.mainMenu = menu
         signal(SIGTERM, SIG_IGN)
         terminationSignal = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
@@ -86,14 +90,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             closePopover(animated: false)
             guard let button = item.button else { return }
             let menu = NSMenu()
-            let open = NSMenuItem(title: "Open PairIt", action: #selector(showPopover), keyEquivalent: "")
+            let open = NSMenuItem(title: "Open PairIt - AudioRelay", action: #selector(showPopover), keyEquivalent: "")
             open.target = self; menu.addItem(open)
             let pair = NSMenuItem(title: "Pair a phone…", action: #selector(pairPhone), keyEquivalent: "")
             pair.target = self; menu.addItem(pair)
             let sharing = NSMenuItem(title: model.sharing ? "Stop sharing" : "Start sharing", action: #selector(toggleSharing), keyEquivalent: "")
             sharing.target = self; sharing.isEnabled = model.sharingAction == nil
             menu.autoenablesItems = false; menu.addItem(sharing); menu.addItem(.separator())
-            menu.addItem(NSMenuItem(title: "Quit PairIt", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+            menu.addItem(NSMenuItem(title: "Quit PairIt - AudioRelay", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
             menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.minY), in: button)
         } else if popover.isShown || presentationRetry != nil { closePopover() }
         else { showPopover() }
@@ -113,10 +117,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             return
         }
         cancelPresentationRetry()
-        popover.animates = RelayMotion.allowsSpatialMotion
+        popover.animates = false
         NSApp.activate(ignoringOtherApps: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        popover.contentViewController?.view.window?.title = "PairIt"
+        popover.contentViewController?.view.window?.title = "PairIt - AudioRelay"
         popover.contentViewController?.view.window?.makeKey()
         traceUI("show returned shown=\(popover.isShown) visible=\(popover.contentViewController?.view.window?.isVisible ?? false)")
     }
@@ -125,13 +129,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
     private func closePopover(animated: Bool = true) {
         cancelPresentationRetry()
-        popover.animates = animated && RelayMotion.allowsSpatialMotion
+        popover.animates = false
         popover.performClose(nil)
     }
     func popoverWillShow(_ notification: Notification) { item.button?.highlight(true) }
     func popoverWillClose(_ notification: Notification) { cancelPresentationRetry(); item.button?.highlight(false) }
-    func popoverDidShow(_ notification: Notification) { traceUI("did show") }
-    func popoverDidClose(_ notification: Notification) { traceUI("did close") }
+    func popoverDidShow(_ notification: Notification) {
+        traceUI("did show")
+        guard !interfacePreview, !ProcessInfo.processInfo.arguments.contains("--ui-review") else { return }
+        removeClickMonitors()
+        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
+            self?.closePopover(animated: false)
+        }
+        localClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
+            guard let self, self.popover.isShown else { return event }
+            let panel = self.popover.contentViewController?.view.window
+            // The status button owns its toggle; controls inside the panel keep
+            // their original click. Outside clicks are never swallowed.
+            if event.window !== panel && event.window !== self.item.button?.window {
+                self.closePopover(animated: false)
+            }
+            return event
+        }
+    }
+    private func removeClickMonitors() {
+        if let monitor = outsideClickMonitor { NSEvent.removeMonitor(monitor) }
+        if let monitor = localClickMonitor { NSEvent.removeMonitor(monitor) }
+        outsideClickMonitor = nil; localClickMonitor = nil
+    }
+    func popoverDidClose(_ notification: Notification) {
+        removeClickMonitors()
+        traceUI("did close")
+    }
+    func applicationDidResignActive(_ notification: Notification) {
+        if !interfacePreview && !ProcessInfo.processInfo.arguments.contains("--ui-review") {
+            closePopover(animated: false)
+        }
+    }
     @objc private func pairPhone() { model.navigate(to: 1); showPopover() }
     @objc private func toggleSharing() {
         guard model.sharingAction == nil else { return }
@@ -147,7 +181,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 self.model.sharing = false; self.model.connected = false; self.model.receiverCount = 0; self.model.parkedCount = 0; self.model.outputHeld = false; self.model.computerOutput = false
                 self.model.detail = "Sharing stopped. Your Mac is using its normal audio output."
                 self.model.network = "Paused"; self.model.sharingAction = nil
-                self.item.button?.toolTip = "PairIt · Sharing stopped"
+                self.item.button?.toolTip = "PairIt - AudioRelay · Sharing stopped"
                 self.model.announce("Sharing stopped.")
             }
         }
@@ -171,7 +205,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         server = nextServer; wifi = nextWiFi
         nextServer.onStatus = { [weak self, weak nextServer] value in
             guard let self, self.server === nextServer, self.model.sharingAction != .pausing else { return }
-            self.item.button?.toolTip = "PairIt · " + value
+            self.item.button?.toolTip = "PairIt - AudioRelay · " + value
             self.model.outputHeld = value.contains("output held")
             if self.model.detail != value { self.model.detail = value }
         }
@@ -185,6 +219,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             self.model.receiverCount = count; self.model.parkedCount = parked; self.model.receiverDetail = detail
             self.model.connected = count + parked > 0
             if self.model.connected && !previouslyConnected { self.model.pairingConfirmed = true }
+            if !self.model.connected { self.model.pairingConfirmed = false }
         }
         nextServer.onOutputChanged = { [weak self, weak nextServer] speakers in
             guard let self, self.server === nextServer else { return }
@@ -192,12 +227,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             self.model.computerOutput = speakers
             if changed { self.model.announce(speakers ? "Mac speakers selected. Phones stay connected." : "Phone headphones selected. Paused listeners resume on their phones.") }
         }
+        nextWiFi.onPairingRequest = { [weak self, weak nextWiFi] code, completion in
+            DispatchQueue.main.async {
+                guard let self, let nextWiFi, self.wifi === nextWiFi, !self.pairingApprovalActive else { completion(false); return }
+                self.pairingApprovalActive = true
+                let alert = NSAlert()
+                alert.messageText = "Pair a nearby phone?"
+                alert.informativeText = "Approve only if this code matches your phone:\n\n" + code
+                alert.addButton(withTitle: "Approve"); alert.addButton(withTitle: "Decline")
+                NSApp.activate(ignoringOtherApps: true)
+                var answered = false
+                // A standalone panel remains visible if the menu popover closes.
+                let panel = alert.window
+                DispatchQueue.main.asyncAfter(deadline: .now() + 44) {
+                    guard !answered else { return }
+                    NSApp.abortModal(); panel.orderOut(nil)
+                }
+                let answer = alert.runModal(); answered = true; self.pairingApprovalActive = false
+                completion(answer == .alertFirstButtonReturn && self.wifi === nextWiFi)
+            }
+        }
         nextWiFi.onPairingConfirmed = { [weak self, weak nextWiFi] in
             DispatchQueue.main.async {
                 guard let self, self.wifi === nextWiFi else { return }
                 self.model.pairingConfirmed = true
                 self.model.showFeedback("Phone paired. Start audio on your phone when you’re ready.")
-                self.item.button?.toolTip = "PairIt · Phone paired"
+                self.item.button?.toolTip = "PairIt - AudioRelay · Phone paired"
             }
         }
         lifecycle.async { [weak self] in
@@ -237,7 +292,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showPopover(); return true }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationWillTerminate(_ notification: Notification) {
-        setupTimer?.invalidate(); cancelPresentationRetry()
+        setupTimer?.invalidate(); cancelPresentationRetry(); removeClickMonitors()
         if let escapeMonitor { NSEvent.removeMonitor(escapeMonitor) }
         let currentServer = server, currentWiFi = wifi
         lifecycle.sync { currentWiFi.stop(); currentServer.stop() }

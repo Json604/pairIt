@@ -11,6 +11,12 @@
           "NAudio.Core": "2.2.1"
         }
       },
+      "QRCoder": {
+        "type": "Direct",
+        "requested": "[1.8.1, 1.8.1]",
+        "resolved": "1.8.1",
+        "contentHash": "aGfRFpU/IPexAtEOEXCNxC3fMCAqgn6kqALRvXt6LxVAW0VolSDGHiyrY+o2CJgTITOsMpsrsDi7svMJaJ9Vfg=="
+      },
       "NAudio.Core": {
         "type": "Transitive",
         "resolved": "2.2.1",

@@ -6,6 +6,9 @@ public final class RelayHandoffCheck {
     }
     public static void main(String[] args) {
         RelayHandoff control = new RelayHandoff(RelayHandoff.Intent.LISTEN);
+        require(!control.readyForAudio(), "Discovery/socket opening must not signal listening");
+        control.acceptStatus(1 | 128);
+        require(!control.readyForAudio(), "Unacknowledged hello must not signal listening");
         control.acceptStatus(1 | 128 | (1 << 8));
         require(control.readyForAudio(), "Listening begins after its acknowledged intent");
         control.nextCommand();

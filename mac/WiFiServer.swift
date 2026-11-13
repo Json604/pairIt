@@ -14,6 +14,7 @@ final class WiFiServer {
     private var microphoneGeneration = 0
     private var microphoneLease: UUID?
     private var stopped = false
+    private var listenerGeneration = 0
     private let microphoneWork = DispatchQueue(label: "pairit.microphone.session", qos: .userInitiated)
     private let microphoneWorkers = DispatchGroup()
     private let port: UInt16
@@ -27,6 +28,9 @@ final class WiFiServer {
     var onStatus: ((String) -> Void)?
     // Delivered on the network queue after token authentication, without capture.
     var onPairingConfirmed: (() -> Void)?
+    var onPairingRequest: ((String, @escaping (Bool) -> Void) -> Void)?
+    private var pendingPairing: UUID?
+    private var lastPairingRequest: TimeInterval = -.infinity
     init(port: UInt16 = 5002, upstreamPort: UInt16 = 5001, upstreamToken: String,
          identityProvider: @escaping () throws -> LocalIdentity = { try LocalIdentity.load() },
          makeMicrophone: @escaping () -> MicrophoneSink = { MicrophoneOutput() }) {
@@ -67,12 +71,21 @@ final class WiFiServer {
         let tcp = NWProtocolTCP.Options(); tcp.noDelay = true; tcp.enableKeepalive = true
         let parameters = NWParameters(tls: tls, tcp: tcp)
         parameters.allowLocalEndpointReuse = true
+        try listen(using: parameters)
+    }
+    private func listen(using parameters: NWParameters) throws {
         let listener = try NWListener(using: parameters, on: NWEndpoint.Port(rawValue: port)!)
-        listener.service = NWListener.Service(name: "AudioRelay-\(config["pin"]!.prefix(8))", type: "_audiorelay._tcp")
-        listener.stateUpdateHandler = { [weak self] state in
+        listener.service = NWListener.Service(name: "AudioRelay-\(config["pin"]!.prefix(8))", type: "_audiorelay._tcp",
+                                                         txtRecord: NWTXTRecord(["role": "computer", "v": "1", "platform": "macos",
+                                                            "name": String((Host.current().localizedName ?? "Mac").prefix(60)), "pin": config["pin"]!]))
+        listener.stateUpdateHandler = { [weak self, weak listener] state in
+            guard let self, let listener, self.listener === listener, !self.stopped else { return }
             switch state {
-            case .ready: self?.status("Ready for your phone")
-            case .failed(let error): self?.status("Wi-Fi unavailable: \(error)")
+            case .ready: self.status("Ready for your phone")
+            case .failed(let error):
+                self.status("Wi-Fi unavailable: \(error)")
+                listener.cancel(); self.listener = nil
+                self.retryListener(using: parameters)
             default: break
             }
         }
@@ -83,15 +96,41 @@ final class WiFiServer {
             let peer = WiFiPeer(connection: connection, token: self.config["token"]!, queue: self.queue, upstreamPort: self.upstreamPort, upstreamToken: self.upstreamToken)
             peer.onAuthenticated = { [weak peer] in peer?.connectUpstream() }
             peer.onPairingConfirmed = { [weak self] in self?.onPairingConfirmed?() }
+            peer.onPairingRequest = { [weak self, weak peer] nonce in
+                guard let self, let peer else { return }
+                let now = ProcessInfo.processInfo.systemUptime
+                guard self.pendingPairing == nil, now - self.lastPairingRequest >= 10,
+                      let approve = self.onPairingRequest else { peer.finishPairingRequest(false); return }
+                self.pendingPairing = id; self.lastPairingRequest = now
+                let digest = SHA256.hash(data: Data((self.config["pin"]! + nonce).utf8))
+                    .map { String(format: "%02X", $0) }.joined()
+                let code = stride(from: 0, to: 16, by: 4).map { offset in
+                    String(digest.dropFirst(offset).prefix(4))
+                }.joined(separator: " ")
+                approve(code) { [weak self, weak peer] accepted in
+                    self?.queue.async { [weak self, weak peer] in
+                        guard let self, !self.stopped, self.pendingPairing == id else { return }
+                        peer?.finishPairingRequest(accepted)
+                    }
+                }
+            }
             peer.onMicrophone = { [weak self] completion in
                 guard let self else { completion(.failure("DISABLED")); return }
                 self.beginMicrophone(completion: completion)
             }
             peer.onMicrophoneStarted = { [weak self] in self?.microphoneStatus("Phone microphone connected") }
-            peer.onClose = { [weak self] in self?.peers.removeValue(forKey: id) }
+            peer.onClose = { [weak self] in self?.peers.removeValue(forKey: id); if self?.pendingPairing == id { self?.pendingPairing = nil } }
             self.peers[id] = peer; peer.start()
         }
         self.listener = listener; listener.start(queue: queue)
+    }
+    private func retryListener(using parameters: NWParameters) {
+        let generation = listenerGeneration
+        queue.asyncAfter(deadline: .now() + 2) { [weak self] in
+            guard let self, !self.stopped, self.listenerGeneration == generation, self.listener == nil else { return }
+            do { try self.listen(using: parameters) }
+            catch { self.retryListener(using: parameters) }
+        }
     }
     private func status(_ message: String) { DispatchQueue.main.async { [weak self] in self?.onStatus?(message) } }
     private func microphoneStatus(_ message: String) { DispatchQueue.main.async { [weak self] in self?.onMicrophoneStatus?(message) } }
@@ -151,7 +190,7 @@ final class WiFiServer {
     }
     func stop() {
         queue.sync {
-            stopped = true; microphoneEnabled = false; microphoneGeneration += 1
+            stopped = true; listenerGeneration += 1; microphoneEnabled = false; microphoneGeneration += 1
             listener?.cancel(); listener = nil
             for peer in Array(peers.values) { peer.stop() }
             peers.removeAll()
@@ -219,6 +258,8 @@ private final class WiFiPeer {
     var onClose: (() -> Void)?
     var onMicrophone: ((@escaping (MicrophoneAdmission) -> Void) -> Void)?
     var onMicrophoneStarted: (() -> Void)?
+    var onPairingRequest: ((String) -> Void)?
+    private var pairingRequestPending = false
     private var microphone: GatewayMicrophoneSession?
     private var microphonePending = false
     private var microphoneReadPending = false
@@ -245,7 +286,7 @@ private final class WiFiPeer {
         timer.schedule(deadline: .now() + 1, repeating: 1)
         timer.setEventHandler { [weak self] in
             guard let self else { return }
-            if ProcessInfo.processInfo.systemUptime - self.lastActivity > (self.microphonePending ? 4 : self.isMicrophone ? 2 : self.authenticated ? 8 : 4) { self.stop() }
+            if ProcessInfo.processInfo.systemUptime - self.lastActivity > (self.pairingRequestPending ? 45 : self.microphonePending ? 4 : self.isMicrophone ? 2 : self.authenticated ? 8 : 4) { self.stop() }
         }
         self.timer = timer; timer.resume()
         connection.start(queue: queue)
@@ -257,6 +298,17 @@ private final class WiFiPeer {
             guard error == nil, !complete, self.prefix.count <= 4096 else { self.stop(); return }
             if let newline = self.prefix.firstIndex(of: 10) {
                 let line = self.prefix.prefix(upTo: newline)
+                if let request = String(data: line, encoding: .utf8), request.hasPrefix("REQUEST1 ") {
+                    let nonce = String(request.dropFirst(9))
+                    guard nonce.count == 64, nonce.allSatisfy({ "0123456789abcdef".contains($0) }),
+                          self.prefix.count == line.count + 1 else { self.stop(); return }
+                    self.prefix.removeAll(); self.pairingRequestPending = true
+                    self.lastActivity = ProcessInfo.processInfo.systemUptime
+                    // Cancel approval if the requester disconnects or sends extra data.
+                    self.connection.receive(minimumIncompleteLength: 1, maximumLength: 1) { [weak self] _, _, _, _ in self?.stop() }
+                    guard let requestPairing = self.onPairingRequest else { self.stop(); return }
+                    requestPairing(nonce); return
+                }
                 let suffix = Data(" MIC1".utf8)
                 let mic = line.suffix(suffix.count) == suffix
                 let pairingSuffix = Data(" PAIR1".utf8)
@@ -301,6 +353,12 @@ private final class WiFiPeer {
                 } else { self.onAuthenticated?() }
             } else { self.readAuthentication() }
         }
+    }
+    func finishPairingRequest(_ approved: Bool) {
+        guard !closed, pairingRequestPending else { return }
+        pairingRequestPending = false
+        guard approved else { stop(); return }
+        connection.send(content: Data("OK REQUEST1 \(token)\n".utf8), completion: .contentProcessed { [weak self] _ in self?.stop() })
     }
     private func readMicrophone(maximum: Int = 16) {
         guard !closed, !microphoneReadPending else { return }

@@ -18,6 +18,7 @@ final class PcmInbox {
     private final ArrayBlockingQueue<Packet> queue = new ArrayBlockingQueue<>(256);
     private volatile IOException failure;
     java.util.function.IntConsumer onControlStatus;
+    Runnable onHeartbeat;
     volatile long framesReceived, sequenceGaps, discarded;
     private volatile long bestClockOffset = Long.MAX_VALUE;
     private volatile long synchronizedOffset;
@@ -49,6 +50,7 @@ final class PcmInbox {
                 int magic = h.getInt();
                 if (magic == 0x31435342) {
                     int controlStatus = h.getInt(); long sent = h.getLong(), server = h.getLong();
+                    if (onHeartbeat != null) onHeartbeat.run();
                     if (onControlStatus != null) onControlStatus.accept(controlStatus);
                     clockSample(sent, server, System.nanoTime()); continue;
                 }
@@ -56,7 +58,7 @@ final class PcmInbox {
                 long sequence = Integer.toUnsignedLong(h.getInt());
                 int rate = h.getInt(), frames = h.getInt();
                 long capturedAt = h.getLong();
-                if (frames == 0 && capturedAt == 0 && rate == 48000) continue; // Idle sender heartbeat.
+                if (frames == 0 && capturedAt == 0 && rate == 48000) { if(onHeartbeat!=null)onHeartbeat.run(); continue; } // Idle sender heartbeat.
                 if ((rate != 48000 && rate != 44100) || frames < 1 || frames > 8192 || capturedAt < 0) throw new IOException("Unsupported packet format");
                 byte[] pcm = new byte[frames * 4]; input.readFully(pcm);
                 if (previous >= 0) sequenceGaps += (sequence - previous - 1) & 0xffffffffL;
