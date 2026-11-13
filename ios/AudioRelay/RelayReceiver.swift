@@ -41,8 +41,41 @@ final class RelayReceiver: ObservableObject {
     private var resumeAfterOutputChoice = false
     private let calls = CXCallObserver()
     private var interruptedByPhoneAudio = false
+    private var outputRecovery = ExternalOutputRecovery()
+    private var outputRecoveryWork: DispatchWorkItem?
+    private func cancelOutputRecovery() {
+        outputRecovery.cancel(); outputRecoveryWork?.cancel(); outputRecoveryWork = nil
+    }
+    private func scheduleExternalOutput() {
+        guard outputRecovery.waiting else { return }
+        outputRecoveryWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.resumeExternalOutput() }
+        outputRecoveryWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.75, execute: work)
+    }
+    private func resumeExternalOutput() {
+        guard outputRecovery.waiting else { return }
+        guard UserDefaults.standard.object(forKey: "trustedAutoReconnect") as? Bool != false,
+              pairing.mac != nil else { cancelOutputRecovery(); return }
+        let selected = [RelayOutput.bluetooth, .wired].first { $0.currentRoute() != nil }
+        let permitted = !AudioPresentationGate.isPresenting && !calls.calls.contains(where: { !$0.hasEnded })
+        guard outputRecovery.ready(externalReady: selected != nil, permitted: permitted), let selected else {
+            if selected != nil { scheduleExternalOutput() }; return
+        }
+        output = selected; UserDefaults.standard.set(selected.rawValue, forKey: "receiverOutput")
+        cancelOutputRecovery(); connect(requestPhoneOutput: true)
+    }
+    private func waitForExternalOutput() {
+        outputRecovery.lost(external: output != .speaker,
+                            enabled: UserDefaults.standard.object(forKey: "trustedAutoReconnect") as? Bool != false)
+        guard outputRecovery.waiting else { parkListening("OUTPUT", phase: .headphones, title: "Output disconnected"); return }
+        interruptedByPhoneAudio = false
+        stopPlayback()
+        publish(.headphones, "Waiting for headphones", "Reconnect Bluetooth, wired or USB audio to resume automatically.")
+        scheduleExternalOutput()
+    }
     var currentOutputName: String { output.currentRoute()?.portName ?? "Choose audio output" }
-    func beginOutputChoice() { choosingOutput = true; resumeAfterOutputChoice = playIntent && !computerOutput }
+    func beginOutputChoice() { cancelOutputRecovery(); choosingOutput = true; resumeAfterOutputChoice = playIntent && !computerOutput }
     func endOutputChoice() { choosingOutput = false; resumeAfterOutputChoice = false }
     private var generation = 0
     private var reportTimer: DispatchSourceTimer?
@@ -58,6 +91,7 @@ final class RelayReceiver: ObservableObject {
         observers.append(center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] notification in
             guard let self else { return }
             let reason = (notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt).flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))
+            if self.outputRecovery.waiting { self.scheduleExternalOutput(); return }
             if self.choosingOutput, reason == .override || reason == .routeConfigurationChange || reason == .newDeviceAvailable {
                 let routes = AVAudioSession.sharedInstance().currentRoute.outputs
                 if let selected = RelayOutput.allCases.first(where: { !routes.isEmpty && routes.allSatisfy($0.matches) }),
@@ -71,11 +105,14 @@ final class RelayReceiver: ObservableObject {
                     return
                 }
             }
-            guard self.playIntent, !self.computerOutput, !self.waitingForComputerOutput else { return }
+            guard self.playIntent || self.interruptedByPhoneAudio, !self.computerOutput, !self.waitingForComputerOutput else { return }
             guard let route = self.output.currentRoute(), route.uid == self.routeUID else {
-                self.parkListening("OUTPUT", phase: .headphones, title: "Audio output changed")
+                self.waitForExternalOutput()
                 return
             }
+        })
+        observers.append(center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.scheduleExternalOutput()
         })
         observers.append(center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] notification in
             guard let self, let raw = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
@@ -132,6 +169,7 @@ final class RelayReceiver: ObservableObject {
     }
     deinit { observers.forEach(NotificationCenter.default.removeObserver) }
     func selectOutput(_ value: RelayOutput) {
+        cancelOutputRecovery(); interruptedByPhoneAudio = false
         guard value != output else { return }
         if playIntent || phase == .paused { parkListening("OUTPUT", phase: .headphones, title: "Output selected") }
         output = value; UserDefaults.standard.set(value.rawValue, forKey: "receiverOutput")
@@ -145,6 +183,7 @@ final class RelayReceiver: ObservableObject {
     }
     private func resetDisplayedTiming() { estimatedMs = nil; correction = 0; routeUID = ""; activeMode = playbackMode; modeNote = "" }
     func connect(requestPhoneOutput: Bool = true) {
+        cancelOutputRecovery()
         DispatchQueue.main.async { ConnectionAcknowledgment.shared.stopSound() }
         guard !AudioPresentationGate.isPresenting else {
             publish(.idle, "Ready to listen", "Close the advertisement, then choose Computer to start audio."); return
@@ -165,6 +204,7 @@ final class RelayReceiver: ObservableObject {
             publish(.error, "Audio is unavailable", "Finish the current call or audio session, then try again."); return
         }
         guard let route = output.currentRoute() else {
+            if output != .speaker && UserDefaults.standard.object(forKey: "trustedAutoReconnect") as? Bool != false { waitForExternalOutput(); return }
             try? session.setActive(false, options: .notifyOthersOnDeactivation)
             publish(.headphones, "Choose \(output.title)", "Use the output picker or Control Center. PairIt won’t silently switch to another output."); return
         }
@@ -344,6 +384,7 @@ final class RelayReceiver: ObservableObject {
         }
     }
     func listenOnComputer() {
+        cancelOutputRecovery(); interruptedByPhoneAudio = false
         guard supportsOutputControl else { return }
         let requested = queue.sync {
             guard transport?.requestOutputIfConnected(computer: true) == true else { return false }
@@ -363,6 +404,7 @@ final class RelayReceiver: ObservableObject {
     @Published var pausing = false
     private var pauseTicket=0
     func pauseComputer() {
+        if outputRecovery.waiting { cancelOutputRecovery(); stopPlayback(); publish(.paused,"Listening paused","Tap Resume when ready."); return }
         guard phase.macSelected, phase != .paused else { return }
         pauseTicket += 1;let ticket=pauseTicket;pausing=true
         parkListening("PAUSE", phase: .paused, title: "Listening paused")
@@ -376,11 +418,13 @@ final class RelayReceiver: ObservableObject {
         parkListening("PAUSE", phase: .phone, title: "Phone audio")
     }
     func disconnect() {
+        cancelOutputRecovery(); interruptedByPhoneAudio = false
         DispatchQueue.main.async { ConnectionAcknowledgment.shared.disconnected(output: self.output) }
         stopPlayback()
         publish(.idle, "Ready when you are", "Choose an output, then listen to your computer.")
     }
     private func parkListening(_ reason: String, phase: ReceiverPhase, title: String) {
+        cancelOutputRecovery()
         endHoldBackgroundTask()
         interruptedByPhoneAudio = reason == "PHONE"
         playIntent = false; intentGeneration += 1

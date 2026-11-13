@@ -51,3 +51,8 @@ with tempfile.TemporaryDirectory(prefix="pairit-android-check-") as temporary:
     subprocess.run(["java", "-cp", temporary, "dev.bluetoothswitch.relay.HeartbeatCheck"], check=True)
 
     subprocess.run(["java", "-cp", temporary, "dev.bluetoothswitch.relay.TourPlaybackCheck"], check=True)
+
+# Standalone recovery policy also runs without Android runtime.
+with tempfile.TemporaryDirectory() as out:
+    subprocess.run(["javac","-d",out,str(android/"src/dev/bluetoothswitch/relay/ExternalOutputRecovery.java"),str(android/"tests/ExternalOutputRecoveryCheck.java")],check=True)
+    subprocess.run(["java","-cp",out,"dev.bluetoothswitch.relay.ExternalOutputRecoveryCheck"],check=True)

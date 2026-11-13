@@ -104,6 +104,20 @@ attack. Automated checks and source review are not a guarantee of zero vulnerabi
 Report vulnerabilities through [email](mailto:kartikey060105@gmail.com)
 or email kartikey060105@gmail.com. Do not post pairing codes, keys or private captures.
 
+## External headphone recovery (preview 14)
+
+With Auto-reconnect enabled, losing the active Bluetooth, wired or USB output
+stops phone playback and releases its computer connection. The phone waits for
+an external output, then reconnects to its saved computer and resumes after the
+route is ready. Replacement headphones work on their first attachment. Manual
+Pause, Disconnect, computer-output selection and explicit output choices cancel
+pending recovery; the phone speaker never triggers it. Other listeners remain
+connected. Android keeps its foreground connected-device service while waiting.
+iOS reacts while running and checks again on foreground; it cannot guarantee
+headset-triggered recovery after system suspension or force-quit. Preview 14
+includes this phone update; the compatible desktop packages are unchanged from
+preview 13. iOS store distribution remains separate.
+
 ## Build and check
 
 Use full Xcode on macOS for Apple builds, Java 21 and Android SDK/build-tools 36

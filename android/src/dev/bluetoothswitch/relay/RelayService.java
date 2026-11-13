@@ -67,6 +67,7 @@ public class RelayService extends Service {
                 recoverNetwork();
                 if(running && reconnectable())locks.reconnectWindow();
             }
+            main.post(()->scheduleExternalOutput());
             if(worker!=null)LockSupport.unpark(worker);
         }
         @Override public void onLost(android.net.Network network) {
@@ -77,7 +78,7 @@ public class RelayService extends Service {
         }
     };
     private boolean reconnectable() {
-        return ConnectionHealth.retainSession(settings.autoReconnect(),requestedMac,parkedIntent,userStopped);
+        return !userStopped && (outputRecovery.waiting() || ConnectionHealth.retainSession(settings.autoReconnect(),requestedMac,parkedIntent,false));
     }
     private void recoverNetwork() {
         if(!running || userStopped || (!requestedMac && parkedIntent!=RelayHandoff.Intent.PHONE))return;
@@ -103,6 +104,51 @@ public class RelayService extends Service {
     private AudioFocusRequest focus;
     private MediaSession mediaSession;
     private boolean userStopped;
+    private final ExternalOutputRecovery outputRecovery=new ExternalOutputRecovery();
+    private int automaticOutputAttempts;
+    private final Runnable retryExternalOutput=()->resumeExternalOutput();
+    private void cancelOutputRecovery(){outputRecovery.cancel();main.removeCallbacks(retryExternalOutput);}
+    private void scheduleExternalOutput(){
+        if(!outputRecovery.waiting())return;
+        main.removeCallbacks(retryExternalOutput);main.postDelayed(retryExternalOutput,750);
+    }
+    private void resumeExternalOutput(){
+        if(!outputRecovery.waiting()||userStopped||liveInstance!=this)return;
+        if(!settings.autoReconnect()||!settings.paired()){cancelOutputRecovery();requestStop();return;}
+        AudioDeviceInfo destination=selectedOutput.find(audio);OutputRoute kind=selectedOutput;
+        if(destination==null){
+            for(OutputRoute candidate:new OutputRoute[]{OutputRoute.BLUETOOTH,OutputRoute.WIRED}){
+                destination=candidate.find(audio);if(destination!=null){kind=candidate;break;}
+            }
+        }
+        boolean allowed=networkAvailable&&audio.getMode()==AudioManager.MODE_NORMAL&&PhoneAudioSession.availableTo(this);
+        if(!outputRecovery.ready(destination!=null&&kind!=OutputRoute.SPEAKER,allowed)){
+            // Device callbacks wake an absent route; only retry a present route held by a call/network.
+            if(destination!=null)scheduleExternalOutput();return;
+        }
+        if(++automaticOutputAttempts>3){
+            pausePlayback(RelayState.Phase.ERROR,"Couldn’t use these headphones","Reconnect your headphones, then tap Connect.");return;
+        }
+        settings.output(kind,destination.getId());selectedOutput=kind;outputRevision++;
+        cancelOutputRecovery();startListening(true);
+        if(!requestedMac && !userStopped && running && state.phase==RelayState.Phase.PHONE){
+            outputRecovery.lost(true,settings.autoReconnect());scheduleExternalOutput();
+        }
+        if(worker!=null)LockSupport.unpark(worker);
+    }
+    private void waitForExternalOutput(){
+        outputRecovery.lost(selectedOutput!=OutputRoute.SPEAKER,settings.autoReconnect());
+        if(!outputRecovery.waiting()){park(RelayHandoff.Intent.OUTPUT,RelayState.Phase.HEADPHONES,"Output disconnected");return;}
+        ++startTicket;main.removeCallbacks(finishPausedService);main.removeCallbacks(connectionWatchdog);
+        requestedMac=false;focusGranted=false;profileReady=false;parkedIntent=RelayHandoff.Intent.OUTPUT;
+        resumeWhenQuietAfterReconnect=false;pendingOutputOnConnect=-1;
+        generation.incrementAndGet();mute();closeConnection();handoff=null;locks.release();audio.abandonAudioFocusRequest(focus);
+        outputControlSupported=false;computerOutputSelected=false;mediaSession.setActive(false);
+        publish(RelayState.Phase.HEADPHONES,"Waiting for headphones","Reconnect Bluetooth, wired or USB audio to resume automatically.");
+        foreground(false);
+        if(!running){running=true;worker=new Thread(this::receive,"relay-playback");worker.start();}
+        scheduleExternalOutput();
+    }
     private int startTicket;
     private final Runnable finishPausedService = () -> { if (!requestedMac && socket == null && !reconnectable()) stopSelf(); };
     private final AudioAttributes attributes = new AudioAttributes.Builder()
@@ -119,12 +165,15 @@ public class RelayService extends Service {
         }
     };
     private final AudioDeviceCallback devices = new AudioDeviceCallback() {
+        @Override public void onAudioDevicesAdded(AudioDeviceInfo[] added){
+            for(AudioDeviceInfo d:added)if(d.isSink()&&(OutputRoute.BLUETOOTH.accepts(d)||OutputRoute.WIRED.accepts(d))){automaticOutputAttempts=0;scheduleExternalOutput();break;}
+        }
         @Override public void onAudioDevicesRemoved(AudioDeviceInfo[] removed) {
-            for (AudioDeviceInfo device : removed) if (device.getId() == selectedDeviceId && (requestedMac || parkedIntent == RelayHandoff.Intent.PHONE)) loseOutput();
+            for (AudioDeviceInfo device : removed) if (device.isSink() && device.getId() == selectedDeviceId && !computerOutputSelected && (requestedMac || parkedIntent == RelayHandoff.Intent.PHONE)) loseOutput();
         }
     };
     private final BroadcastReceiver noisy = new BroadcastReceiver() {
-        public void onReceive(Context context, Intent intent) { if (requestedMac || parkedIntent == RelayHandoff.Intent.PHONE) loseOutput(); }
+        public void onReceive(Context context, Intent intent) { if (!computerOutputSelected && selectedOutput!=OutputRoute.SPEAKER && (requestedMac || parkedIntent == RelayHandoff.Intent.PHONE)) loseOutput(); }
     };
 
     @Override public void onCreate() {
@@ -183,6 +232,7 @@ public class RelayService extends Service {
         if ("STOP".equals(action)) { requestStop(); return START_NOT_STICKY; }
         if ("OUTPUT_COMPUTER".equals(action)) { selectComputerOutput(); return START_NOT_STICKY; }
         if ("LOCAL_OUTPUT".equals(action)) {
+            cancelOutputRecovery();
             boolean resume = requestedMac && !computerOutputSelected;
             if (resume) requestedMac = false;
             mute(); activeTrack = null;
@@ -191,7 +241,7 @@ public class RelayService extends Service {
             selectedDeviceId = destination == null ? -1 : destination.getId();
             outputRevision++; generation.incrementAndGet();
             if (resume) startListening(false);
-            else if (!running) stopSelf();
+            else if (!running || socket==null) stopSelf();
             return START_NOT_STICKY;
         }
         if ("SYNC".equals(action)) return START_NOT_STICKY; // Control thread sends saved calibration.
@@ -212,6 +262,7 @@ public class RelayService extends Service {
             return START_NOT_STICKY;
         }
         if (!"PLAY".equals(action)) { requestStop(); return START_NOT_STICKY; }
+        cancelOutputRecovery();automaticOutputAttempts=0;
         main.removeCallbacks(finishPausedService);
         final int ticket = ++startTicket;
         startWhenReleased(ticket, SystemClock.uptimeMillis() + 5000);
@@ -243,6 +294,7 @@ public class RelayService extends Service {
         interactiveMode = settings.interactive(); profileReady = false; timingProfileKey = "";
         sessionPin = settings.pin(); sessionOverride = settings.overrideHost();
         AudioDeviceInfo chosenOutput=selectedOutput.find(audio,settings.outputDeviceId());
+        if (chosenOutput == null && selectedOutput!=OutputRoute.SPEAKER && settings.autoReconnect()) {waitForExternalOutput();return;}
         if (chosenOutput == null) {
             publish(RelayState.Phase.HEADPHONES, "Output unavailable", "Connect " + selectedOutput.label.toLowerCase(Locale.ROOT) + ", or choose another output in Settings.");
             if (!running) stopSelf();
@@ -298,10 +350,11 @@ public class RelayService extends Service {
     }
 
     private void selectComputerOutput() {
+        cancelOutputRecovery();
         RelayHandoff current = handoff;
         if (current == null || !current.outputSupported()) {
             android.widget.Toast.makeText(this, "Connect to an updated computer companion to change its output.", android.widget.Toast.LENGTH_LONG).show();
-            if (!running) stopSelf();
+            if (!running || socket==null) stopSelf();
             return;
         }
         pendingOutputOnConnect = 1; current.requestOutput(true);
@@ -330,6 +383,7 @@ public class RelayService extends Service {
         if (track != null) try { track.setVolume(0); } catch (IllegalStateException ignored) { }
     }
     private void pausePlayback(RelayState.Phase phase, String title, String detail) {
+        cancelOutputRecovery();
         ++startTicket; main.removeCallbacks(finishPausedService);
         main.removeCallbacks(renewLocks);main.removeCallbacks(connectionWatchdog);
         requestedMac = false; focusGranted = false; running = false; profileReady = false;
@@ -340,11 +394,13 @@ public class RelayService extends Service {
         publish(phase, title, detail); stopSelf();
     }
     private void pauseComputer() {
+        if(outputRecovery.waiting()){cancelOutputRecovery();pausePlayback(RelayState.Phase.PAUSED,"Listening paused","Tap Resume when ready.");return;}
         if (!state.macSelected() || state.phase == RelayState.Phase.PAUSED) return;
         park(RelayHandoff.Intent.PAUSE, RelayState.Phase.PAUSED, "Listening paused");
     }
     private void loseOutput() {
-        park(RelayHandoff.Intent.OUTPUT, RelayState.Phase.HEADPHONES, "Output changed");
+        if(userStopped||outputRecovery.waiting())return;
+        waitForExternalOutput();
     }
     private void foreground(boolean playing) {
         int type = android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE;
@@ -352,6 +408,7 @@ public class RelayService extends Service {
         startForeground(1, notification(), type);
     }
     private void park(RelayHandoff.Intent intent, RelayState.Phase phase, String title) {
+        cancelOutputRecovery();
         if (userStopped) return;
         ++startTicket; main.removeCallbacks(finishPausedService);
         requestedMac = false; focusGranted = false; profileReady = false; parkedIntent = intent;
@@ -460,6 +517,7 @@ public class RelayService extends Service {
         android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO);
         int failures = 0;
         try { while (running) {
+            if(outputRecovery.waiting()){LockSupport.parkNanos(1_000_000_000L);continue;}
             if (!requestedMac && !reconnectable()) { LockSupport.parkNanos(100_000_000L); continue; }
             if (!networkAvailable) { LockSupport.parkNanos(1_000_000_000L); continue; }
             final int attemptNetwork=networkRevision;
@@ -485,7 +543,8 @@ public class RelayService extends Service {
                     break;
                 } else if (error instanceof OutputUnavailable) {
                     main.post(this::loseOutput);
-                    break;
+                } else if (outputRecovery.waiting()) {
+                    // Socket closed deliberately: the desktop releases this listener.
                 } else if (requestedMac || reconnectable()) {
                     failures++;
                     if(!reconnectable()) {
@@ -691,7 +750,7 @@ public class RelayService extends Service {
                 }
               } catch (OutputUnavailable | IllegalStateException outputError) {
                 requestedMac = false; mute(); main.post(this::loseOutput);
-                // Keep healthy TLS/control alive while the AudioTrack is retired.
+                // Main thread releases this listener and waits for a safe external output.
               }
             }
         } finally {
@@ -765,7 +824,7 @@ public class RelayService extends Service {
         Log.i(TAG, "STATE " + phase + " " + title);
         main.post(() -> {
             if(phase==RelayState.Phase.RECONNECTING||phase==RelayState.Phase.ERROR||phase==RelayState.Phase.HEADPHONES)endListeningFeedback();
-            else if(phase==RelayState.Phase.PLAYING&&state.phase==RelayState.Phase.PLAYING){listeningFeedback.audioStarted();acknowledgeConnection(connections,0);}
+            else if(phase==RelayState.Phase.PLAYING&&state.phase==RelayState.Phase.PLAYING){automaticOutputAttempts=0;listeningFeedback.audioStarted();acknowledgeConnection(connections,0);}
             updateMediaState();if (mediaSession != null && (running || state.phase == RelayState.Phase.PAUSED)) getSystemService(NotificationManager.class).notify(1, notification()); });
     }
     private void endListeningFeedback() {
@@ -792,6 +851,7 @@ public class RelayService extends Service {
         }
     }
     private void requestStop() {
+        cancelOutputRecovery();
         endListeningFeedback();
         ++startTicket; settings.controlsSource(""); main.removeCallbacks(finishPausedService);
         pendingOutputOnConnect = -1;
