@@ -11,6 +11,9 @@ final class ConnectionHealth {
     static boolean shouldReconnect(boolean enabled, boolean listening, boolean stopped) {
         return enabled && listening && !stopped;
     }
+    static boolean retainSession(boolean enabled, boolean listening, RelayHandoff.Intent hold, boolean stopped) {
+        return enabled && !stopped && (listening || hold == RelayHandoff.Intent.PHONE);
+    }
     static boolean expired(long now, long lastTraffic, boolean listening, boolean computerOutput) {
         return listening && !computerOutput && now >= lastTraffic && now - lastTraffic >= 15_000;
     }

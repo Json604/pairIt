@@ -17,7 +17,8 @@ internal sealed class CompanionForm : Form
     private readonly Button pair = ActionButton("Pair a phone"), disconnect = ActionButton("Disconnect");
     private readonly Panel outputs = new() { Dock = DockStyle.Top, Height = 65, BackColor = Color.Transparent };
     private readonly System.Windows.Forms.Timer updateTimer = new() { Interval = 900000, Enabled = true };
-    private bool updating;
+    private bool updating,playbackBusy;
+    private readonly PlaybackButton playback=new(){Text="Resume audio",Dock=DockStyle.Fill,BackColor=Color.FromArgb(17,17,17),ForeColor=Color.White,FlatStyle=FlatStyle.Flat};
     private Form? pairingWindow;
     internal bool ExitRequested;
 
@@ -27,10 +28,10 @@ internal sealed class CompanionForm : Form
         Text = "PairIt - AudioRelay"; Font = new Font("Segoe UI", 9); BackColor = Color.FromArgb(250, 250, 250);
         ForeColor = Color.FromArgb(23, 23, 23); FormBorderStyle = FormBorderStyle.FixedToolWindow;
         ShowInTaskbar = false; MaximizeBox = false; MinimizeBox = false; AutoScaleMode = AutoScaleMode.Dpi;
-        ClientSize = new Size(300, 278); StartPosition = FormStartPosition.Manual;
-        var content = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(14, 10, 14, 12), ColumnCount = 1, RowCount = 5, BackColor = BackColor };
+        ClientSize = new Size(300, 326); StartPosition = FormStartPosition.Manual;
+        var content = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(14, 10, 14, 12), ColumnCount = 1, RowCount = 6, BackColor = BackColor };
         content.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        foreach (var height in new[] { 38, 30, 48, 65, 45 }) content.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
+        foreach (var height in new[] { 38, 30, 48, 65, 48, 45 }) content.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
         var header = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, Margin = Padding.Empty };
         header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 28)); header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 34));
         var logo = new PictureBox { Image = Icon.ExtractAssociatedIcon(Application.ExecutablePath)?.ToBitmap(), SizeMode = PictureBoxSizeMode.Zoom, Width = 22, Height = 22, Anchor = AnchorStyles.Left, AccessibleName = "PairIt logo" };
@@ -44,10 +45,18 @@ internal sealed class CompanionForm : Form
         segment.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50)); segment.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         phone.Dock = computer.Dock = DockStyle.Fill; phone.Click += async (_, _) => await SetOutputAsync(false); computer.Click += async (_, _) => await SetOutputAsync(true);
         segment.Controls.Add(phone, 0, 0); segment.Controls.Add(computer, 1, 0); outputs.Controls.Add(segment); outputs.Controls.Add(label); content.Controls.Add(outputs, 0, 3);
+        content.Controls.Add(playback,0,4);
+        playback.Click+=async (_,_)=>{
+            if(playbackBusy)return;bool playing=sessions.Status.ActiveReceivers==0||sessions.Status.ComputerOutput;
+            playbackBusy=true;playback.Busy=true;playback.Text=playing?"Resuming…":"Pausing…";playback.Enabled=false;
+            string? failure=null;
+            try{await sessions.RequestPlaybackAsync(playing);}catch(Exception error){failure=error.Message;}
+            finally{playbackBusy=false;playback.Busy=false;Render(sessions.Status);if(failure!=null)status.Text=failure;}
+        };
         var actions = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Padding = new Padding(0, 8, 0, 0) };
         actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 55)); actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 45));
         pair.Dock = disconnect.Dock = DockStyle.Fill; pair.Click += async (_, _) => { try { await PairAsync(); } catch { status.Text = "Could not show pairing code."; } }; disconnect.Click += async (_, _) => await StopAllAsync();
-        actions.Controls.Add(pair, 0, 0); actions.Controls.Add(disconnect, 1, 0); content.Controls.Add(actions, 0, 4); Controls.Add(content);
+        actions.Controls.Add(pair, 0, 0); actions.Controls.Add(disconnect, 1, 0); content.Controls.Add(actions, 0, 5); Controls.Add(content);
         updateTimer.Tick += async (_, _) => await updates.CheckAsync(); Activated += async (_, _) => await updates.CheckAsync();
         FormClosing += (_, e) => { if (!ExitRequested) { e.Cancel = true; Hide(); } };
         VisibleChanged += (_, _) => { if (!Visible) pairingWindow?.Close(); };
@@ -58,6 +67,8 @@ internal sealed class CompanionForm : Form
     {
         var ready = value.Receivers > 0;
         status.Text = value.Receivers > 0 ? $"Your phone{(value.Receivers > 1 ? " · +" + (value.Receivers - 1) : "")}\n{(value.ActiveReceivers > 0 && !value.ComputerOutput ? "Listening" : value.ComputerOutput ? "Computer output" : "Paused")}" : "No phones connected";
+        playback.Visible=ready;playback.Enabled=ready&&!playbackBusy;
+        if(!playbackBusy)playback.Text=value.ActiveReceivers>0&&!value.ComputerOutput?"Pause audio":"Resume audio";
         outputs.Visible = ready; disconnect.Visible = ready || sessions.CurrentSettings.SharingEnabled;
         phone.Enabled = computer.Enabled = sessions.CurrentSettings.SharingEnabled && !updating;
         PairItAppearance.Select(phone, !value.ComputerOutput); PairItAppearance.Select(computer, value.ComputerOutput);

@@ -12,7 +12,7 @@ struct RelayShortcutProvider: TimelineProvider {
 
 struct RelayShortcutView: View {
     @Environment(\.widgetFamily) private var family
-    let blue = Color(red: 0.72, green: 0.23, blue: 0.08)
+    let accent = Color(white: 0.1)
     let ink = Color(red: 0.098, green: 0.098, blue: 0.098)
     var body: some View {
         Group {
@@ -34,15 +34,15 @@ struct RelayShortcutView: View {
                 }
             default:
                 VStack(alignment: .leading, spacing: 10) {
-                    HStack { Image(systemName: "headphones").font(.title2).foregroundStyle(blue); Spacer() }
+                    HStack { Image(systemName: "headphones").font(.title2).foregroundStyle(accent); Spacer() }
                     Spacer(minLength: 0)
                     Text("PairIt").font(.subheadline.weight(.medium)).foregroundStyle(ink)
-                    HStack { Text("Listen to computer").font(.headline); Spacer(minLength: 0); Image(systemName: "arrow.up.right").font(.caption) }.foregroundStyle(blue)
+                    HStack { Text("Listen to computer").font(.headline); Spacer(minLength: 0); Image(systemName: "arrow.up.right").font(.caption) }.foregroundStyle(accent)
                 }
             }
         }
         .containerBackground(for: .widget) {
-            LinearGradient(colors: [.white, Color(red: 1, green: 0.82, blue: 0.68)], startPoint: .topLeading, endPoint: .bottomTrailing)
+            LinearGradient(colors: [.white, Color(red: 0.89, green: 0.93, blue: 0.99)], startPoint: .topLeading, endPoint: .bottomTrailing)
         }
         .widgetURL(URL(string: "audiorelay://listen")!)
     }

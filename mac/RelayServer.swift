@@ -34,6 +34,9 @@ final class RelayServer {
     private var appliedCompensation: Double?
     private var captureFailure: String?
     private var lastStatus = ""
+    private var lastAudibleAt: TimeInterval = 0
+    private var onsetAt: TimeInterval?
+    private var onsetArmed = false
     private var reconciliationScheduled = false
     private var lastReceiverCount = -1
     private var lastReceiverDetail = ""
@@ -109,13 +112,22 @@ final class RelayServer {
             reply.withUnsafeMutableBytes { raw in
                 raw.storeBytes(of: UInt32(0x31435342).littleEndian, toByteOffset: 0, as: UInt32.self)
                 let held = peer.parked && (computerOutput || capture != nil) && !startingCapture && !stoppingCapture
-                let status = UInt32(1 | 128) | (computerOutput ? 64 : 0) | (held ? 4 : 0) | (peer.released ? 32 : 0) | (peer.intentToken << 8)
+                let status = UInt32(1 | 128) | (computerOutput ? 64 : 0) | (held ? 4 : 0) | (peer.released ? 32 : 0) | (peer.resumeOffered ? 16 : 0) | (peer.intentToken << 8)
                 raw.storeBytes(of: status.littleEndian, toByteOffset: 4, as: UInt32.self)
                 raw.storeBytes(of: sent.littleEndian, toByteOffset: 8, as: UInt64.self)
                 raw.storeBytes(of: AudioConvertHostTimeToNanos(AudioGetCurrentHostTime()).littleEndian, toByteOffset: 16, as: UInt64.self)
             }
-            lock.unlock(); peer.enqueue(reply); return
+            var command: Data?
+            if peer.desktopControls, let playing = peer.desktopRequest {
+                command=Data(count:24)
+                command!.withUnsafeMutableBytes { raw in
+                    raw.storeBytes(of: UInt32(0x32435342).littleEndian,toByteOffset:0,as:UInt32.self)
+                    raw.storeBytes(of: (UInt32(2 | (playing ? 16 : 0)) | peer.intentToken << 8).littleEndian,toByteOffset:4,as:UInt32.self)
+                }
+            }
+            lock.unlock(); peer.enqueue(reply); if let command { peer.enqueue(command) }; return
         }
+        if line == "STATS CONTROLS1" { peer.desktopControls=true;lock.unlock();return }
         let words = line.split(separator: " ")
         if line == "OUTPUT COMPUTER" || line == "OUTPUT PHONE" {
             lock.unlock(); setComputerOutput(line == "OUTPUT COMPUTER"); return
@@ -127,6 +139,8 @@ final class RelayServer {
             if command == "PARK" && !["PHONE", "PAUSE", "OUTPUT"].contains(String(words[2])) { lock.unlock(); return }
             peer.intentToken = token; peer.released = command == "RELEASE"
             peer.parked = command == "PARK"; peer.active = command == "RESUME"
+            peer.phoneInterrupted = command == "PARK" && words[2] == "PHONE"
+            peer.resumeOffered = false; peer.desktopRequest = nil
             peer.clear()
         }
         else if line == "ACTIVE 0" && peer.intentToken == 0 { peer.active = false; peer.clear() }
@@ -163,6 +177,17 @@ final class RelayServer {
             self.lock.lock(); self.reconciliationScheduled = false; self.lock.unlock()
             self.updateCapture()
         }
+    }
+    var playbackRequestPending: Bool { lock.lock();defer { lock.unlock() };return peers.values.contains { !$0.closed && $0.desktopRequest != nil } }
+    func cancelPlaybackRequest(){lock.lock();for peer in peers.values {peer.desktopRequest=nil};lock.unlock()}
+    func requestPhonePlayback(_ playing: Bool) {
+        if playing { setComputerOutput(false) }
+        lock.lock()
+        for peer in peers.values where peer.authenticated && peer.desktopControls && !peer.closed && !peer.released {
+            peer.desktopRequest = playing
+            peer.resumeOffered = false
+        }
+        lock.unlock()
     }
     func setComputerOutput(_ enabled: Bool) {
         lock.lock()
@@ -266,6 +291,30 @@ final class RelayServer {
             let valid = source == nil || (!computerOutput && capture === source)
             // Serialize selection + bounded enqueue against PARK/clear. The socket
             // writer never runs under this lock; parked packets cannot be queued late.
+            if valid {
+                // Only a fresh silence-to-audio edge can reclaim an interrupted phone.
+                // Existing audio, explicit pauses and output changes never offer resume.
+                let audible = packet.count > 24 && packet.withUnsafeBytes { raw in
+                    stride(from: 24, to: packet.count - 1, by: 2).contains {
+                        abs(Int(Int16(littleEndian: raw.loadUnaligned(fromByteOffset: $0, as: Int16.self)))) > 160
+                    }
+                }
+                if !audible {
+                    if now - lastAudibleAt >= 0.75 { onsetArmed = true }
+                    onsetAt = nil
+                } else {
+                    if onsetArmed {
+                        if onsetAt == nil { onsetAt = now }
+                        if now - (onsetAt ?? now) >= 0.08 {
+                            for peer in peers.values where peer.authenticated && peer.parked && peer.phoneInterrupted {
+                                peer.resumeOffered = true
+                            }
+                            onsetArmed = false; onsetAt = nil
+                        }
+                    }
+                    lastAudibleAt = now
+                }
+            }
             if valid { for peer in peers.values where peer.authenticated && (peer.active || source == nil) { peer.enqueue(packet) } }
             lock.unlock()
         }
@@ -314,6 +363,10 @@ private final class RelayPeer {
     var authenticated = false
     var active = false
     var parked = false
+    var phoneInterrupted = false
+    var desktopControls=false
+    var desktopRequest: Bool?
+    var resumeOffered = false
     var released = false
     var intentToken: UInt32 = 0
     var identity: String?

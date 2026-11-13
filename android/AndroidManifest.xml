@@ -25,6 +25,7 @@
         <data android:scheme="audiorelay" android:host="pair" />
       </intent-filter>
     </activity>
+    <activity android:name=".QuickTourActivity" android:exported="false" />
     <activity android:name=".InformationActivity" android:exported="false" />
     <service android:name=".RelayTileService" android:label="@string/app_name" android:icon="@drawable/ic_quick_tile" android:exported="true" android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
       <intent-filter><action android:name="android.service.quicksettings.action.QS_TILE" /></intent-filter>

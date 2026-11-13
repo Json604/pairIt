@@ -17,7 +17,7 @@ final class PcmInbox {
     // About 1.4 seconds at 256 frames. A ceiling, never a prefill target.
     private final ArrayBlockingQueue<Packet> queue = new ArrayBlockingQueue<>(256);
     private volatile IOException failure;
-    java.util.function.IntConsumer onControlStatus;
+    java.util.function.IntConsumer onControlStatus, onDesktopRequest;
     Runnable onHeartbeat;
     volatile long framesReceived, sequenceGaps, discarded;
     private volatile long bestClockOffset = Long.MAX_VALUE;
@@ -48,6 +48,7 @@ final class PcmInbox {
                 byte[] header = new byte[24]; input.readFully(header);
                 ByteBuffer h = ByteBuffer.wrap(header).order(ByteOrder.LITTLE_ENDIAN);
                 int magic = h.getInt();
+                if(magic==0x32435342){int command=h.getInt();if(onDesktopRequest!=null)onDesktopRequest.accept(command);continue;}
                 if (magic == 0x31435342) {
                     int controlStatus = h.getInt(); long sent = h.getLong(), server = h.getLong();
                     if (onHeartbeat != null) onHeartbeat.run();

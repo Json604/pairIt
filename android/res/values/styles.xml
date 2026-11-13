@@ -1,18 +1,20 @@
 <resources>
     <style name="RelayTheme" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
-        <item name="android:colorAccent">#B83B14</item>
+        <item name="android:colorAccent">#191919</item>
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:windowLightNavigationBar">true</item>
         <item name="android:windowActionModeOverlay">true</item>
-        <item name="android:windowBackground">#F5F4F2</item>
+        <item name="android:windowBackground">#F6F6F8</item>
         <item name="android:alertDialogTheme">@style/RelayDialog</item>
     </style>
     <style name="RelayDialog" parent="android:style/Theme.Material.Light.Dialog.Alert">
         <item name="android:windowIsTranslucent">true</item>
-        <item name="android:colorAccent">#B83B14</item>
+        <item name="android:colorAccent">#191919</item>
         <item name="android:textColorPrimary">#191919</item>
-        <item name="android:textColorSecondary">#595452</item>
+        <item name="android:textColorSecondary">#616161</item>
+        <item name="android:backgroundDimEnabled">true</item>
+        <item name="android:backgroundDimAmount">0.55</item>
         <item name="android:windowMinWidthMajor">90%</item>
         <item name="android:windowMinWidthMinor">90%</item>
     </style>

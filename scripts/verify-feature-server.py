@@ -30,8 +30,8 @@ def wait_for(predicate,timeout=3):
 class Client:
     def __init__(self,number,read=True):
         self.socket=socket.create_connection(('127.0.0.1',port),timeout=2)
-        self.socket.settimeout(3);self.packets={};self.clocks=0;self.status=0;self.error=None;self.running=True
-        self.send('AUTH '+gateway_token+'\nHELLO '+format(number,'032x')+'\nACTIVE 1\n')
+        self.socket.settimeout(3);self.packets={};self.clocks=0;self.status=0;self.desktop=0;self.error=None;self.running=True
+        self.send('AUTH '+gateway_token+'\nHELLO '+format(number,'032x')+'\nSTATS CONTROLS1\nACTIVE 1\n')
         if read:
             self.reader=threading.Thread(target=self.run,daemon=True);self.reader.start()
         self.pinger=threading.Thread(target=self.ping,daemon=True);self.pinger.start()
@@ -52,6 +52,7 @@ class Client:
         try:
             while self.running:
                 header=self.read(24);magic,seq,rate,frames,stamp=struct.unpack('<IIIIQ',header)
+                if magic==0x32435342:self.desktop=seq;continue
                 if magic==0x31435342:self.clocks+=1;self.status=seq;continue
                 assert magic==0x31415342 and rate in(44100,48000) and frames<=8192
                 if frames:
@@ -157,6 +158,31 @@ try:
     require(wait_for(lambda:len(other.packets)>10),'Another listener continues while one phone is parked')
     other.send('PARK 1 PHONE\n')
     require(wait_for(lambda:other.status>>8==1 and other.status&4),'Second phone parks independently')
+    time.sleep(1)
+    require(not other.status&16, 'Silence does not reclaim phone audio')
+    command('audio-on')
+    require(wait_for(lambda:other.status&16), 'Fresh computer audio offers resume to a phone interruption')
+    require(not parked.status&16, 'Fresh computer audio does not override an explicit pause')
+    other.send('RESUME 2\n')
+    require(wait_for(lambda:other.status>>8==2 and not other.status&20), 'Resume clears the offer and releases the hold')
+    other.send('PARK 3 PHONE\n')
+    require(wait_for(lambda:other.status>>8==3 and other.status&4), 'New phone interruption is acknowledged')
+    time.sleep(.5)
+    require(not other.status&16, 'Already playing computer audio does not immediately steal focus back')
+    command('audio-off');time.sleep(1)
+    other.send('PARK 4 OUTPUT\n')
+    require(wait_for(lambda:other.status>>8==4), 'Output interruption is acknowledged')
+    command('audio-on');time.sleep(.5)
+    require(not other.status&16, 'Output changes and call holds do not auto-resume')
+    command('audio-off')
+    command('phone-resume')
+    require(wait_for(lambda:other.desktop&18==18 and parked.desktop&18==18), 'Desktop resume explicitly requests paused phones')
+    other.send('RESUME 5\n')
+    require(wait_for(lambda:other.status>>8==5 and not other.status&18), 'Receiver acknowledgment clears desktop request')
+    command('phone-pause')
+    require(wait_for(lambda:other.desktop&18==2), 'Desktop pause requests stop without implying resume')
+    other.send('PARK 6 PAUSE\n')
+    require(wait_for(lambda:other.status>>8==6 and other.status&4 and not other.status&18), 'Desktop pause completes only after receiver acknowledgment')
     parked.close();other.close();clients=[];time.sleep(.5)
     require(wait_for(lambda:(lambda s:s['starts']==s['stops'])(json.loads(command('stats')))), 'Loss of all parked phones restores the original computer output')
     resumed=Client(80);clients.append(resumed);resumed.send('RESUME 1\n')

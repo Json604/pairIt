@@ -10,7 +10,8 @@ import android.view.View;
 /** Equalizer owns its layout space, so it cannot overlap the listening caption. */
 final class ListeningBars extends View {
     private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final boolean playing;
+    private boolean playing;
+    void setPlaying(boolean value){playing=value;invalidate();}
     ListeningBars(Context context,boolean playing){super(context);this.playing=playing;setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);paint.setColor(Color.WHITE);}
     @Override protected void onDraw(Canvas canvas){
         if(!playing)return;

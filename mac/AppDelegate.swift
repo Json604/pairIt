@@ -32,6 +32,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             guard let self, self.model.sharing, self.model.sharingAction == nil else { return }
             self.server.setComputerOutput(speakers)
         }
+        model.setPhonePlayback = { [weak self] playing in
+            guard let self, self.model.playbackAction == nil else { return }
+            self.model.playbackAction=playing;self.server.requestPhonePlayback(playing)
+            let deadline=Date().addingTimeInterval(8)
+            Timer.scheduledTimer(withTimeInterval:0.1,repeats:true){[weak self] timer in
+                guard let self else {timer.invalidate();return}
+                if !self.server.playbackRequestPending || Date()>=deadline {
+                    let expired=self.server.playbackRequestPending
+                    self.server.cancelPlaybackRequest();self.model.playbackAction=nil;timer.invalidate()
+                    if expired {self.model.detail="Phone did not respond. Try again."}
+                }
+            }
+        }
         model.retrySharing = { [weak self] in self?.startSharing() }
         model.installOutput = { [weak self] in self?.installOutput() }
         model.openPermissions = {

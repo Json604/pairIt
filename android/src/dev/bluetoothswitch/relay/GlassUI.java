@@ -11,7 +11,7 @@ import android.view.animation.PathInterpolator;
 
 /** Static visual layers. No timers, networking, or work on the playback thread. */
 final class GlassUI {
-    static final int INK = 0xff191919, SECONDARY = 0xff595452, BLUE = 0xff191919, ACCENT = 0xff191919, PAPER = 0xfffafaf9, SAND = 0x75ffffff;
+    static final int INK = 0xff191919, SECONDARY = 0xff616161, BLUE = 0xff191919, ACCENT = 0xff191919, PAPER = 0xfffafafa, SAND = 0x75ffffff;
     private static Typeface heading;
     static Typeface heading(Context context) {
         if (heading == null) heading = Typeface.createFromAsset(context.getAssets(), "fonts/ChakraPetch-Regular.ttf");
@@ -161,6 +161,8 @@ final class GlassUI {
                 for(int i=0;i<3;i++){float y=5+i*7;canvas.drawLine(3,y,21,y,p);}
                 p.setStyle(Paint.Style.FILL);p.setColor(PAPER);canvas.drawCircle(8,5,2.6f,p);canvas.drawCircle(16,12,2.6f,p);canvas.drawCircle(10,19,2.6f,p);
                 p.setStyle(Paint.Style.STROKE);p.setColor(original);canvas.drawCircle(8,5,2.6f,p);canvas.drawCircle(16,12,2.6f,p);canvas.drawCircle(10,19,2.6f,p);
+            } else if(name.equals("more")) {
+                p.setStyle(Paint.Style.FILL);for(int i=0;i<3;i++)canvas.drawCircle(5+i*7,12,1.6f,p);p.setStyle(Paint.Style.STROKE);
             } else if(name.equals("lock")) {
                 canvas.drawRoundRect(5,10,19,22,3,3,p);canvas.drawArc(8,2,16,16,180,180,false,p);canvas.drawLine(12,15,12,18,p);
             } else {

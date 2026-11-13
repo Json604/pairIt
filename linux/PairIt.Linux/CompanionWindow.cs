@@ -18,6 +18,8 @@ internal sealed class CompanionWindow : Window
     private readonly ComboBox addresses = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     private readonly TextBlock status = Label("Getting ready…");
     private readonly Button phone = new() { Content = "Phone headphones" }, computer = new() { Content = "Computer speakers" };
+    private readonly Button playback=new(){Content="Resume audio",Height=40};
+    private bool playbackBusy;
     private readonly Button show = new() { Content = "Pair a phone" };
     private LocalIdentity? identity;
     private DesktopSessions? sessions;
@@ -31,7 +33,7 @@ internal sealed class CompanionWindow : Window
 
     public CompanionWindow()
     {
-        Title = "PairIt - AudioRelay"; Width = 300; Height = 300; CanResize = false;
+        Title = "PairIt - AudioRelay"; Width = 300; Height = 350; CanResize = false;
         Background = Brush.Parse("#FAFAFA"); Foreground = Brush.Parse("#171717");
         var panel = new StackPanel { Margin = new Thickness(14, 10, 14, 12), Spacing = 10 };
         var header = new DockPanel { Height = 28, LastChildFill = false };
@@ -47,6 +49,16 @@ internal sealed class CompanionWindow : Window
         var segment = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), Height = 36 };
         Grid.SetColumn(computer, 1); segment.Children.Add(phone); segment.Children.Add(computer);
         outputArea.Children.Add(new Border { Background = Brush.Parse("#EEEEEE"), CornerRadius = new CornerRadius(12), Padding = new Thickness(3), Child = segment }); panel.Children.Add(outputArea);
+        panel.Children.Add(playback);
+        playback.Click+=async (_,_)=>{
+            if(playbackBusy||sessions==null)return;
+            bool playing=sessions.Status.ActiveReceivers==0||sessions.Status.ComputerOutput;playbackBusy=true;playback.IsEnabled=false;
+            var loading=new StackPanel{Orientation=Orientation.Horizontal,Spacing=8,HorizontalAlignment=HorizontalAlignment.Center};
+            loading.Children.Add(new PlaybackSpinner());loading.Children.Add(new TextBlock{Text=playing?"Resuming…":"Pausing…"});playback.Content=loading;
+            try{await sessions.RequestPlaybackAsync(playing);}catch(Exception error){status.Text=error.Message;}
+            finally{playbackBusy=false;UpdateButtons();}
+        };
+        playback.Background=Brush.Parse("#111111");playback.Foreground=Brushes.White;playback.HorizontalAlignment=HorizontalAlignment.Stretch;
         show.Content = "Pair a phone";
         var actions = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), Height = 36 };
         Grid.SetColumn(disconnect, 1); actions.Children.Add(show); actions.Children.Add(disconnect); panel.Children.Add(actions);
@@ -137,6 +149,8 @@ internal sealed class CompanionWindow : Window
     {
         var running = sessions?.CurrentSettings.SharingEnabled == true;
         var ready = sessions?.Status.Receivers > 0;
+        playback.IsVisible=ready;playback.IsEnabled=ready&&!playbackBusy&&!closing;
+        if(!playbackBusy)playback.Content=sessions?.Status.ActiveReceivers>0&&sessions?.Status.ComputerOutput!=true?"Pause audio":"Resume audio";
         outputArea.IsVisible = ready; disconnect.IsVisible = ready || running;
         disconnect.IsEnabled = !busy && !closing && sessions != null;
         phone.IsEnabled = computer.IsEnabled = !busy && !closing && running;

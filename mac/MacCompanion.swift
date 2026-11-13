@@ -27,6 +27,7 @@ final class MacCompanionModel: ObservableObject {
     @Published var parkedCount = 0
     @Published var outputHeld = false
     @Published var computerOutput = false
+    @Published var playbackAction: Bool?
     @Published var pairingConfirmed = false
     @Published var receiverDetail = "No active listeners"
     let macName = Host.current().localizedName ?? "This Mac"
@@ -41,9 +42,10 @@ final class MacCompanionModel: ObservableObject {
     var openPermissions: () -> Void = {}
     var quit: () -> Void = {}
     var changeAddress: () -> Void = {}
+    var setPhonePlayback: (Bool) -> Void = { _ in }
     var selectOutput: (Bool) -> Void = { _ in }
     var panelWidth: CGFloat { page == 1 ? 500 : 300 }
-    var panelHeight: CGFloat { page == 1 ? 330 : page == 0 ? ((connected || parkedCount > 0) ? 280 : (!outputInstalled || !sharing || connectionFailed ? 240 : 200)) : 440 }
+    var panelHeight: CGFloat { page == 1 ? 330 : page == 0 ? ((connected || parkedCount > 0) ? 326 : (!outputInstalled || !sharing || connectionFailed ? 240 : 200)) : 440 }
     var needsAudioPermission: Bool { outputInstalled && detail.hasPrefix("Capture failed") }
     var connectionFailed: Bool { detail.hasPrefix("Couldn’t start") || network.hasPrefix("Wi-Fi unavailable") }
 
@@ -214,6 +216,13 @@ struct MacCompanionView: View {
                     outputButton("Phone", icon: "headphones", computer: false)
                     outputButton("Computer", icon: "desktopcomputer", computer: true)
                 }.padding(5).background(Color(white: 0.92), in: RoundedRectangle(cornerRadius: 15)).clipShape(RoundedRectangle(cornerRadius: 15))
+                Button { model.setPhonePlayback(model.receiverCount == 0 || model.computerOutput) } label: {
+                    HStack(spacing:8){
+                        if model.playbackAction != nil { ProgressView().controlSize(.small).tint(.white) }
+                        else { Image(systemName:model.receiverCount > 0 && !model.computerOutput ? "pause.fill":"play.fill") }
+                        Text(model.playbackAction == true ? "Resuming…" : model.playbackAction == false ? "Pausing…" : model.receiverCount > 0 && !model.computerOutput ? "Pause audio" : "Resume audio")
+                    }
+                }.buttonStyle(RelayPrimaryButtonStyle()).disabled(model.playbackAction != nil)
                 HStack {
                     Button("Pair a phone") { model.navigate(to: 1) }
                     Spacer()

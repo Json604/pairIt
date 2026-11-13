@@ -13,6 +13,7 @@ final class Capture: RelayCaptureSource {
     static var starting = 0, stopping = 0
     static var startDelay: TimeInterval = 0
     static var failNextStart = false
+    static var audible = false
     static var adjustments: [Double] = []
     private var nextTime: UInt64 = 0
     private var sequence: UInt32 = 0
@@ -35,6 +36,7 @@ final class Capture: RelayCaptureSource {
         let now = AudioConvertHostTimeToNanos(AudioGetCurrentHostTime())
         guard now >= nextTime else { return nil }
         nextTime = now + 5_333_333
+        Self.lock.lock(); let audible = Self.audible; Self.lock.unlock()
         var result = Data(count: 1048)
         result.withUnsafeMutableBytes { raw in
             raw.storeBytes(of: UInt32(0x31415342).littleEndian, toByteOffset: 0, as: UInt32.self)
@@ -42,6 +44,7 @@ final class Capture: RelayCaptureSource {
             raw.storeBytes(of: UInt32(48000).littleEndian, toByteOffset: 8, as: UInt32.self)
             raw.storeBytes(of: UInt32(256).littleEndian, toByteOffset: 12, as: UInt32.self)
             raw.storeBytes(of: now.littleEndian, toByteOffset: 16, as: UInt64.self)
+            if audible { raw.storeBytes(of: Int16(1000).littleEndian, toByteOffset: 24, as: Int16.self) }
         }
         sequence &+= 1; return result
     }
@@ -60,6 +63,8 @@ final class Capture: RelayCaptureSource {
         try server.start()
         print("READY " + server.gatewayToken); fflush(stdout)
         while let line = readLine() {
+            if line == "phone-resume" || line == "phone-pause" { server.requestPhonePlayback(line == "phone-resume"); print("OK"); fflush(stdout) }
+            if line == "audio-on" || line == "audio-off" { Capture.lock.lock(); Capture.audible = line == "audio-on"; Capture.lock.unlock(); print("OK"); fflush(stdout) }
             if line == "computer-output" { server.setComputerOutput(true); print("OK"); fflush(stdout) }
             if line == "phone-output" { server.setComputerOutput(false); print("OK"); fflush(stdout) }
             if line == "reserve" { print(server.reserveMicrophone() ? "RESERVED" : "BUSY"); fflush(stdout) }

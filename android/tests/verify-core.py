@@ -28,7 +28,9 @@ with tempfile.TemporaryDirectory(prefix="pairit-android-check-") as temporary:
                     str(android / "src/dev/bluetoothswitch/relay/ExplicitConnectionIntent.java"),
                     str(android / "tests/ExplicitConnectionIntentCheck.java"),
                     str(android / "tests/ReleaseDownloadLinkCheck.java"),
-                    str(android / "tests/RelayHandoffCheck.java")], check=True)
+                    str(android / "tests/RelayHandoffCheck.java"),
+                    str(android / "src/dev/bluetoothswitch/relay/TourPlayback.java"),
+                    str(android / "tests/TourPlaybackCheck.java")], check=True)
     subprocess.run(["java", "-cp", temporary,
                     "dev.bluetoothswitch.relay.ReleaseDownloadLinkCheck"], check=True)
     subprocess.run(["java", "-cp", temporary,
@@ -47,3 +49,5 @@ with tempfile.TemporaryDirectory(prefix="pairit-android-check-") as temporary:
     subprocess.run(["java", "-cp", temporary, "dev.bluetoothswitch.relay.ListeningFeedbackCheck"], check=True)
 
     subprocess.run(["java", "-cp", temporary, "dev.bluetoothswitch.relay.HeartbeatCheck"], check=True)
+
+    subprocess.run(["java", "-cp", temporary, "dev.bluetoothswitch.relay.TourPlaybackCheck"], check=True)

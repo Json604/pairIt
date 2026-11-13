@@ -170,6 +170,11 @@ public sealed class RelayServer(X509Certificate2 certificate, string pairingToke
             long.TryParse(line.AsSpan(5), NumberStyles.None, CultureInfo.InvariantCulture, out var echoed) && echoed >= 0)
         {
             if (!peer.TryEnqueue(Protocol.ClockReply(echoed, sessions.ClockStatus(peer)))) peer.Close();
+            if(sessions.DesktopPlaybackRequest(peer) is uint request){
+                var frame=Protocol.ClockReply(echoed,request);
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(frame,0x32435342);
+                if(!peer.TryEnqueue(frame))peer.Close();
+            }
             return;
         }
         if (line.StartsWith("PARK ", StringComparison.Ordinal) || line.StartsWith("RESUME ", StringComparison.Ordinal) || line.StartsWith("RELEASE ", StringComparison.Ordinal))
@@ -207,6 +212,7 @@ public sealed class RelayServer(X509Certificate2 certificate, string pairingToke
             sessions.SetHello(peer, line[6..]);
             return;
         }
+        if(line=="STATS CONTROLS1"){peer.DesktopControls=true;return;}
         if (line.StartsWith("STATS ", StringComparison.Ordinal)) return;
         throw new InvalidDataException("Unsupported control line.");
     }

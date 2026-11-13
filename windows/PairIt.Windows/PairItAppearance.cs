@@ -8,11 +8,11 @@ namespace PairIt.Windows;
 internal static class PairItAppearance
 {
     private static readonly PrivateFontCollection Fonts = LoadFonts();
-    public static Color Background => SystemInformation.HighContrast ? SystemColors.Control : Color.FromArgb(245, 244, 242);
-    public static Color Paper => SystemInformation.HighContrast ? SystemColors.Window : Color.FromArgb(250, 250, 249);
+    public static Color Background => SystemInformation.HighContrast ? SystemColors.Control : Color.FromArgb(246, 246, 248);
+    public static Color Paper => SystemInformation.HighContrast ? SystemColors.Window : Color.FromArgb(250, 250, 250);
     public static Color Ink => SystemInformation.HighContrast ? SystemColors.ControlText : Color.FromArgb(25, 25, 25);
-    public static Color Secondary => SystemInformation.HighContrast ? SystemColors.ControlText : Color.FromArgb(89, 84, 82);
-    public static Color Orange => SystemInformation.HighContrast ? SystemColors.Highlight : Color.FromArgb(30, 110, 240);
+    public static Color Secondary => SystemInformation.HighContrast ? SystemColors.ControlText : Color.FromArgb(97, 97, 97);
+    public static Color Accent => SystemInformation.HighContrast ? SystemColors.Highlight : Color.FromArgb(30, 110, 240);
     public static Color Link => SystemInformation.HighContrast ? SystemColors.HotTrack : Color.FromArgb(35, 35, 35);
     public static Font Heading(float size) => new(Fonts.Families.FirstOrDefault() ?? FontFamily.GenericSansSerif, size);
     [DllImport("user32.dll", SetLastError = true)]

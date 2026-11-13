@@ -29,6 +29,22 @@ public final class RelayHandoffCheck {
             parked.acceptStatus(1 | 128 | 4 | (1 << 8));
             require(parked.intent() == intent && !parked.readyForAudio(), "Desktop output changes preserve parked phone intent");
         }
+        RelayHandoff offered = new RelayHandoff(RelayHandoff.Intent.PHONE);
+        require(!offered.acceptStatus(1 | 4 | 16 | (2 << 8)), "Stale offer cannot reclaim phone audio");
+        require(offered.acceptStatus(1 | 4 | 16 | (1 << 8)), "Fresh matching offer is accepted");
+        require(!offered.acceptStatus(1 | 4 | 16 | (1 << 8)), "An offer is consumed only once");
+        offered.request(RelayHandoff.Intent.PAUSE);
+        require(!offered.isCurrentOffer(1 | 4 | 16 | (1 << 8)), "A later manual pause invalidates a queued offer");
+        for (RelayHandoff.Intent intent : new RelayHandoff.Intent[]{RelayHandoff.Intent.PAUSE, RelayHandoff.Intent.OUTPUT}) {
+            RelayHandoff protectedHold = new RelayHandoff(intent);
+            require(!protectedHold.acceptStatus(1 | 4 | 16 | (1 << 8)), "Explicit pause/output hold ignores offers");
+        }
+        RelayHandoff desktop = new RelayHandoff(RelayHandoff.Intent.PAUSE);
+        desktop.acceptStatus(1|4|2|16|(1<<8));
+        require(desktop.desktopRequest(1|2|16|(1<<8))==1,"Explicit desktop resume can resume a manual pause");
+        require(desktop.desktopRequest(1|2|16|(1<<8))==-1,"Desktop command is consumed once");
+        desktop.request(RelayHandoff.Intent.LISTEN);desktop.acceptStatus(1|2|(2<<8));
+        require(desktop.desktopRequest(1|2|(2<<8))==0,"Explicit desktop pause stops listening");
         RelayHandoff legacy = new RelayHandoff(RelayHandoff.Intent.LISTEN);
         legacy.requestOutput(false);
         legacy.acceptStatus(0);

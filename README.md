@@ -143,6 +143,21 @@ Windows builds run `PairIt.ProtocolCheck`; Linux builds run monitor/identity che
 CI builds all five platforms and includes Linux capture and graphical-startup checks.
 Real calls, Bluetooth routing, background recovery and audio quality need device tests.
 
+## Current preview changes
+
+Preview 13 includes phone-audio interruption recovery across network changes,
+acknowledged desktop Pause audio / Resume audio controls with bounded loading
+feedback, and matching controls on Android and iOS. Desktop commands are negotiated
+with compatible receivers; older phones continue using their existing controls.
+Android and iOS include the replayable interactive tutorial, shared native UI
+components, and the same nearby-phone orbit layout in the tutorial and Together.
+
+Available phones are PairIt devices advertising while Together is open on the
+reachable local network. Tutorial phones are samples, not discovered devices.
+Windows/Linux are build- and protocol-tested; physical runtime acceptance and
+physical iPhone testing remain separate from those checks. GitHub preview releases
+do not update Google Play or App Store installations.
+
 ## Releases and contributions
 
 Update notices open the official store or release page; they do not install files

@@ -332,6 +332,7 @@ internal sealed class Receiver : IAsyncDisposable
     private long nextClock;
     public bool Closed { get; private set; }
     public int Heartbeats;
+    public volatile uint DesktopRequest;
 
     public Receiver(Connection connection, bool readFrames)
     {
@@ -361,6 +362,7 @@ internal sealed class Receiver : IAsyncDisposable
                 var header = new byte[24];
                 await connection.Stream.ReadExactlyAsync(header, lifetime.Token);
                 var magic = BinaryPrimitives.ReadUInt32LittleEndian(header);
+                if(magic==0x32435342){DesktopRequest=BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(4));continue;}
                 if (magic == Protocol.ClockMagic)
                 {
                     var echo = BinaryPrimitives.ReadInt64LittleEndian(header.AsSpan(8));
@@ -405,10 +407,10 @@ internal sealed class SyntheticEndpoints : IAudioEndpoints
         LastSink = new();
         return Task.FromResult<IMicrophoneSink>(LastSink);
     }
-    public void Emit(int frames, long capturedAt)
+    public void Emit(int frames, long capturedAt, bool silent = false)
     {
         var bytes = new byte[frames * 4];
-        for (var index = 0; index < bytes.Length; index++) bytes[index] = (byte)(index % 251);
+        if (!silent) for (var index = 0; index < bytes.Length; index++) bytes[index] = (byte)(index % 251);
         current?.Received?.Invoke(new(48000, frames, capturedAt, bytes));
     }
     private sealed class SyntheticSource(SyntheticEndpoints owner) : ISystemAudioSource

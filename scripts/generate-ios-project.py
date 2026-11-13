@@ -26,7 +26,7 @@ sources = [str(p.relative_to(root/'ios')) for p in sorted((root/'ios/AudioRelay'
 resources = ['AudioRelay/Assets.xcassets','AudioRelay/PrivacyInfo.xcprivacy'] + ['../design/fonts/' + name for name in ['ChakraPetch-Regular.ttf','ChakraPetch-SemiBold.ttf','OFL.txt']]
 refs=[]; builds=[]; resources_build=[]
 for path in sources+resources+['AudioRelay/Info.plist']:
-    kind='sourcecode.swift' if path.endswith('.swift') else 'folder.assetcatalog' if path.endswith('.xcassets') else 'file' if path.endswith('.ttf') else 'text' if path.endswith('.txt') else 'text.xml'
+    kind='sourcecode.swift' if path.endswith('.swift') else 'folder.assetcatalog' if path.endswith('.xcassets') else 'file' if path.endswith('.ttf') else 'text' if path.endswith('.txt') else 'text.html' if path.endswith('.html') else 'text.xml'
     ref=add(path,f'isa = PBXFileReference; lastKnownFileType = {kind}; path = {q(path)}; sourceTree = "<group>";'); refs.append(ref)
     if path.endswith('Info.plist'): continue
     build=add('build:'+path,f'isa = PBXBuildFile; fileRef = {ref};')

@@ -74,7 +74,7 @@ enum RelayPalette {
     static let blue = Color(white: 0.15)
     static let deep = ink
     static let ice = Color(white: 0.96)
-    static let paper = Color(red: 0.985, green: 0.985, blue: 0.98)
+    static let paper = Color(white: 0.985)
     static let sand = Color.white.opacity(0.46)
     static let line = ink.opacity(0.10)
 }

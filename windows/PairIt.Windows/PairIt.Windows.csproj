@@ -8,9 +8,9 @@
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
     <AssemblyName>PairIt</AssemblyName>
-    <Version>1.1.0-preview.12</Version>
+    <Version>1.1.0-preview.13</Version>
     <AssemblyVersion>1.1.0.0</AssemblyVersion>
-    <FileVersion>1.1.0.12</FileVersion>
+    <FileVersion>1.1.0.13</FileVersion>
     <Company>PairIt</Company>
     <Product>PairIt - AudioRelay</Product><AssemblyTitle>PairIt - AudioRelay</AssemblyTitle>
     <ApplicationManifest>app.manifest</ApplicationManifest>

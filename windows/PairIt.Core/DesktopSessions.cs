@@ -18,6 +18,7 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
     private ISystemAudioSource? source;
     private MicrophoneLease? microphone;
     private uint sequence;
+    private AudioOnset audioOnset = new();
     private string message = "Select a computer audio source to begin.";
     private bool disposed, mediaHandoffSuppressed, computerOutput;
     public event Action<DesktopStatus>? StatusChanged;
@@ -37,6 +38,35 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
         PairingAcknowledged?.Invoke();
     }
 
+    private readonly SemaphoreSlim playbackCommands = new(1);
+    public async Task RequestPlaybackAsync(bool playing)
+    {
+        await playbackCommands.WaitAsync().ConfigureAwait(false);
+        ReceiverSession[] targets = [];
+        try {
+            if(playing) await SetComputerOutputAsync(false).ConfigureAwait(false);
+            lock(state) {
+                targets=receivers.Values.Where(p=>p.DesktopControls && p.LastIntent!=ReceiverIntent.Release).ToArray();
+                foreach(var peer in targets){peer.DesktopRequest=playing;peer.AudioResumeOffered=false;}
+            }
+            if(targets.Length==0)throw new InvalidOperationException("Connect an updated phone app first.");
+            var deadline=DateTime.UtcNow.AddSeconds(8);
+            while(DateTime.UtcNow<deadline){
+                lock(state) {
+                    if(targets.Any(p=>!receivers.ContainsKey(p.Id)))throw new IOException("Phone disconnected.");
+                    if(targets.All(p=>p.DesktopRequest==null)){
+                        if(targets.Any(p=>p.Active!=playing))throw new IOException("Phone could not change playback. Check the phone.");
+                        return;
+                    }
+                }
+                await Task.Delay(50).ConfigureAwait(false);
+            }
+            throw new TimeoutException("Phone did not respond. Try again.");
+        } finally {lock(state){foreach(var p in targets)p.DesktopRequest=null;}playbackCommands.Release();}
+    }
+    internal uint? DesktopPlaybackRequest(ReceiverSession peer) {
+        lock(state) return peer.DesktopControls && peer.DesktopRequest is bool playing ? (peer.IntentToken<<8)|2u|(playing?16u:0u) : null;
+    }
     public async Task SetComputerOutputAsync(bool value)
     {
         await lifecycle.WaitAsync().ConfigureAwait(false);
@@ -95,7 +125,11 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
         try
         {
             mediaHandoffSuppressed = suppressed;
-            if (suppressed) handoff.CancelAll();
+            if (suppressed) {
+                handoff.CancelAll();
+                lock (state) { foreach (var peer in receivers.Values) peer.AudioResumeOffered = false; audioOnset = new(); }
+            }
+            await UpdateCaptureAsync(CancellationToken.None).ConfigureAwait(false);
         }
         finally { lifecycle.Release(); }
     }
@@ -174,7 +208,7 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
                 (handoff.IsAvailable ? Protocol.PlayerControl : 0) |
                 (peer.IntentToken << 8) | (peer.Parked ? Protocol.ParkAccepted : 0) |
                 (peer.LastIntent == ReceiverIntent.Release ? Protocol.ReleaseAccepted : 0) |
-                handoff.Flags(peer.Id, peer.IntentToken);
+                handoff.Flags(peer.Id, peer.IntentToken) | (peer.AudioResumeOffered ? Protocol.ResumeOffer : 0);
         }
     }
 
@@ -201,6 +235,7 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
                 peer.IntentToken = token;
                 peer.LastIntent = intent;
                 peer.ParkReason = reason;
+                peer.AudioResumeOffered = false; peer.DesktopRequest=null;
                 peer.Parked = intent == ReceiverIntent.Park;
                 peer.Active = intent == ReceiverIntent.Resume;
                 if (!peer.Active) peer.DiscardQueuedAudio();
@@ -295,7 +330,9 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
 
     private async Task UpdateCaptureAsync(CancellationToken cancellation)
     {
-        var hasActive = Status.ActiveReceivers != 0 && !computerOutput;
+        bool hasActive;
+        lock (state) hasActive = !computerOutput && (receivers.Values.Any(peer => peer.Active) ||
+            !handoff.IsAvailable && !mediaHandoffSuppressed && receivers.Values.Any(peer => peer.Parked && peer.ParkReason == ParkReason.Phone));
         if (!hasActive && source != null)
         {
             var previous = source;
@@ -304,7 +341,7 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
         }
         if (!hasActive || source != null || disposed) return;
         var next = endpoints.CreateSource(settings.SourceEndpointId!);
-        lock (state) { source = next; sequence += 2; }
+        lock (state) { source = next; sequence += 2; audioOnset = new(); }
         try
         {
             await next.StartAsync(packet => Broadcast(next, packet), reason => _ = SourceFailedAsync(next, reason), cancellation).ConfigureAwait(false);
@@ -322,7 +359,10 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
         lock (state)
         {
             if (source != expected || computerOutput) return;
-            if (packet.Discontinuity) sequence += 2;
+            if (packet.Discontinuity) { sequence += 2; audioOnset = new(); }
+            if (!handoff.IsAvailable && !mediaHandoffSuppressed && audioOnset.Observe(packet.StereoPcm16, MonotonicClock.Nanoseconds))
+                foreach (var peer in receivers.Values)
+                    if (peer.Parked && peer.ParkReason == ParkReason.Phone) peer.AudioResumeOffered = true;
             var frame = Protocol.Pcm(sequence++, packet);
             foreach (var peer in receivers.Values)
                 if (peer.Active && !peer.TryEnqueue(frame)) peer.RequestCloseOnce();

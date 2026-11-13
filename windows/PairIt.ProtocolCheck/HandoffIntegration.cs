@@ -203,6 +203,41 @@ internal static class HandoffIntegration
         server.Start(IPAddress.Loopback, 0);
         var connector = new Connector(server.Port, certificate, token);
         await sessions.ConfigureAsync(new(SourceEndpointId: "synthetic", SharingEnabled: true));
+        await using (var interrupted = await connector.ReceiverAsync())
+        await using (var paused = await connector.ReceiverAsync())
+        {
+            await interrupted.ProbeAsync(); await paused.ProbeAsync();
+            await interrupted.SendAsync("PARK 1 PHONE\n"); await paused.SendAsync("PARK 1 PAUSE\n");
+            await UntilAsync(() => sessions.Status.ActiveReceivers == 0, "fallback phones parked");
+            Require(sessions.Status.Capturing, "Fallback must observe the selected computer source while phone audio has priority.");
+            await Task.Delay(800); audio.Emit(480, MonotonicClock.Nanoseconds, silent: true);
+            Require((await interrupted.ProbeAsync() & Protocol.ResumeOffer) == 0, "Silence offered resume.");
+            audio.Emit(480, MonotonicClock.Nanoseconds); await Task.Delay(100); audio.Emit(480, MonotonicClock.Nanoseconds);
+            Require((await interrupted.ProbeAsync() & Protocol.ResumeOffer) != 0, "New computer audio did not offer fallback resume.");
+            Require((await paused.ProbeAsync() & Protocol.ResumeOffer) == 0, "Fallback overrode manual pause.");
+            await interrupted.SendAsync("RESUME 2\n"); await interrupted.ProbeAsync();
+            await interrupted.SendAsync("PARK 3 PHONE\n"); await interrupted.ProbeAsync();
+            audio.Emit(480, MonotonicClock.Nanoseconds); await Task.Delay(100); audio.Emit(480, MonotonicClock.Nanoseconds);
+            Require((await interrupted.ProbeAsync() & Protocol.ResumeOffer) == 0, "Continuous playback stole focus back.");
+            await interrupted.SendAsync("PARK 4 OUTPUT\n"); await interrupted.ProbeAsync();
+            await UntilAsync(() => !sessions.Status.Capturing, "output hold releases fallback capture");
+        }
+        await UntilAsync(() => sessions.Status.Receivers == 0, "fallback test cleanup");
+        Console.WriteLine("PASS: Linux/unavailable-media fallback detects fresh audio, protects pause/output and ignores continuous audio.");
+        await using(var controlled=await connector.ReceiverAsync()){
+            await controlled.SendAsync("STATS CONTROLS1\n");await controlled.ProbeAsync();
+            await controlled.SendAsync("RESUME 1\n");await controlled.ProbeAsync();
+            var pause=sessions.RequestPlaybackAsync(false);await controlled.ProbeAsync();
+            await UntilAsync(()=>controlled.DesktopRequest==(1u<<8|2u),"Separate desktop pause request");
+            Require(!pause.IsCompleted,"Pause must wait for phone acknowledgment");
+            await controlled.SendAsync("PARK 2 PAUSE\n");await pause;
+            var resume=sessions.RequestPlaybackAsync(true);await controlled.ProbeAsync();
+            await UntilAsync(()=>controlled.DesktopRequest==(2u<<8|18u),"Separate desktop resume request");
+            Require(!resume.IsCompleted,"Resume must wait for phone acknowledgment");
+            await controlled.SendAsync("RESUME 3\n");await resume;
+        }
+        await UntilAsync(()=>sessions.Status.Receivers==0,"Desktop playback check cleanup");
+        Console.WriteLine("PASS: desktop pause/resume use negotiated command frames and wait for receiver acknowledgment.");
         foreach (var command in new[] { "PARK 0 PHONE", "PARK 16777216 PHONE", "RESUME -1", "PARK 1 UNKNOWN" })
         {
             await using var malformed = await connector.ReceiverAsync();

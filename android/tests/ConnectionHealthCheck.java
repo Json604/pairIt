@@ -12,6 +12,13 @@ public final class ConnectionHealthCheck {
         if(ConnectionHealth.shouldReconnect(true,false,false))throw new AssertionError("Manual pause must stay paused");
         if(ConnectionHealth.shouldReconnect(true,true,true))throw new AssertionError("Disconnect must never auto-restart");
         if(ConnectionHealth.shouldReconnect(false,true,false))throw new AssertionError("Disabled auto-reconnect must be respected");
+        if(!ConnectionHealth.retainSession(true,false,RelayHandoff.Intent.PHONE,false))throw new AssertionError("Phone interruption must retain reconnect control");
+        for(var hold:new RelayHandoff.Intent[]{RelayHandoff.Intent.PAUSE,RelayHandoff.Intent.OUTPUT,RelayHandoff.Intent.RELEASE})
+            if(ConnectionHealth.retainSession(true,false,hold,false))throw new AssertionError("Explicit hold must not restart");
+        if(ConnectionHealth.retainSession(false,false,RelayHandoff.Intent.PHONE,false)||ConnectionHealth.retainSession(true,false,RelayHandoff.Intent.PHONE,true))throw new AssertionError("Reconnect preferences apply to parked control");
+        var restored=new RelayHandoff(RelayHandoff.Intent.PHONE);restored.acceptStatus(1|128);String command=restored.nextCommand();
+        if(!command.startsWith("PARK 1 PHONE"))throw new AssertionError("Reconnect must not silently turn PHONE into LISTEN");
+        if(!restored.acceptStatus((1<<8)|1|4|16|128))throw new AssertionError("Fresh offer still works after reconnect");
         var interrupted = new javax.net.ssl.SSLHandshakeException("Connection closed");
         if(ConnectionHealth.identityRejected(interrupted))throw new AssertionError("Handshake network loss must retry");
         interrupted.initCause(new java.security.cert.CertificateException("Pin mismatch"));

@@ -111,7 +111,7 @@ internal sealed class TrayApplication : ApplicationContext
         using var bitmap = new Bitmap(32, 32);
         using var graphics = Graphics.FromImage(bitmap);
         graphics.SmoothingMode = SmoothingMode.AntiAlias;
-        using var accent = new Pen(PairItAppearance.Orange, 3.5f);
+        using var accent = new Pen(PairItAppearance.Accent, 3.5f);
         graphics.DrawArc(accent, 6, 4, 20, 24, 180, 180);
         graphics.DrawLine(accent, 6, 16, 6, 26);
         graphics.DrawLine(accent, 26, 16, 26, 26);

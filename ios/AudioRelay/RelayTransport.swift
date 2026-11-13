@@ -74,6 +74,22 @@ final class RelayTransport {
     private var requestedComputerOutput: Bool?
     private var outputRequestPing: Int64?
     var pendingComputerOutput: Bool? { requestedComputerOutput }
+    private var offeredToken: UInt32 = 0
+    var onDesktopPlayback: ((Bool) -> Void)?
+    private var desktopStatus: UInt32 = 0
+    private var consumedDesktopRequest: UInt32 = 0
+    func claimDesktopRequest(_ status: UInt32) -> Bool? {
+        guard intent != "RELEASE", status >> 8 == intentToken, status & 2 != 0 else { return nil }
+        let key = status & 0xFFFFFF12
+        guard key != consumedDesktopRequest else { return nil }
+        desktopStatus = status
+        consumedDesktopRequest = key
+        return status & 16 != 0
+    }
+    func claimResumeOffer(_ status: UInt32) -> Bool {
+        guard intent == "PHONE", status >> 8 == intentToken, status & 20 == 20, offeredToken != intentToken else { return false }
+        offeredToken = intentToken; return true
+    }
     var onHandoff: ((UInt32) -> Void)?
     var onOutput: ((_ supported: Bool, _ computer: Bool) -> Void)?
     var onPacket: ((RelayPacket, Int64) -> Void)?
@@ -93,7 +109,7 @@ final class RelayTransport {
         let monitor = NWPathMonitor()
         var receivedInitialPath = false
         monitor.pathUpdateHandler = { [weak self, weak monitor] path in
-            guard let self, let monitor, self.pathMonitor === monitor, self.running, self.intent == "RESUME",
+            guard let self, let monitor, self.pathMonitor === monitor, self.running, ["RESUME", "PHONE"].contains(self.intent),
                   UserDefaults.standard.object(forKey: "trustedAutoReconnect") as? Bool != false else { return }
             // NWPathMonitor first reports the existing path immediately. Treat it
             // as a baseline, not a network change that cancels the initial TLS attempt.
@@ -173,7 +189,8 @@ final class RelayTransport {
         send("PING \(ping)\n")
     }
     private func setIntent(_ next: String) {
-        guard next != intent else { return }
+        guard next != intent || desktopStatus != 0 else { return }
+        desktopStatus = 0
         intent = next; intentToken += 1
         sendIntent()
     }
@@ -209,7 +226,7 @@ final class RelayTransport {
         guard running else { return }
         onState?(connections == 0 ? "Connecting to your computer" : "Reconnecting to your computer")
         clockSamples = 0; bestRTT = .max; clockWindow = 0; pingCount = 0; bytes.removeAll()
-        capabilitiesKnown = false; controlStatus = 0; intentToken = 1; sentToken = 0
+        capabilitiesKnown = false; controlStatus = 0; intentToken = 1; sentToken = 0; offeredToken = 0; consumedDesktopRequest = 0; desktopStatus = 0
         outputRequestPing = nil // Retry an unacknowledged user choice on the new socket.
         var identityRejected = false
         let parameters = RelaySecurity.parameters(pin: mac.pin, queue: queue) { identityRejected = true }
@@ -220,7 +237,7 @@ final class RelayTransport {
             switch state {
             case .ready:
                 self.retry = 0; self.connections += 1; self.lastReceived = RelayClock.nanoseconds
-                self.send(self.mac.token + "\nHELLO " + RelayInstallation.identifier + "\n")
+                self.send(self.mac.token + "\nHELLO " + RelayInstallation.identifier + "\nSTATS CONTROLS1\n")
                 if let value = self.compensation { self.send("SYNC \(value)\n") }
                 self.onState?("Getting audio ready"); self.startTimer(); self.receive(current)
             case .failed:
@@ -239,7 +256,7 @@ final class RelayTransport {
     }
     private func reconnect() {
         guard running, connection != nil else { return }
-        if intent != "RESUME" || UserDefaults.standard.object(forKey: "trustedAutoReconnect") as? Bool == false {
+        if !["RESUME", "PHONE"].contains(intent) || UserDefaults.standard.object(forKey: "trustedAutoReconnect") as? Bool == false {
             suspend(); onUnavailable?(); return
         }
         let old = connection; connection = nil; old?.cancel(); timer?.cancel(); timer = nil
@@ -287,6 +304,11 @@ final class RelayTransport {
         guard bytes.count <= 262144 else { return false }
         while bytes.count >= 24 {
             let magic: UInt32 = integer(at: 0)
+            if magic == 0x32435342 {
+                let command: UInt32 = integer(at: 4)
+                if let playing = claimDesktopRequest(command) { onDesktopPlayback?(playing) }
+                bytes.removeFirst(24); continue
+            }
             if magic == 0x31435342 {
                 let status: UInt32 = integer(at: 4)
                 let sent: UInt64 = integer(at: 8), server: UInt64 = integer(at: 16)

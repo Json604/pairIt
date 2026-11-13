@@ -15,6 +15,9 @@ internal sealed class ReceiverSession(TcpClient socket, SslStream stream) : IDis
     public Guid Id { get; } = Guid.NewGuid();
     public bool Active { get; set; } = true;
     public bool Parked { get; set; }
+    public bool DesktopControls { get; set; }
+    public bool? DesktopRequest { get; set; }
+    public bool AudioResumeOffered { get; set; }
     public bool HandoffAdvertised { get; set; }
     public bool HandoffNegotiated { get; set; }
     public uint IntentToken { get; set; }

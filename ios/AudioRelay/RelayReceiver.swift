@@ -1,3 +1,4 @@
+import CallKit
 import AVFAudio
 import Combine
 import MediaPlayer
@@ -38,6 +39,8 @@ final class RelayReceiver: ObservableObject {
     private var routeUID = ""
     private var choosingOutput = false
     private var resumeAfterOutputChoice = false
+    private let calls = CXCallObserver()
+    private var interruptedByPhoneAudio = false
     var currentOutputName: String { output.currentRoute()?.portName ?? "Choose audio output" }
     func beginOutputChoice() { choosingOutput = true; resumeAfterOutputChoice = playIntent && !computerOutput }
     func endOutputChoice() { choosingOutput = false; resumeAfterOutputChoice = false }
@@ -79,7 +82,7 @@ final class RelayReceiver: ObservableObject {
                   let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
             if type == .began {
                 guard self.playIntent, !self.computerOutput, !self.waitingForComputerOutput else { return }
-                self.parkListening("PHONE", phase: .phone, title: "Phone audio has priority")
+                self.parkListening(self.calls.calls.contains(where: { !$0.hasEnded }) ? "OUTPUT" : "PHONE", phase: .phone, title: "Phone audio has priority")
             }
         })
         observers.append(center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
@@ -219,8 +222,32 @@ final class RelayReceiver: ObservableObject {
                     }
                 }
             }
+            transport.onDesktopPlayback = { [weak self] playing in
+                guard let self else { return }
+                    DispatchQueue.main.async {
+                        guard self.connectionGeneration == connectionTicket else { return }
+                        if !playing { self.pauseComputer(); return }
+                        guard !self.calls.calls.contains(where: { !$0.hasEnded }), !AudioPresentationGate.isPresenting else {
+                            self.parkListening("OUTPUT", phase: .phone, title: "Finish the current phone session, then resume"); return
+                        }
+                        self.connect(requestPhoneOutput: true)
+                    }
+            }
+            let configuredConnection = transport.connections
             transport.onHandoff = { [weak self, weak transport] status in
                 guard let self, let transport, self.transport === transport else { return }
+                if status & 4 != 0 { DispatchQueue.main.async { if self.connectionGeneration==connectionTicket { self.pausing=false } } }
+                let offered = transport.claimResumeOffer(status)
+                if offered || (transport.connections > max(1, configuredConnection) && status & 4 != 0) {
+                    DispatchQueue.main.async {
+                        guard self.connectionGeneration == connectionTicket, self.interruptedByPhoneAudio,
+                              self.phase == .phone, !self.playIntent, !self.computerOutput,
+                              offered || !AVAudioSession.sharedInstance().isOtherAudioPlaying,
+                              !self.calls.calls.contains(where: { !$0.hasEnded }), !AudioPresentationGate.isPresenting else { return }
+                        self.interruptedByPhoneAudio = false
+                        self.connect(requestPhoneOutput: false)
+                    }
+                }
                 // onHandoff only delivers the current acknowledged intent token.
                 // A silent but accepted listening session is already connected.
                 if self.desired, self.localPlaybackReady, status & 1 != 0, status & 4 == 0, status & 64 == 0 {
@@ -333,9 +360,16 @@ final class RelayReceiver: ObservableObject {
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         if playIntent { publish(.buffering, "Switching to computer", "Waiting for the computer to confirm. Audio stays stopped on this iPhone.") }
     }
+    @Published var pausing = false
+    private var pauseTicket=0
     func pauseComputer() {
         guard phase.macSelected, phase != .paused else { return }
+        pauseTicket += 1;let ticket=pauseTicket;pausing=true
         parkListening("PAUSE", phase: .paused, title: "Listening paused")
+        DispatchQueue.main.asyncAfter(deadline:.now()+8){[weak self] in
+            guard let self,self.pauseTicket==ticket,self.pausing else{return}
+            self.pausing=false;self.detail="Computer did not confirm pause. Try again."
+        }
         setNowPlaying(paused: true)
     }
     func usePhone() {
@@ -348,6 +382,7 @@ final class RelayReceiver: ObservableObject {
     }
     private func parkListening(_ reason: String, phase: ReceiverPhase, title: String) {
         endHoldBackgroundTask()
+        interruptedByPhoneAudio = reason == "PHONE"
         playIntent = false; intentGeneration += 1
         queue.sync {
             desired = false; localPlaybackReady = false; generation += 1; playback.stop()

@@ -24,6 +24,12 @@ enum RelayPlaybackMode { case reliable, interactive }
         }
         let queue = DispatchQueue(label: "pairit.synthetic.receiver")
         let transport = RelayTransport(mac: mac, queue: queue, hostOverride: "127.0.0.1", port: UInt16(config["port"] as! Int))
+        let commandProbe = RelayTransport(mac: mac, queue: queue, hostOverride: "127.0.0.1")
+        precondition(commandProbe.claimDesktopRequest(1 | 2 | (1 << 8)) == false)
+        precondition(commandProbe.claimDesktopRequest(1 | 2 | (1 << 8)) == nil)
+        commandProbe.park("PAUSE")
+        precondition(commandProbe.claimDesktopRequest(1 | 2 | 4 | 16 | (2 << 8)) == true)
+        precondition(commandProbe.claimDesktopRequest(1 | 2 | 4 | 16 | (1 << 8)) == nil)
         let done = DispatchSemaphore(value: 0)
         var packets = 0, atPark = 0, atResume = 0, parkAcks = 0, violations = 0
         let modern = config["modern"] as! Bool
@@ -40,6 +46,35 @@ enum RelayPlaybackMode { case reliable, interactive }
                 if computer { atComputer = packets }
             }
             transport.start()
+        }
+        if config["desktopControls"] as? Bool == true {
+            var requests = 0
+            queue.async { transport.onDesktopPlayback = { playing in
+                requests += 1
+                if playing { transport.resume() } else { transport.park("PAUSE") }
+            } }
+            queue.asyncAfter(deadline:.now()+2.5){
+                if requests != 2 || packets == 0 || transport.connections != 1 { violations += 1 }
+                transport.suspend();print("{\"violations\":\(violations),\"requests\":\(requests)}");done.signal()
+            }
+            guard done.wait(timeout:.now()+5) == .success else { exit(2) }
+            if violations != 0 { exit(1) };return
+        }
+        if config["phoneReconnect"] as? Bool == true {
+            var restoredPark = false, offers = 0
+            queue.async { transport.onHandoff = { status in
+                if transport.connections == 2 && status & 4 != 0 { restoredPark = true }
+                if transport.claimResumeOffer(status) { offers += 1; transport.resume() }
+            } }
+            queue.asyncAfter(deadline: .now() + 0.5) { atPark = packets; transport.park("PHONE") }
+            queue.asyncAfter(deadline: .now() + 2.5) {
+                if !restoredPark || offers != 1 || transport.connections != 2 || packets <= atPark { violations += 1 }
+                transport.suspend()
+                print("{\"violations\":\(violations),\"connections\":\(transport.connections),\"offers\":\(offers)}")
+                done.signal()
+            }
+            guard done.wait(timeout: .now() + 5) == .success else { exit(2) }
+            if violations != 0 { exit(1) }; return
         }
         if resumeCase || lostAckCase {
             var atChoice = 0

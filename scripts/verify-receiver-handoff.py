@@ -76,15 +76,17 @@ with tempfile.TemporaryDirectory(prefix='pairit-receiver-check-') as folder:
         else: assert all(c[0] == 'ACTIVE' for c in commands), commands
         reports.append({'mode': mode, **result, 'commands': commands, 'passed': True})
         print('PASS:', mode)
-    for mode in ('resume-output','lost-output-ack'):
+    for mode in ('resume-output','lost-output-ack','phone-reconnect','desktop-controls'):
         lost_ack=mode=='lost-output-ack'
+        phone_reconnect=mode=='phone-reconnect'
+        desktop_controls=mode=='desktop-controls'
         token=secrets.token_hex(32)
         listener=socket.socket();listener.bind(('127.0.0.1',0));listener.listen(2);listener.settimeout(6)
         port=listener.getsockname()[1];commands=[];errors=[]
         def resume_output():
-            computer_output=not lost_ack
+            computer_output=not lost_ack and not phone_reconnect and not desktop_controls
             try:
-                for attempt in range(2):
+                for attempt in range(1 if desktop_controls else 2):
                     raw,_=listener.accept();raw.settimeout(6)
                     with context.wrap_socket(raw,server_side=True) as peer:
                         auth=b''
@@ -99,7 +101,11 @@ with tempfile.TemporaryDirectory(prefix='pairit-receiver-check-') as folder:
                                 buffered+=chunk
                                 while b'\n' in buffered:
                                     line,buffered=buffered.split(b'\n',1);words=line.decode().split(' ')
-                                    if words[0]=='PING':peer.sendall(struct.pack('<IIQQ',0x31435342,status,int(words[1]),time.monotonic_ns()))
+                                    if words[0]=='PING':
+                                        peer.sendall(struct.pack('<IIQQ',0x31435342,status,int(words[1]),time.monotonic_ns()))
+                                        if desktop_controls and status>>8 in (1,2):
+                                            request=(status&0xffffff00)|2|(16 if status>>8==2 else 0)
+                                            peer.sendall(struct.pack('<IIQQ',0x32435342,request,0,0))
                                     elif words[0]=='OUTPUT':
                                         commands.append(words)
                                         if lost_ack and attempt==0:
@@ -108,7 +114,12 @@ with tempfile.TemporaryDirectory(prefix='pairit-receiver-check-') as folder:
                                         computer_output=words[1]=='COMPUTER'
                                         status=(status | 64) if computer_output else (status & ~64)
                                     elif words[0] in ('PARK','RESUME','RELEASE'):
+                                        if phone_reconnect:
+                                            commands.append([attempt,*words])
+                                            if words[0]=='PARK' and attempt==0:
+                                                peer.shutdown(socket.SHUT_RDWR);break
                                         status=(status & 192)|1|(int(words[1])<<8)|(4 if words[0]=='PARK' else 32 if words[0]=='RELEASE' else 0)
+                                        if phone_reconnect and attempt==1 and words[0]=='PARK':status|=16
                             try:peer.sendall(struct.pack('<IIIIQ',0x31415342,sequence,48000,256,time.monotonic_ns())+bytes(1024))
                             except (BrokenPipeError,ConnectionResetError,ssl.SSLEOFError):break
                             sequence+=1
@@ -116,10 +127,14 @@ with tempfile.TemporaryDirectory(prefix='pairit-receiver-check-') as folder:
             finally:listener.close()
         thread=threading.Thread(target=resume_output);thread.start()
         config=folder/'resume.json'
-        config.write_text(json.dumps({'computer':{'host':'127.0.0.1','pin':pin,'token':token},'port':port,'modern':True,'resumeCase':not lost_ack,'lostAckCase':lost_ack}));os.chmod(config,0o600)
+        config.write_text(json.dumps({'computer':{'host':'127.0.0.1','pin':pin,'token':token},'port':port,'modern':True,'resumeCase':not lost_ack,'lostAckCase':lost_ack,'phoneReconnect':phone_reconnect,'desktopControls':desktop_controls}));os.chmod(config,0o600)
         run=subprocess.run([str(binary),str(config)],text=True,capture_output=True,timeout=7);thread.join(6)
         assert run.returncode==0 and not thread.is_alive() and not errors,(run.stdout,run.stderr,errors)
-        assert commands==([['OUTPUT','COMPUTER'],['OUTPUT','COMPUTER']] if lost_ack else [['OUTPUT','PHONE']]),commands
+        if desktop_controls: assert not commands,commands
+        elif phone_reconnect:
+            assert [c[1] for c in commands if c[0]==1]==['PARK','RESUME'],commands
+            assert [c for c in commands if c[0]==1][0][3:]==['PHONE'],commands
+        else: assert commands==([['OUTPUT','COMPUTER'],['OUTPUT','COMPUTER']] if lost_ack else [['OUTPUT','PHONE']]),commands
         reports.append({'mode':mode,**json.loads(run.stdout),'passed':True});print('PASS:',mode)
     for mode in ('pair-confirmed', 'pair-legacy-rejected', 'pair-timeout', 'pair-wrong-pin'):
         token=secrets.token_hex(32)

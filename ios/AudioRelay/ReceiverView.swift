@@ -9,6 +9,8 @@ struct ReceiverView: View {
     @EnvironmentObject private var ads: BannerAds
     @Environment(\.scenePhase) private var scenePhase
     @State private var sheet: ReceiverSheet?
+    @AppStorage("quickTourCompleted-v1") private var tourCompleted = false
+    @State private var showingTour = false
     @StateObject private var nearby = NearbyDevices()
     @AppStorage("soundFeedback") private var soundFeedback = true
     @AppStorage("trustedAutoReconnect") private var autoReconnect = true
@@ -20,6 +22,7 @@ struct ReceiverView: View {
     @State private var connectionNotice = ""
     @State private var radialCenter = UnitPoint(x: 0.5, y: 0.65)
     @State private var tab = 0
+    @ScaledMetric(relativeTo: .caption) private var navHeight: CGFloat = 56
     @State private var sharingApp = false
     @State private var nearbyRequest: NearbyPairingRequest?
     @State private var requestingPairing = false
@@ -64,15 +67,17 @@ struct ReceiverView: View {
                         radialCenter = UnitPoint(x: point.x / geometry.size.width, y: point.y / geometry.size.height)
                     }
                     .coordinateSpace(name: "phoneContent")
-                }.scrollIndicators(.hidden)
+                }.scrollIndicators(.automatic).scrollBounceBehavior(.basedOnSize).id(tab)
             }
+        }.overlay {
+            if sheet != nil || sharingApp || requestingPairing { Color.black.opacity(0.28).ignoresSafeArea().allowsHitTesting(false) }
         }.foregroundStyle(.white)
 
             .onReceive(nearby.$computers) { computers in
                 if let mac = pairing.mac, !computers.contains(where: { $0.pin == mac.pin }), receiver.phase == .idle {
                     attemptedPin = nil; pairingReady = false
                 }
-                guard autoReconnect, tab == 0, sheet == nil, nearbyRequest == nil, scenePhase == .active, !ads.openingScreen, !AudioPresentationGate.isPresenting,
+                guard autoReconnect, !showingTour, tourCompleted, tab == 0, sheet == nil, nearbyRequest == nil, scenePhase == .active, !ads.openingScreen, !AudioPresentationGate.isPresenting,
                       receiver.phase == .idle, let mac = pairing.mac, attemptedPin != mac.pin,
                       let device = computers.first(where: { $0.pin == mac.pin }) else { return }
                 confirm(mac, host: pairing.hostOverride ?? device.host)
@@ -94,11 +99,14 @@ struct ReceiverView: View {
             }
             .onReceive(Timer.publish(every: 900, on: .main, in: .common).autoconnect()) { _ in if scenePhase == .active { updates.check() } }
             .onAppear {
-                updates.check(); nearby.start(); prepareOpeningAds()
+                updates.check(); nearby.start(); if !tourCompleted { showingTour = true } else { prepareOpeningAds() }
                 #if DEBUG
                 if ProcessInfo.processInfo.arguments.contains("--preview-settings") { tab = 2 }
                 if ProcessInfo.processInfo.arguments.contains("--preview-together") { tab = 1; nearby.showTogether(true) }
                 #endif
+            }
+            .fullScreenCover(isPresented: $showingTour) {
+                QuickTour { tourCompleted = true; showingTour = false }.interactiveDismissDisabled()
             }
             .onDisappear { nearby.stop(); cancelExplicitConnection(); cancelNearbyPairing(); confirmationTask?.cancel() }
             .onChange(of: scenePhase) { _, phase in
@@ -122,7 +130,10 @@ struct ReceiverView: View {
                 case .address: ComputerAddressView(receiver: receiver, pairing: pairing)
                 case .shared: SharedListeningView()
                 case .output: PhoneOutputSheet(receiver: receiver)
-                } }.preferredColorScheme(.light)
+                case .downloads: downloadsPanel
+                case .audio: audioPanel
+                case .connection: connectionPanel
+                } }.tint(.black).preferredColorScheme(.light)
             }
             .onOpenURL { url in
                 guard url.scheme == "audiorelay" else { return }
@@ -211,7 +222,7 @@ struct ReceiverView: View {
             let width = (geometry.size.width - 22) / 3
             ZStack(alignment: .leading) {
                 Capsule().fill(Color(white: 0.06))
-                Capsule().fill(Color(white: 0.94)).frame(width: width, height: 62)
+                Capsule().fill(Color(white: 0.94)).frame(width: width, height: navHeight)
                     .offset(x: 7 + CGFloat(tab) * (width + 4))
                     .animation(reduced ? nil : .spring(response: 0.65, dampingFraction: 0.85), value: tab)
                 HStack(spacing: 4) {
@@ -220,13 +231,13 @@ struct ReceiverView: View {
                             VStack(spacing: 5) {
                                 Image(systemName: ["headphones", "person.2", "slider.horizontal.3"][index]).font(.system(size: 19))
                                 Text(["Connect", "Together", "Settings"][index]).font(.caption)
-                            }.frame(maxWidth: .infinity, minHeight: 62)
+                            }.frame(maxWidth: .infinity, minHeight: navHeight)
                                 .foregroundStyle(tab == index ? Color.black : Color(white: 0.7))
                         }.buttonStyle(RelayControlButtonStyle()).accessibilityAddTraits(tab == index ? .isSelected : [])
                     }
                 }.padding(7)
             }.clipShape(Capsule())
-        }.frame(height: 76)
+        }.frame(height: navHeight + 14)
     }
     private var discoveryPage: some View {
         VStack(spacing: 12) {
@@ -239,28 +250,20 @@ struct ReceiverView: View {
             }
             Text(nearby.computers.isEmpty ? "Open PairIt on your computer on the same Wi-Fi." : "Tap a computer to connect.")
                 .font(.subheadline).foregroundStyle(.white.opacity(0.75)).frame(maxWidth: .infinity, alignment: .leading)
-            Spacer(minLength: 5)
             if nearby.computers.isEmpty {
                 Image(systemName: "laptopcomputer").font(.system(size: 40, weight: .light))
                 Text("Looking for computers…").font(.subheadline)
             } else {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: nearby.computers.count == 1 ? 1 : 2), spacing: 18) {
                     ForEach(Array(nearby.computers.prefix(6))) { device in
-                        Button {
+                        RelayNearbyDevice(name: device.name, detail: device.pin == pairing.mac?.pin ? "Paired" : (["macos": "macOS", "windows": "Windows", "linux": "Linux"][device.platform] ?? "Computer")) {
                             if let mac = pairing.mac, device.pin == mac.pin { connectExplicitly(mac, host: pairing.hostOverride ?? device.host) }
                             else { requestNearbyPairing(device) }
-                        } label: {
-                            VStack(spacing: 6) {
-                                LaptopGlyph().stroke(Color(white: 0.15), style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round)).frame(width: 26, height: 26)
-                                    .frame(width: 100, height: 100).background(NearbyPresence())
-                                Text(device.name).font(.caption.bold()).lineLimit(1)
-                                Text(device.pin == pairing.mac?.pin ? "Paired" : (["macos": "macOS", "windows": "Windows", "linux": "Linux"][device.platform] ?? "Computer")).font(.caption2).foregroundStyle(.white.opacity(0.7))
-                            }
-                        }.buttonStyle(RelayControlButtonStyle())
+                        }
                     }
                 }
             }
-            Spacer(minLength: 5)
+            Spacer(minLength: 20)
             VStack(spacing: 5) {
                 Image(systemName: "iphone").font(.title2).frame(width: 46, height: 46)
                     .background(.white.opacity(0.08), in: Circle())
@@ -273,21 +276,29 @@ struct ReceiverView: View {
             if !nearby.computers.isEmpty {
                 Text("\(nearby.computers.count) \(nearby.computers.count == 1 ? "computer" : "computers") nearby · same Wi-Fi").font(.caption)
             }
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 12) {
-                    Image(systemName: "qrcode.viewfinder").font(.system(size: 22)).frame(width: 40, height: 40)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 10) {
+                    Image(systemName: pairing.mac == nil ? "qrcode.viewfinder" : "laptopcomputer")
+                        .font(.system(size: 20)).frame(width: 36, height: 36)
                         .background(Color(white: 0.93), in: RoundedRectangle(cornerRadius: 12))
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("QR pairing").font(.system(size: 16, weight: .semibold))
-                        Text("Scan the code on your computer.").font(.system(size: 11)).foregroundStyle(RelayPalette.secondary)
-                    }
+                        Text(pairing.mac == nil ? "Pair a computer" : "Ready to connect").font(.headline)
+                        Text(pairing.mac == nil ? "Scan the code on your computer." : receiver.currentOutputName)
+                            .font(.caption).foregroundStyle(RelayPalette.secondary)
+                    }.fixedSize(horizontal: false, vertical: true)
                 }
-                Button { incomingCode = ""; sheet = .pair } label: { Label("Scan QR code", systemImage: "qrcode.viewfinder") }.buttonStyle(RelayPrimaryButtonStyle())
-                if let mac = pairing.mac {
-                    Button("Connect to \(mac.displayName)") { connectExplicitly(mac, host: pairing.hostOverride) }.font(.caption).frame(maxWidth: .infinity, minHeight: 30)
+                Button {
+                    if let mac = pairing.mac { connectExplicitly(mac, host: pairing.hostOverride) }
+                    else { incomingCode = ""; sheet = .pair }
+                } label: { Label(pairing.mac == nil ? "Scan QR code" : "Connect", systemImage: pairing.mac == nil ? "qrcode.viewfinder" : "headphones") }
+                    .buttonStyle(RelayPrimaryButtonStyle())
+                HStack(alignment: .top, spacing: 6) {
+                    shortcut("Output", icon: "headphones", destination: .output)
+                    shortcut("Scan QR", icon: "qrcode.viewfinder", destination: .pair)
+                    shortcut("Get PC app", icon: "laptopcomputer", destination: .downloads)
                 }
-                ComputerDownloadLinks()
-            }.padding(18).foregroundStyle(RelayPalette.ink).frost(26)
+            }.padding(16).foregroundStyle(RelayPalette.ink).frost(26)
+
         }
     }
     private var connectedPage: some View {
@@ -305,20 +316,6 @@ struct ReceiverView: View {
                         playbackDestination("Computer", icon: "laptopcomputer", computer: true)
                     }.padding(5).background(Color(white: 0.92), in: RoundedRectangle(cornerRadius: 17)).clipShape(RoundedRectangle(cornerRadius: 17))
                 }
-                if !receiver.computerOutput {
-                    Button { sheet = .output } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: receiver.output.icon).frame(width: 22)
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(receiver.currentOutputName).font(.system(size: 13, weight: .semibold)).lineLimit(1)
-                                Text(receiver.output.title).font(.system(size: 11)).foregroundStyle(.secondary)
-                            }
-                            Spacer(); Image(systemName: "chevron.right").font(.system(size: 12))
-                        }.padding(.horizontal, 12).frame(minHeight: 58)
-                            .background(.white, in: RoundedRectangle(cornerRadius: 13))
-                            .overlay(RoundedRectangle(cornerRadius: 13).strokeBorder(Color(white: 0.86)))
-                    }.buttonStyle(.plain).foregroundStyle(.black)
-                }
                 Group {
                     Button {
                         if receiver.phase == .playing || waitingForAudio { receiver.pauseComputer() }
@@ -326,39 +323,68 @@ struct ReceiverView: View {
                         else { receiver.connect() }
                     } label: {
                         HStack(spacing: 10) {
-                            if connecting { ProgressView().tint(.white) }
-                            Text(connecting ? "Starting…" : receiver.phase == .playing || waitingForAudio ? "Pause audio" : "Start audio")
+                            if connecting || receiver.pausing { ProgressView().tint(.white) }
+                            Text(receiver.pausing ? "Pausing…" : connecting ? "Starting…" : receiver.phase == .playing || waitingForAudio ? "Pause audio" : "Start audio")
                         }.frame(maxWidth: .infinity)
-                    }.buttonStyle(RelayPrimaryButtonStyle()).disabled(connecting)
+                    }.buttonStyle(RelayPrimaryButtonStyle()).disabled(connecting || receiver.pausing)
                 }.opacity(receiver.computerOutput ? 0 : 1).allowsHitTesting(!receiver.computerOutput).accessibilityHidden(receiver.computerOutput)
-                SystemVolumeControl().frame(height: 26).accessibilityLabel("Phone volume")
-                    .opacity(receiver.computerOutput ? 0 : 1).allowsHitTesting(!receiver.computerOutput).accessibilityHidden(receiver.computerOutput)
-                HStack {
-                    Button(action: receiver.refreshAudio) {
-                        Text("Refresh audio").padding(.horizontal, 12).frame(height: 44)
-                            .background(Color(white: 0.92), in: RoundedRectangle(cornerRadius: 12))
-                    }.disabled(receiver.phase != .playing || receiver.computerOutput)
-                    Spacer(minLength: 12)
-                    Button { pairingReady = false; receiver.disconnect() } label: {
-                        Text("Disconnect").padding(.horizontal, 12).frame(height: 44)
-                            .background(Color(white: 0.92), in: RoundedRectangle(cornerRadius: 12))
-                    }
-                }.font(.caption).frame(minHeight: 44).buttonStyle(RelayControlButtonStyle(scales: false))
+                Text(receiver.currentOutputName).font(.caption).foregroundStyle(.secondary)
+                HStack(alignment: .top, spacing: 6) {
+                    shortcut("Output", icon: "headphones", destination: .output)
+                    shortcut("Audio", icon: "slider.horizontal.3", destination: .audio)
+                    shortcut("More", icon: "ellipsis", destination: .connection)
+                }
+
             }.padding(18).foregroundStyle(RelayPalette.ink).frost(26)
         }
     }
+    private func shortcut(_ title: String, icon: String, destination: ReceiverSheet) -> some View {
+        RelayShortcut(title: title, icon: icon) { if destination == .pair { incomingCode = "" }; sheet = destination }
+    }
+    private var downloadsPanel: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Get PC app").font(.title3.bold())
+                ForEach(["Mac", "Windows", "Linux"], id: \.self) { platform in
+                    Link(destination: URL(string: "https://pairit.kartikey.xyz/downloads.html#" + platform.lowercased())!) {
+                        HStack { Image(systemName: platform == "Mac" ? "laptopcomputer" : "desktopcomputer"); Text(platform); Spacer(); Image(systemName: "arrow.up.right") }
+                            .padding(14).frame(minHeight: 48).background(Color(white: 0.94), in: RoundedRectangle(cornerRadius: 14))
+                    }.foregroundStyle(.black)
+                }
+            }.padding(24)
+        }.scrollBounceBehavior(.basedOnSize).presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+    }
+    private var audioPanel: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                Text("Audio").font(.title3.bold())
+                Text("Phone volume").font(.subheadline)
+                SystemVolumeControl().frame(height: 44).accessibilityLabel("Phone volume").disabled(receiver.computerOutput)
+                Button("Refresh audio", action: receiver.refreshAudio).buttonStyle(RelayPrimaryButtonStyle())
+                    .disabled(receiver.phase != .playing || receiver.computerOutput)
+            }.padding(24)
+        }.scrollBounceBehavior(.basedOnSize).presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+    }
+    private var connectionPanel: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                Text("Connection").font(.title3.bold())
+                Button("Pair another computer") { incomingCode = ""; sheet = .pair }
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                Button("Disconnect") { pairingReady = false; receiver.disconnect(); sheet = nil }.buttonStyle(RelayPrimaryButtonStyle())
+            }.padding(24)
+        }.scrollBounceBehavior(.basedOnSize).presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+    }
     private func prepareOpeningAds() {
+        guard tourCompleted, !showingTour else { return }
         ads.pairingVideo.preload(audioIdle: receiver.audioIdleForAdvertisement)
         ads.appOpen.prepare()
-        ads.appOpen.open { receiver.audioIdleForAdvertisement && sheet == nil && !sharingApp && confirmationTask == nil && nearbyRequest == nil }
+        ads.appOpen.open { !showingTour && tourCompleted && receiver.audioIdleForAdvertisement && sheet == nil && !sharingApp && confirmationTask == nil && nearbyRequest == nil }
     }
     private func playbackDestination(_ title: String, icon: String, computer: Bool) -> some View {
-        let selected = receiver.computerOutput == computer
-        return Button { if computer { receiver.listenOnComputer() } else { receiver.connect() } } label: {
-            Label(title, systemImage: icon).font(.subheadline).frame(maxWidth: .infinity, minHeight: 44)
-                .foregroundStyle(selected ? Color.white : Color(white: 0.4))
-                .background(selected ? Color(white: 0.06) : .clear, in: RoundedRectangle(cornerRadius: 13))
-        }.buttonStyle(RelayControlButtonStyle(scales: false)).animation(reduced ? nil : .easeOut(duration: 0.18), value: selected)
+        RelayOutputChoice(title: title, icon: icon, selected: receiver.computerOutput == computer) {
+            if computer { receiver.listenOnComputer() } else { receiver.connect() }
+        }
     }
     private var togetherPage: some View {
         VStack(spacing: 14) {
@@ -368,13 +394,19 @@ struct ReceiverView: View {
                 Image(systemName: "person.2").font(.system(size: 40, weight: .light))
                 Text("No phones nearby yet").font(.subheadline)
             } else {
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 20) {
+                RelayPhoneOrbit {
                     ForEach(Array(nearby.phones.prefix(6))) { phone in
-                        Button { sharingApp = true } label: {
-                            VStack { Image(systemName: "iphone").font(.title).frame(width: 100, height: 100).background(NearbyPresence()).foregroundStyle(.black); Text(phone.name).font(.caption).lineLimit(1) }
-                        }.buttonStyle(RelayControlButtonStyle())
+                        RelayNearbyDevice(name: phone.name, detail: "", phone: true) { sharingApp = true }
                     }
                 }
+            }
+            VStack(spacing: 5) {
+                Image(systemName: "iphone").font(.title2).frame(width: 46, height: 46)
+                    .background(.white.opacity(0.08), in: Circle()).overlay(Circle().strokeBorder(.white.opacity(0.3)))
+                    .background(GeometryReader { proxy in
+                        Color.clear.preference(key: PhoneAnchorPreference.self, value: CGPoint(x: proxy.frame(in: .named("phoneContent")).midX, y: proxy.frame(in: .named("phoneContent")).midY))
+                    })
+                Text("You").font(.caption)
             }
             Spacer(minLength: 0)
             VStack(alignment: .leading, spacing: 10) {
@@ -400,6 +432,8 @@ struct ReceiverView: View {
             }.font(.system(size: 14)).padding(14).foregroundStyle(RelayPalette.ink).tint(.black).frost(26)
             Text("GENERAL").font(.caption).tracking(1.5)
             VStack(spacing: 8) {
+                Button { showingTour = true } label: { HStack { Text("Quick tour"); Spacer(); Image(systemName: "arrow.right") }.frame(minHeight: 40) }.buttonStyle(RelayControlButtonStyle(scales: false))
+                Divider()
                 Button { sheet = .settings } label: {
                     HStack { Text("Help & setup"); Spacer(); Image(systemName: "arrow.right") }.frame(minHeight: 40)
                 }.buttonStyle(RelayControlButtonStyle(scales: false))
@@ -414,7 +448,7 @@ struct ReceiverView: View {
 
 }
 
-enum ReceiverSheet: String, Identifiable { case pair, settings, sync, address, shared, output; var id: String { rawValue } }
+enum ReceiverSheet: String, Identifiable { case pair, settings, sync, address, shared, output, downloads, audio, connection; var id: String { rawValue } }
 
 struct AudioRoutePicker: UIViewRepresentable {
     func makeUIView(context: Context) -> AVRoutePickerView {
@@ -592,7 +626,7 @@ private struct SystemVolumeControl: UIViewRepresentable {
     func updateUIView(_ uiView: MPVolumeView, context: Context) {}
 }
 
-private struct LaptopGlyph: Shape {
+struct LaptopGlyph: Shape {
     func path(in rect: CGRect) -> Path {
         let w = rect.width, h = rect.height
         var path = Path()
@@ -604,7 +638,7 @@ private struct LaptopGlyph: Shape {
     }
 }
 
-private struct NearbyPresence: View {
+struct NearbyPresence: View {
     @Environment(\.accessibilityReduceMotion) private var reduced
     private func ease(_ x: Double) -> Double {
         var low = 0.0, high = 1.0
@@ -636,7 +670,7 @@ private struct PhoneOutputSheet: View {
     @ObservedObject var receiver: RelayReceiver
     @Environment(\.dismiss) private var dismiss
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        ScrollView { VStack(alignment: .leading, spacing: 18) {
             Text("Listen through").font(.title3.weight(.semibold))
             HStack(spacing: 12) {
                 Image(systemName: receiver.output.icon).font(.title3)
@@ -648,7 +682,7 @@ private struct PhoneOutputSheet: View {
                 AudioRoutePicker().frame(width: 48, height: 48).accessibilityLabel("Choose audio output")
             }
             Button("Done") { dismiss() }.buttonStyle(RelayPrimaryButtonStyle())
-        }.padding(24).presentationDetents([.height(250)]).presentationDragIndicator(.visible)
+        }.padding(24) }.scrollBounceBehavior(.basedOnSize).presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
             .onAppear { receiver.beginOutputChoice() }.onDisappear { receiver.endOutputChoice() }
             .onChange(of: receiver.headphones) { _, _ in dismiss() }
     }
