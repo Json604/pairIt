@@ -1,4 +1,4 @@
-PairIt Linux preview
+PairIt - AudioRelay — Linux preview
 
 Requirements: Ubuntu 24.04+ or Debian 12+ (x64/ARM64), a graphical X11 session
 or Wayland with XWayland, and PulseAudio or PipeWire's PulseAudio compatibility
@@ -14,7 +14,7 @@ Choose the output your apps use in Settings, then select Pair a phone. On the
 same local network, scan the QR code or paste the pairing code into PairIt on
 your phone. Sharing captures audio only when a phone requests it.
 If you have several network addresses, choose the one reachable by the phone.
-Confirm pairing, then start audio on your phone. PairIt shows Phone paired.
+A valid QR code connects from the phone. The computer shows live listening or paused status.
 Allow incoming TCP 5002 from your trusted local network if a firewall blocks it.
 Do not forward that port through your router.
 Nearby discovery uses multicast UDP 5353 on the local network. If blocked,

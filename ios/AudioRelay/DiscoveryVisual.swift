@@ -7,23 +7,33 @@ struct DiscoveryVisual: View {
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduced || reduceMotion)) { timeline in
             Canvas { context, size in
-                let origin = CGPoint(x: size.width * center.x, y: size.height * center.y)
-                let limit = hypot(size.width, size.height)
-                let time = reduced || reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
-                for ring in 1...28 {
-                    let radius = CGFloat(ring) * 25
-                    let count = max(12, Int(radius / 7))
-                    let wave = reduced || reduceMotion ? 0.3 : (sin(time * 3.5 - Double(radius) / 90) + 1) / 2
-                    for index in 0..<count {
-                        let angle = CGFloat(index) / CGFloat(count) * .pi * 2
-                        let point = CGPoint(x: origin.x + cos(angle) * radius, y: origin.y + sin(angle) * radius)
-                        let r = 0.65 + wave * 0.55
-                        let opacity = max(0, 1 - radius / limit) * (0.08 + wave * 0.48)
-                        context.fill(Path(ellipseIn: CGRect(x: point.x-r, y: point.y-r, width: r*2, height: r*2)), with: .color(.white.opacity(opacity)))
-                    }
-                }
+                drawDots(context: context, size: size, time: timeline.date.timeIntervalSinceReferenceDate,
+                         stationary: reduced || reduceMotion)
             }
         }.allowsHitTesting(false).accessibilityHidden(true)
+    }
+    private func drawDots(context: GraphicsContext, size: CGSize, time: Double, stationary: Bool) {
+        let origin = CGPoint(x: size.width * center.x, y: size.height * center.y)
+        let limit: CGFloat = hypot(size.width, size.height)
+        guard limit > 0 else { return }
+        for ring in 1...28 {
+            let radius: CGFloat = CGFloat(ring) * 25
+            let count: Int = max(12, Int(radius / 7))
+            let phase: Double = time * 3.5 - Double(radius) / 90
+            let wave: Double = stationary ? 0.3 : (sin(phase) + 1) / 2
+            let dotRadius: CGFloat = CGFloat(0.65 + wave * 0.55)
+            let fade: Double = Double(max(0, 1 - radius / limit))
+            let opacity: Double = fade * (0.08 + wave * 0.48)
+            let shading = GraphicsContext.Shading.color(Color.white.opacity(opacity))
+            for index in 0..<count {
+                let angle: CGFloat = CGFloat(index) / CGFloat(count) * CGFloat.pi * 2
+                let x: CGFloat = origin.x + cos(angle) * radius
+                let y: CGFloat = origin.y + sin(angle) * radius
+                let bounds = CGRect(x: x - dotRadius, y: y - dotRadius,
+                                    width: dotRadius * 2, height: dotRadius * 2)
+                context.fill(Path(ellipseIn: bounds), with: shading)
+            }
+        }
     }
 }
 
@@ -38,11 +48,16 @@ struct ListeningVisual: View {
             TimelineView(.animation(minimumInterval: 1.0 / 15, paused: reduced || reduceMotion || !playing)) { timeline in
                 HStack(spacing: 4) {
                     ForEach(0..<11) { i in
-                        Capsule().frame(width: 3, height: playing ? 8 + 16 * abs(sin(timeline.date.timeIntervalSinceReferenceDate * 3 + Double(i) * 0.8)) : 5)
+                        Capsule().frame(width: 3, height: barHeight(index: i, time: timeline.date.timeIntervalSinceReferenceDate))
                     }
                 }.frame(height: 28)
             }
         }.foregroundStyle(.white).accessibilityHidden(true)
+    }
+    private func barHeight(index: Int, time: Double) -> CGFloat {
+        guard playing else { return 5 }
+        let phase: Double = time * 3 + Double(index) * 0.8
+        return CGFloat(8 + 16 * abs(sin(phase)))
     }
 }
 

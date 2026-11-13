@@ -1,4 +1,4 @@
-PairIt for Windows — 1.1.0 preview
+PairIt - AudioRelay for Windows — 1.1.0 preview
 
 Extract the complete ZIP, then open PairIt.exe inside it.
 Keep the DLLs, runtime, Fonts and licenses folders together. The .NET runtime
@@ -27,8 +27,8 @@ Please check on Windows:
 3. Up to four phones share one source; a held phone still occupies a slot.
 4. With updated phone apps, switching to phone audio holds relay. Only the
    last active listener may ask a compatible Windows media player to pause.
-5. With Android, starting that same computer player can offer a return, subject
-   to phone output/focus/call/ad checks. iPhone currently needs explicit return.
+5. After a phone call or other phone audio interrupts listening, resume from
+   PairIt or its notification. Network-loss reconnection is handled separately.
 6. Phone Pause/output changes do not arm automatic return. Locking Windows
    suppresses player control until unlock; unlock does not rearm an old hold.
 7. A long listening session remains stable, including phone screen lock.
