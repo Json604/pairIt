@@ -9,6 +9,7 @@ final class NearbyDevices: NSObject, ObservableObject, NetServiceBrowserDelegate
         let platform: String
         let pin: String?
         let host: String?
+        var invitationPort: Int = 0
     }
     @Published private(set) var computers: [Device] = []
     @Published private(set) var phones: [Device] = []
@@ -19,6 +20,7 @@ final class NearbyDevices: NSObject, ObservableObject, NetServiceBrowserDelegate
     private var sessionName = ""
     private let presenceID = UUID().uuidString
     private var running = false
+    var invitationPort = 0
 
     func start() {
         guard !running else { return }; running = true
@@ -31,8 +33,8 @@ final class NearbyDevices: NSObject, ObservableObject, NetServiceBrowserDelegate
         guard active else { advertisement?.stop(); advertisement = nil; return }
         guard advertisement == nil else { return }
         sessionName = UUID().uuidString
-        let service = NetService(domain: "local.", type: "_pairit-phone._tcp.", name: sessionName, port: 9)
-        service.setTXTRecord(NetService.data(fromTXTRecord: ["id": Data(presenceID.utf8), "role": Data("phone".utf8), "v": Data("1".utf8), "platform": Data("ios".utf8), "name": Data("iPhone".utf8)]))
+        let service = NetService(domain: "local.", type: "_pairit-phone._tcp.", name: sessionName, port: Int32(invitationPort > 0 ? invitationPort : 9))
+        service.setTXTRecord(NetService.data(fromTXTRecord: ["invite": Data((invitationPort > 0 ? "1" : "0").utf8), "id": Data(presenceID.utf8), "role": Data("phone".utf8), "v": Data("1".utf8), "platform": Data("ios".utf8), "name": Data("iPhone".utf8)]))
         advertisement = service; service.publish()
     }
     func stop() {
@@ -54,8 +56,9 @@ final class NearbyDevices: NSObject, ObservableObject, NetServiceBrowserDelegate
         guard running, services[key(sender)] === sender else { return }
         guard let data = sender.txtRecordData(), data.count <= 2048 else { discard(sender); return }
         guard NetService.dictionary(fromTXTRecord: data)["id"] != Data(presenceID.utf8) else { discard(sender); return }
-        if let device = Self.decode(type: sender.type, id: key(sender), data: data, host: sender.hostName) {
+        if var device = Self.decode(type: sender.type, id: key(sender), data: data, host: sender.hostName) {
             guard device.pin == nil || sender.port == 5002 else { discard(sender); return }
+            if device.pin == nil, NetService.dictionary(fromTXTRecord: data)["invite"] == Data("1".utf8), sender.port > 0, sender.port <= 65535 { device.invitationPort = sender.port }
             found[key(sender)] = device; publish()
         } else { discard(sender) }
     }

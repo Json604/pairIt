@@ -11,6 +11,7 @@ import java.util.*;
 final class NearbyDevices {
     static final class Device {
         final String name, platform, pin, host;
+        int invitationPort;
         Device(DiscoveryRecord record,String host) {name=record.name;platform=record.platform;pin=record.pin;this.host=host;}
     }
     private final NsdManager manager;
@@ -24,6 +25,7 @@ final class NearbyDevices {
     private String ownName;
     private final String presenceId=UUID.randomUUID().toString();
     private int generation;
+    int invitationPort;
     private boolean resolving, phones;
     NearbyDevices(Context context,Runnable changed){manager=context.getSystemService(NsdManager.class);this.changed=changed;}
     List<Device> snapshot(){return new ArrayList<>(devices.values());}
@@ -57,7 +59,7 @@ final class NearbyDevices {
                     byte[] identity=service.getAttributes().get("id");
                     if(identity!=null&&presenceId.equals(new String(identity,java.nio.charset.StandardCharsets.UTF_8))){resolveNext(session);return;}
                     DiscoveryRecord record=DiscoveryRecord.parse(service.getAttributes(),phones);
-                    if(record!=null&&(phones||service.getPort()==5002)&&service.getHost()!=null){devices.put(key,new Device(record,service.getHost().getHostAddress()));changed.run();}
+                    if(record!=null&&(phones||service.getPort()==5002)&&service.getHost()!=null){Device device=new Device(record,service.getHost().getHostAddress());byte[] invite=service.getAttributes().get("invite");if(phones&&invite!=null&&new String(invite,java.nio.charset.StandardCharsets.US_ASCII).equals("1")&&service.getPort()>0)device.invitationPort=service.getPort();devices.put(key,device);changed.run();}
                 }
                 resolveNext(session);
             }
@@ -72,8 +74,8 @@ final class NearbyDevices {
     private void advertise(int session){
         ownName="PairIt-"+UUID.randomUUID().toString().substring(0,8);
         NsdServiceInfo info=new NsdServiceInfo();info.setServiceName(ownName);info.setServiceType("_pairit-phone._tcp.");
-        // Presence only: nobody connects to this port, and no pairing secrets are advertised.
-        info.setAttribute("id",presenceId);info.setPort(9);info.setAttribute("role","phone");info.setAttribute("v","1");info.setAttribute("platform","android");String model=android.os.Build.MODEL.replaceAll("[\\p{Cntrl}\\p{Cf}]", "").trim();info.setAttribute("name",model.isEmpty()?"Android phone":model.substring(0,Math.min(64,model.length())));
+        // Invitation endpoint carries an ephemeral, user-approved encrypted exchange.
+        info.setAttribute("id",presenceId);info.setPort(invitationPort>0?invitationPort:9);if(invitationPort>0)info.setAttribute("invite","1");info.setAttribute("role","phone");info.setAttribute("v","1");info.setAttribute("platform","android");String model=android.os.Build.MODEL.replaceAll("[\\p{Cntrl}\\p{Cf}]", "").trim();info.setAttribute("name",model.isEmpty()?"Android phone":model.substring(0,Math.min(64,model.length())));
         registration=new NsdManager.RegistrationListener(){public void onRegistrationFailed(NsdServiceInfo i,int e){}public void onUnregistrationFailed(NsdServiceInfo i,int e){}public void onServiceUnregistered(NsdServiceInfo i){}public void onServiceRegistered(NsdServiceInfo i){main.post(()->{if(session==generation){ownName=i.getServiceName();devices.remove(ownName);changed.run();}});}};
         try{manager.registerService(info,NsdManager.PROTOCOL_DNS_SD,registration);}catch(RuntimeException ignored){registration=null;}
     }

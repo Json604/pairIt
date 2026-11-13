@@ -36,8 +36,19 @@ validation; a successful build is not evidence of identical behavior on every OS
 **Connect** lists computers advertising PairIt, not all Wi-Fi devices.
 **Together** lists other PairIt phones while their Together screen is open.
 Simply installing PairIt does not make a device visible. Wired computers on the
-same LAN can appear too. Tap a nearby phone to open the system share sheet, or use
-**Share app** for someone without PairIt. Nothing is sent automatically.
+same LAN can appear too. After pairing a computer, tap a nearby phone to invite it
+to listen to that same computer (Mac, Windows or Linux). Keep **Together** open on
+both updated phones, compare the displayed code, then **Accept** on both. The
+recipient verifies the computer before saving its pairing and starting audio.
+**Share app** is separate, for someone without PairIt. Older phones must update to
+receive invitations. Invitations expire after 65 seconds and are cancelled when
+Together closes or the app leaves the foreground.
+
+Invitations use fresh P-256 ECDH keys and AES-256-GCM encryption; no pairing token
+is advertised through Bonjour. Comparing the code on both phones authenticates
+the exchange. Do not accept mismatching codes or unexpected invitations. Each
+accepted phone receives access to the same computer; the existing four-listener
+limit still applies.
 
 Switching to Computer keeps live control connections and saved pairings; paused
 phones stay paused. The destination applies to all listeners. **Disconnect** ends

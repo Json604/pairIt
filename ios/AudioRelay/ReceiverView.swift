@@ -12,6 +12,7 @@ struct ReceiverView: View {
     @AppStorage("quickTourCompleted-v1") private var tourCompleted = false
     @State private var showingTour = false
     @StateObject private var nearby = NearbyDevices()
+    @StateObject private var invitations = ListeningInvitations()
     @AppStorage("soundFeedback") private var soundFeedback = true
     @AppStorage("trustedAutoReconnect") private var autoReconnect = true
     @State private var attemptedPin: String?
@@ -73,6 +74,11 @@ struct ReceiverView: View {
             if sheet != nil || sharingApp || requestingPairing { Color.black.opacity(0.28).ignoresSafeArea().allowsHitTesting(false) }
         }.foregroundStyle(.white)
 
+            .onReceive(invitations.$prompt) { prompt in
+                if prompt != nil && (sheet != nil || showingTour || sharingApp || AudioPresentationGate.isPresenting || tab != 1 || scenePhase != .active) {
+                    DispatchQueue.main.async { invitations.answer(false) }
+                }
+            }
             .onReceive(nearby.$computers) { computers in
                 if let mac = pairing.mac, !computers.contains(where: { $0.pin == mac.pin }), receiver.phase == .idle {
                     attemptedPin = nil; pairingReady = false
@@ -89,7 +95,7 @@ struct ReceiverView: View {
             .onChange(of: receiver.phase) { _, phase in
                 if phase == .error || phase == .headphones { pairingReady = false; cancelExplicitConnection() }
             }
-            .onChange(of: tab) { _, value in if value != 0 { cancelExplicitConnection(); cancelNearbyPairing() }; nearby.showTogether(value == 1 && scenePhase == .active) }
+            .onChange(of: tab) { _, value in if value != 0 { cancelExplicitConnection(); cancelNearbyPairing() }; updateInvitations(active: value == 1 && scenePhase == .active) }
             .sheet(isPresented: $sharingApp) { AppShareSheet() }
             .safeAreaInset(edge: .bottom, spacing: 8) {
                 VStack(spacing: 8) {
@@ -99,19 +105,20 @@ struct ReceiverView: View {
             }
             .onReceive(Timer.publish(every: 900, on: .main, in: .common).autoconnect()) { _ in if scenePhase == .active { updates.check() } }
             .onAppear {
+                invitations.received = acceptInvitation
                 updates.check(); nearby.start(); if !tourCompleted { showingTour = true } else { prepareOpeningAds() }
                 #if DEBUG
                 if ProcessInfo.processInfo.arguments.contains("--preview-settings") { tab = 2 }
-                if ProcessInfo.processInfo.arguments.contains("--preview-together") { tab = 1; nearby.showTogether(true) }
+                if ProcessInfo.processInfo.arguments.contains("--preview-together") { tab = 1; updateInvitations(active: true) }
                 #endif
             }
             .fullScreenCover(isPresented: $showingTour) {
                 QuickTour { tourCompleted = true; showingTour = false }.interactiveDismissDisabled()
             }
-            .onDisappear { nearby.stop(); cancelExplicitConnection(); cancelNearbyPairing(); confirmationTask?.cancel() }
+            .onDisappear { invitations.stop(); nearby.stop(); cancelExplicitConnection(); cancelNearbyPairing(); confirmationTask?.cancel() }
             .onChange(of: scenePhase) { _, phase in
-                if phase == .active { if receiver.phase == .idle { attemptedPin = nil }; updates.checkOnForeground(); nearby.start(); nearby.showTogether(tab == 1); prepareOpeningAds() }
-                else { ads.appOpen.pause(); nearby.stop(); cancelNearbyPairing(); if !ads.fullscreenActive { cancelExplicitConnection() }; confirmationTask?.cancel() }
+                if phase == .active { if receiver.phase == .idle { attemptedPin = nil }; updates.checkOnForeground(); nearby.start(); updateInvitations(active: tab == 1); prepareOpeningAds() }
+                else { ads.appOpen.pause(); invitations.stop(); nearby.stop(); cancelNearbyPairing(); if !ads.fullscreenActive { cancelExplicitConnection() }; confirmationTask?.cancel() }
             }
             .overlay {
                 if ads.openingScreen { ZStack { Color.black.ignoresSafeArea(); Text("PairIt").font(.title.bold()).foregroundStyle(.white) } }
@@ -121,6 +128,10 @@ struct ReceiverView: View {
             } message: {
                 Text("Match this code before approving:\n\n" + comparisonCode)
             }
+            .alert(invitations.prompt?.title ?? "Listening invitation", isPresented: Binding(get: { invitations.prompt != nil }, set: { if !$0 { invitations.prompt = nil } })) {
+                Button("Accept") { invitations.answer(true) }
+                Button("Decline", role: .cancel) { invitations.answer(false) }
+            } message: { Text("Compare this code on both phones. Only accept if it matches.\n\n" + (invitations.prompt?.comparison ?? "")) }
             .sensoryFeedback(.selection, trigger: selectionCount)
             .sheet(item: $sheet) { value in
                 Group { switch value {
@@ -379,16 +390,45 @@ struct ReceiverView: View {
         guard tourCompleted, !showingTour else { return }
         ads.pairingVideo.preload(audioIdle: receiver.audioIdleForAdvertisement)
         ads.appOpen.prepare()
-        ads.appOpen.open { !showingTour && tourCompleted && receiver.audioIdleForAdvertisement && sheet == nil && !sharingApp && confirmationTask == nil && nearbyRequest == nil }
+        ads.appOpen.open { !showingTour && tourCompleted && receiver.audioIdleForAdvertisement && sheet == nil && !sharingApp && !invitations.busy && confirmationTask == nil && nearbyRequest == nil }
     }
     private func playbackDestination(_ title: String, icon: String, computer: Bool) -> some View {
         RelayOutputChoice(title: title, icon: icon, selected: receiver.computerOutput == computer) {
             if computer { receiver.listenOnComputer() } else { receiver.connect() }
         }
     }
+    private func updateInvitations(active: Bool) {
+        guard active else { invitations.stop(); nearby.showTogether(false); return }
+        invitations.start { port in
+            guard tab == 1, scenePhase == .active else { return }
+            nearby.showTogether(false); nearby.invitationPort = port; nearby.showTogether(true)
+        }
+    }
+    private func invitePhone(_ phone: NearbyDevices.Device) {
+        guard let saved = pairing.mac else { invitations.message("Connect to a computer first, then invite a phone."); return }
+        let host = pairing.hostOverride ?? nearby.computers.first(where: { $0.pin == saved.pin })?.host ?? saved.host
+        let value = PairedMac(host: host, pin: saved.pin, token: saved.token, name: saved.name, platform: saved.platform, protocolVersion: saved.protocolVersion)
+        guard let data = try? JSONEncoder().encode(value) else { return }
+        let code = "audiorelay://pair/" + data.base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
+        invitations.invite(phone, code: code, computer: saved.displayName)
+    }
+    private func acceptInvitation(_ code: String) {
+        guard scenePhase == .active, tab == 1, !AudioPresentationGate.isPresenting, let mac = try? PairedMac.parse(code) else { return }
+        confirmationTask?.cancel()
+        confirmationTask = Task { @MainActor in
+            let verified = await PairingConfirmation.confirm(mac)
+            guard !Task.isCancelled, scenePhase == .active, tab == 1 else { return }
+            confirmationTask = nil
+            guard verified else { invitations.message("Computer unavailable. Keep all devices on the same Wi-Fi."); return }
+            do { try pairing.save(mac); receiver.disconnect(); tab = 0
+                // Wait for navigation to finish before beginning the existing explicit connection flow.
+                DispatchQueue.main.async { connectExplicitly(mac, host: mac.host) }
+            } catch { invitations.message("Couldn’t save this computer. Unlock your phone and try again.") }
+        }
+    }
     private var togetherPage: some View {
         VStack(spacing: 14) {
-            Text("Nearby phones with PairIt open here.").font(.subheadline).foregroundStyle(.white.opacity(0.75)).frame(maxWidth: .infinity, alignment: .leading)
+            Text("Tap a phone to invite it to listen.").font(.subheadline).foregroundStyle(.white.opacity(0.75)).frame(maxWidth: .infinity, alignment: .leading)
             Spacer(minLength: 0)
             if nearby.phones.isEmpty {
                 Image(systemName: "person.2").font(.system(size: 40, weight: .light))
@@ -396,7 +436,7 @@ struct ReceiverView: View {
             } else {
                 RelayPhoneOrbit {
                     ForEach(Array(nearby.phones.prefix(6))) { phone in
-                        RelayNearbyDevice(name: phone.name, detail: "", phone: true) { sharingApp = true }
+                        RelayNearbyDevice(name: phone.name, detail: "", phone: true) { invitePhone(phone) }
                     }
                 }
             }
@@ -411,10 +451,10 @@ struct ReceiverView: View {
             Spacer(minLength: 0)
             VStack(alignment: .leading, spacing: 10) {
                 Text("Invite a listener").font(.headline)
-                Text("Share PairIt, then scan the same computer’s code. Up to four phones.").font(.caption).foregroundStyle(RelayPalette.secondary)
-                Button { sharingApp = true } label: { Label("Share app", systemImage: "square.and.arrow.up") }.buttonStyle(RelayPrimaryButtonStyle())
+                Text("Up to four phones, one computer. Keep Together open on both phones.").font(.caption).foregroundStyle(RelayPalette.secondary)
+                Button { if pairing.mac == nil { tab = 0 } else { sharingApp = true } } label: { Label(pairing.mac == nil ? "Connect a computer" : "Share app", systemImage: pairing.mac == nil ? "laptopcomputer" : "square.and.arrow.up") }.buttonStyle(RelayPrimaryButtonStyle())
             }.padding(18).foregroundStyle(RelayPalette.ink).frost(26)
-            Text("Choose the recipient in the share sheet.").font(.caption2)
+            Text(invitations.notice.isEmpty ? "Share app is for friends who haven’t installed PairIt." : invitations.notice).font(.caption2)
         }
     }
     private var settingsPage: some View {

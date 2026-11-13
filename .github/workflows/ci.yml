@@ -62,6 +62,7 @@ jobs:
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"'
       - name: Build Preview and run lint
         run: |
+          python3 scripts/verify-listening-invitations.py
           python3 android/tests/verify-core.py
           PAIRIT_ANDROID_UI_PREVIEW=1 bash scripts/build-android.sh
           cd android
@@ -78,6 +79,7 @@ jobs:
         run: bash scripts/build-mac.sh
       - name: Synthetic protocol and identity regressions
         run: |
+          python3 scripts/verify-listening-invitations.py
           python3 scripts/verify-feature-server.py
           python3 scripts/verify-feature-gateway.py
           python3 scripts/verify-receiver-handoff.py

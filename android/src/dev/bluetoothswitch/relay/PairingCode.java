@@ -21,6 +21,11 @@ final class PairingCode {
         return new PairingCode(host,settings.pin(),settings.token(),settings.computerName(),settings.platform());
     }
 
+    String invitationCode() throws Exception {
+        JSONObject json=new JSONObject();json.put("host",host);json.put("pin",pin);json.put("token",token);json.put("name",name);json.put("platform",platform);
+        return "audiorelay://pair/"+Base64.encodeToString(json.toString().getBytes(StandardCharsets.UTF_8),Base64.URL_SAFE|Base64.NO_WRAP);
+    }
+
     static PairingCode parse(String code) throws Exception {
         if (code == null || code.length() > 4096) throw new IllegalArgumentException("Invalid pairing code");
         String encoded = code.trim().replaceFirst("^audiorelay://pair/", "");
