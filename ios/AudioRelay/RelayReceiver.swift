@@ -44,8 +44,10 @@ final class RelayReceiver: ObservableObject {
     private var outputRecovery = ExternalOutputRecovery()
     private var outputRecoveryWork: DispatchWorkItem?
     private func cancelOutputRecovery() {
+        UserDefaults.standard.removeObject(forKey: "outputRecoveryPin")
         outputRecovery.cancel(); outputRecoveryWork?.cancel(); outputRecoveryWork = nil
     }
+    func autoReconnectChanged(_ enabled: Bool) { if !enabled { cancelOutputRecovery() } }
     private func scheduleExternalOutput() {
         guard outputRecovery.waiting else { return }
         outputRecoveryWork?.cancel()
@@ -68,6 +70,8 @@ final class RelayReceiver: ObservableObject {
     private func waitForExternalOutput() {
         outputRecovery.lost(external: output != .speaker,
                             enabled: UserDefaults.standard.object(forKey: "trustedAutoReconnect") as? Bool != false)
+        if outputRecovery.waiting { UserDefaults.standard.set(pairing.mac?.pin, forKey: "outputRecoveryPin") }
+        else { UserDefaults.standard.removeObject(forKey: "outputRecoveryPin") }
         guard outputRecovery.waiting else { parkListening("OUTPUT", phase: .headphones, title: "Output disconnected"); return }
         interruptedByPhoneAudio = false
         stopPlayback()
@@ -87,6 +91,14 @@ final class RelayReceiver: ObservableObject {
     init() {
         output = RelayOutput(rawValue: UserDefaults.standard.string(forKey: "receiverOutput") ?? "") ?? .bluetooth
         playbackMode = .reliable
+        outputRecovery.restore(savedPin: UserDefaults.standard.string(forKey: "outputRecoveryPin") ?? "",
+                               currentPin: pairing.mac?.pin ?? "",
+                               enabled: UserDefaults.standard.object(forKey: "trustedAutoReconnect") as? Bool != false && output != .speaker)
+        if outputRecovery.waiting {
+            phase = .headphones; title = "Waiting for headphones"
+            detail = "Reconnect your headphones to resume listening."
+            scheduleExternalOutput()
+        } else { UserDefaults.standard.removeObject(forKey: "outputRecoveryPin") }
         let center = NotificationCenter.default
         observers.append(center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] notification in
             guard let self else { return }

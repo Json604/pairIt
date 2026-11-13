@@ -804,6 +804,7 @@ public class MainActivity extends Activity {
         pairingAds.prepare();appOpenAds.prepare();
         showScanResult();
         showPairingCompletion();
+        RelayService.restoreOutputMonitoring(this);
     }
     @Override public void onPause() { visible = false;stopInvitations();if(appOpenAds!=null)appOpenAds.pause();if(!PairingInterstitial.isPresenting())cancelExplicitConnection(); cancelNearbyPairing(); if(nearby!=null)nearby.stop(); if(automaticConfirmation!=null){automaticConfirmation.cancel();automaticConfirmation=null;} if(pairingAds!=null)pairingAds.cancelUnshown(); if(bannerAds!=null)bannerAds.pause();handler.removeCallbacks(refresh); super.onPause(); }
     @Override public void onStop(){super.onStop();if(!PairingInterstitial.isPresenting()&&!AppOpenAds.isPresenting()&&!scanningCode)appOpeningOpportunity=true;}

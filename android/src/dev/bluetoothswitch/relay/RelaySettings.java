@@ -10,7 +10,12 @@ final class RelaySettings {
     boolean soundFeedback() { return prefs.getBoolean("sound_feedback",true); }
     void soundFeedback(boolean value) { prefs.edit().putBoolean("sound_feedback",value).apply(); }
     boolean autoReconnect() { return prefs.getBoolean("auto_reconnect", true); }
-    void autoReconnect(boolean value) { prefs.edit().putBoolean("auto_reconnect",value).apply(); }
+    void autoReconnect(boolean value) { prefs.edit().putBoolean("auto_reconnect",value).apply(); if(!value)outputRecovery(false); }
+    String outputRecoveryPin() { return prefs.getString("output_recovery_pin", ""); }
+    void outputRecovery(boolean waiting) {
+        // Persist before returning from an output-loss/cancellation callback.
+        prefs.edit().putString("output_recovery_pin", waiting ? pin() : "").commit();
+    }
     boolean reducedMotion() { return !android.animation.ValueAnimator.areAnimatorsEnabled(); }
     String host() { return prefs.getString("host", ""); }
     String pin() { return prefs.getString("pin", ""); }
@@ -85,7 +90,7 @@ final class RelaySettings {
     void pair(PairingCode code) {
         prefs.edit().putString("host", code.host).putString("pin", code.pin).putString("token", code.token)
                 .putString("computer_name", code.name)
-                .putString("computer_platform", code.platform).remove("host_override").putBoolean("wifi", true).apply();
+                .remove("output_recovery_pin").putString("computer_platform", code.platform).remove("host_override").putBoolean("wifi", true).apply();
     }
     static boolean validHost(String host) {
         if (host == null || host.isEmpty() || host.length() > 253) return false;

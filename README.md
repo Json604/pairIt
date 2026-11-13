@@ -115,7 +115,7 @@ attack. Automated checks and source review are not a guarantee of zero vulnerabi
 Report vulnerabilities through [email](mailto:kartikey060105@gmail.com)
 or email kartikey060105@gmail.com. Do not post pairing codes, keys or private captures.
 
-## External headphone recovery (preview 14)
+## External headphone recovery
 
 With Auto-reconnect enabled, losing the active Bluetooth, wired or USB output
 stops phone playback and releases its computer connection. The phone waits for
@@ -123,11 +123,17 @@ an external output, then reconnects to its saved computer and resumes after the
 route is ready. Replacement headphones work on their first attachment. Manual
 Pause, Disconnect, computer-output selection and explicit output choices cancel
 pending recovery; the phone speaker never triggers it. Other listeners remain
-connected. Android keeps its foreground connected-device service while waiting.
-iOS reacts while running and checks again on foreground; it cannot guarantee
-headset-triggered recovery after system suspension or force-quit. Preview 14
-includes this phone update; the compatible desktop packages are unchanged from
-preview 13. iOS store distribution remains separate.
+connected. Both phones persist pending recovery against the saved computer identity,
+with no elapsed-time expiry. Android restores its connected-device service after
+system process eviction, and system Bluetooth connection broadcasts can wake it
+when headphones return. An actual external audio route must be ready before it
+starts audio; a Bluetooth keyboard connection alone cannot start playback.
+Reopening the Android app also restores pending monitoring if the OS denied a restart.
+Force-stop and manufacturer background restrictions can still prevent automatic wake-up.
+iOS restores pending recovery when launched and checks route changes while it has
+execution time. Ordinary audio-headset attachment cannot guarantee relaunch after
+system suspension/termination or force-quit. No silent audio or perpetual wake lock
+is used to keep either app alive. Desktop protocol and packages are unchanged.
 
 ## Build and check
 

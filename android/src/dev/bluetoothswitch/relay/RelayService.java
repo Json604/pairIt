@@ -94,6 +94,14 @@ public class RelayService extends Service {
         foreground(false);
         main.removeCallbacks(connectionWatchdog);main.postDelayed(connectionWatchdog,500);
     }
+    static void restoreOutputMonitoring(Context context) {
+        RelaySettings saved = new RelaySettings(context);
+        if(liveInstance != null || !saved.autoReconnect() || !saved.paired()
+                || !saved.pin().equals(saved.outputRecoveryPin())) return;
+        try { context.startForegroundService(new Intent(context, RelayService.class).setAction("RESTORE_OUTPUT")); }
+        catch(IllegalStateException | SecurityException error) { Log.w(TAG,"Output monitoring could not restart",error); }
+    }
+
     static boolean hasControlConnection() { RelayService service=liveInstance; return service!=null&&service.socket!=null; }
 
     private Thread worker;
@@ -107,14 +115,14 @@ public class RelayService extends Service {
     private final ExternalOutputRecovery outputRecovery=new ExternalOutputRecovery();
     private int automaticOutputAttempts;
     private final Runnable retryExternalOutput=()->resumeExternalOutput();
-    private void cancelOutputRecovery(){outputRecovery.cancel();main.removeCallbacks(retryExternalOutput);}
+    private void cancelOutputRecovery(){settings.outputRecovery(false);outputRecovery.cancel();main.removeCallbacks(retryExternalOutput);}
     private void scheduleExternalOutput(){
         if(!outputRecovery.waiting())return;
         main.removeCallbacks(retryExternalOutput);main.postDelayed(retryExternalOutput,750);
     }
     private void resumeExternalOutput(){
         if(!outputRecovery.waiting()||userStopped||liveInstance!=this)return;
-        if(!settings.autoReconnect()||!settings.paired()){cancelOutputRecovery();requestStop();return;}
+        if(!settings.autoReconnect()||!settings.paired()||!settings.outputRecoveryPin().equals(settings.pin())){cancelOutputRecovery();requestStop();return;}
         AudioDeviceInfo destination=selectedOutput.find(audio);OutputRoute kind=selectedOutput;
         if(destination==null){
             for(OutputRoute candidate:new OutputRoute[]{OutputRoute.BLUETOOTH,OutputRoute.WIRED}){
@@ -132,12 +140,13 @@ public class RelayService extends Service {
         settings.output(kind,destination.getId());selectedOutput=kind;outputRevision++;
         cancelOutputRecovery();startListening(true);
         if(!requestedMac && !userStopped && running && state.phase==RelayState.Phase.PHONE){
-            outputRecovery.lost(true,settings.autoReconnect());scheduleExternalOutput();
+            outputRecovery.lost(true,settings.autoReconnect());settings.outputRecovery(outputRecovery.waiting());scheduleExternalOutput();
         }
         if(worker!=null)LockSupport.unpark(worker);
     }
     private void waitForExternalOutput(){
         outputRecovery.lost(selectedOutput!=OutputRoute.SPEAKER,settings.autoReconnect());
+        settings.outputRecovery(outputRecovery.waiting());
         if(!outputRecovery.waiting()){park(RelayHandoff.Intent.OUTPUT,RelayState.Phase.HEADPHONES,"Output disconnected");return;}
         ++startTicket;main.removeCallbacks(finishPausedService);main.removeCallbacks(connectionWatchdog);
         requestedMac=false;focusGranted=false;profileReady=false;parkedIntent=RelayHandoff.Intent.OUTPUT;
@@ -227,10 +236,20 @@ public class RelayService extends Service {
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int id) {
-        String action = intent == null ? "STOP" : intent.getAction();
+        if (intent == null || "RESTORE_OUTPUT".equals(intent.getAction())) {
+            // Android may recreate a sticky service hours after process eviction.
+            // Restore only a saved headphone-loss intent, never an old PLAY command.
+            selectedOutput = settings.output();
+            outputRecovery.restore(settings.outputRecoveryPin(), settings.pin(), settings.autoReconnect() && settings.paired());
+            if (!outputRecovery.waiting()) { requestStop(); return START_NOT_STICKY; }
+            foreground(false);
+            waitForExternalOutput();
+            return START_STICKY;
+        }
+        String action = intent.getAction();
         foreground(canPlay());
         if ("STOP".equals(action)) { requestStop(); return START_NOT_STICKY; }
-        if ("OUTPUT_COMPUTER".equals(action)) { selectComputerOutput(); return START_NOT_STICKY; }
+        if ("OUTPUT_COMPUTER".equals(action)) { selectComputerOutput(); return START_STICKY; }
         if ("LOCAL_OUTPUT".equals(action)) {
             cancelOutputRecovery();
             boolean resume = requestedMac && !computerOutputSelected;
@@ -242,31 +261,31 @@ public class RelayService extends Service {
             outputRevision++; generation.incrementAndGet();
             if (resume) startListening(false);
             else if (!running || socket==null) stopSelf();
-            return START_NOT_STICKY;
+            return START_STICKY;
         }
-        if ("SYNC".equals(action)) return START_NOT_STICKY; // Control thread sends saved calibration.
+        if ("SYNC".equals(action)) return START_STICKY; // Control thread sends saved calibration.
         if ("RESYNC".equals(action)) {
             if (canPlay()) { manualResyncs++; generation.incrementAndGet(); publish(RelayState.Phase.BUFFERING, "Refreshing audio", "Keeping your selected output connected."); }
-            return START_NOT_STICKY;
+            return START_STICKY;
         }
         if ("PAUSE".equals(action) || "USE_PHONE".equals(action)) {
             park(RelayHandoff.Intent.PAUSE, RelayState.Phase.PHONE, "Phone audio");
-            return START_NOT_STICKY;
+            return START_STICKY;
         }
         if ("MEDIA_RESUME".equals(action)) {
-            if (!"paused".equals(settings.controlsSource())) { stopSelf(); return START_NOT_STICKY; }
+            if (!"paused".equals(settings.controlsSource())) { stopSelf(); return START_STICKY; }
             action = "PLAY";
         }
         if ("MEDIA_PAUSE".equals(action)) {
             if (state.macSelected()) pauseComputer(); else stopSelf();
-            return START_NOT_STICKY;
+            return START_STICKY;
         }
         if (!"PLAY".equals(action)) { requestStop(); return START_NOT_STICKY; }
         cancelOutputRecovery();automaticOutputAttempts=0;
         main.removeCallbacks(finishPausedService);
         final int ticket = ++startTicket;
         startWhenReleased(ticket, SystemClock.uptimeMillis() + 5000);
-        return START_NOT_STICKY;
+        return START_STICKY;
     }
 
     private void startWhenReleased(int ticket, long deadline) {
@@ -844,6 +863,7 @@ public class RelayService extends Service {
         RelayService current = liveInstance;
         if (current != null) current.requestStop();
         else {
+            new RelaySettings(context).outputRecovery(false);
             new RelaySettings(context).controlsSource("");
             context.getSystemService(NotificationManager.class).cancel(1);
             state = new RelayState(RelayState.Phase.IDLE, "Ready when you are", "Choose Computer to listen.");

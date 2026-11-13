@@ -92,6 +92,7 @@ struct ReceiverView: View {
                 confirm(mac, host: pairing.hostOverride ?? device.host)
 
             }
+            .onChange(of: autoReconnect) { _, enabled in receiver.autoReconnectChanged(enabled) }
             .onChange(of: ads.ready) { _, ready in
                 if ready { ads.pairingVideo.preload(audioIdle: receiver.audioIdleForAdvertisement); ads.appOpen.prepare() }
             }
