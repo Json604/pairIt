@@ -30,7 +30,7 @@ final class ReleaseUpdates {
     private long lastAttempt;
     private long availablePlayBuild;
     private android.app.AlertDialog prompt;
-    private static final String FEED = "https://raw.githubusercontent.com/Json604/pairIt/main/release/updates.json";
+    private static final String FEED = "https://raw.githubusercontent.com/Json604/pairIt-download/main/release/updates.json";
     private static final String STORE = "https://play.google.com/store/apps/details?id=dev.bluetoothswitch.relay";
     ReleaseUpdates(Activity activity, Listener listener) {
         this.activity = activity; this.listener = listener;

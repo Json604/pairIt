@@ -18,7 +18,7 @@ import SwiftUI
     private var lastAttempt = Date.distantPast
     private var task: Task<Void, Never>?
     private let cacheKey = "pairit.release-update.v1"
-    private let endpoint = URL(string: "https://raw.githubusercontent.com/Json604/pairIt/main/release/updates.json")!
+    private let endpoint = URL(string: "https://raw.githubusercontent.com/Json604/pairIt-download/main/release/updates.json")!
     #if os(macOS)
     private let platform = "mac"
     #else
@@ -74,7 +74,7 @@ import SwiftUI
         guard value.unicodeScalars.allSatisfy({ (33...126).contains($0.value) }), !value.contains("..") else { return false }
         let pattern: String
         if platform == "mac" {
-            pattern = #"^https://github\.com/Json604/pairIt/releases/(?:tag/v[0-9][A-Za-z0-9._-]*|download/v[0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*)$"#
+            pattern = #"^https://github\.com/Json604/pairIt-download/releases/(?:tag/v[0-9][A-Za-z0-9._-]*|download/v[0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*)$"#
         } else if platform == "ios" {
             pattern = #"^https://apps\.apple\.com/(?:[a-z]{2}/)?app/(?:[A-Za-z0-9-]+/)?id6833655052$"#
         } else { return false }

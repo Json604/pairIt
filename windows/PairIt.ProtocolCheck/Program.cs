@@ -232,16 +232,17 @@ internal static class Integration
 
     private static void CheckReleaseDestinations()
     {
-        const string prefix = "https://github.com/Json604/pairIt/releases/";
+        const string prefix = "https://github.com/Json604/pairIt-download/releases/";
         foreach (var suffix in new[] { "tag/v1.1.0-preview.7", "download/v1.1.0-preview.7/PairIt-Windows-x64.zip" })
             Require(ReleaseDestination.IsTrusted(prefix + suffix), "Official versioned release was rejected.");
         foreach (var suffix in new[] { "latest", "tag/latest", "tag/v1?redirect=elsewhere", "tag/v1#fragment", "tag/v1/extra",
             "tag/v1..2", "../../../attacker/repo/releases/tag/v1", "%2e%2e/%2e%2e/%2e%2e/attacker/repo/releases/tag/v1",
             "%2e%2e%2fattacker", "%252e%252e/%252e%252e", "tag/v1\\..\\latest", "tag/v1\n" })
             Require(!ReleaseDestination.IsTrusted(prefix + suffix), "Unsafe or mutable release URL was accepted: " + suffix);
-        foreach (var url in new[] { null, "http://github.com/Json604/pairIt/releases/tag/v1",
-            "https://github.com.attacker.invalid/Json604/pairIt/releases/tag/v1",
-            "https://user@github.com/Json604/pairIt/releases/tag/v1", "https://github.com:443/Json604/pairIt/releases/tag/v1",
+        foreach (var url in new[] { null, "https://github.com/Json604/pairIt/releases/tag/v1",
+            "https://github.com/Json604/pairIt-download-evil/releases/tag/v1", "http://github.com/Json604/pairIt-download/releases/tag/v1",
+            "https://github.com.attacker.invalid/Json604/pairIt-download/releases/tag/v1",
+            "https://user@github.com/Json604/pairIt-download/releases/tag/v1", "https://github.com:443/Json604/pairIt-download/releases/tag/v1",
             "https://github.com/attacker/repo/releases/tag/v1" })
             Require(!ReleaseDestination.IsTrusted(url), "Unofficial or ambiguous release URL was accepted.");
         Console.WriteLine("PASS: update destinations allow only versioned official GitHub release pages/assets; escaped paths and ambiguous/mutable URLs are rejected.");

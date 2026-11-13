@@ -2,10 +2,11 @@ package dev.bluetoothswitch.relay;
 
 public final class ReleaseDownloadLinkCheck {
     public static void main(String[] args) {
-        String root = "https://github.com/Json604/pairIt/releases/";
+        String root = "https://github.com/Json604/pairIt-download/releases/";
         String[] accepted = {root + "tag/v1.1.0", root + "tag/v1.1.0-preview.15",
                 root + "download/v1.1.0/PairIt-1.1.0.apk"};
-        String[] rejected = {root + "../../../attacker/repo/releases/tag/v1.1.0",
+        String[] rejected = {"https://github.com/Json604/pairIt/releases/tag/v1",
+                "https://github.com/Json604/pairIt-download-evil/releases/tag/v1", root + "../../../attacker/repo/releases/tag/v1.1.0",
                 root + "%2e%2e/%2e%2e/%2e%2e/attacker/repo/releases/tag/v1.1.0",
                 root + "download/v1.1.0/%2e%2e%2ffile.apk", root + "tag/v1.1.0?redirect=evil",
                 root + "tag/v1.1.0#other", root + "latest", root + "tag/v1.1.0\\evil",

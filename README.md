@@ -5,7 +5,7 @@ PairIt sends audio from Mac, Windows or Linux to Android or iPhone over an encry
 local connection. Up to four phones can listen, with separate volume controls.
 No PairIt account or cloud audio server is required.
 
-[Website](https://pairit.kartikey.xyz) · [Downloads](https://pairit.kartikey.xyz/downloads.html) · [Releases](https://github.com/Json604/pairIt/releases)
+[Website](https://pairit.kartikey.xyz) · [Downloads](https://pairit.kartikey.xyz/downloads.html) · [Releases](https://github.com/Json604/pairIt-download/releases)
 
 ## Platforms
 
@@ -101,7 +101,7 @@ See the [privacy policy](https://pairit.kartikey.xyz/privacy.html).
 Encryption does not protect compromised endpoints or prevent every local-network
 attack. Automated checks and source review are not a guarantee of zero vulnerabilities.
 
-Report vulnerabilities through [private security reporting](https://github.com/Json604/pairIt/security/advisories/new)
+Report vulnerabilities through [email](mailto:kartikey060105@gmail.com)
 or email kartikey060105@gmail.com. Do not post pairing codes, keys or private captures.
 
 ## Build and check
@@ -154,6 +154,15 @@ Direct APK updates must match both package ID and signing certificate.
 
 A source push, a downloadable release, and a store rollout are three separate steps.
 Follow this sequence after changing any phone or computer app.
+
+Source and development history stay in `Json604/pairIt`. Public distribution lives
+in [Json604/pairIt-download](https://github.com/Json604/pairIt-download): release
+binaries, checksums, release notes, and `release/updates.json`. It has a separate,
+fresh Git history. Never mirror or push the source repository to the downloads
+repository. Never upload a workspace/archive containing keys, local pairing state,
+logs, provisioning profiles, or private configuration. Use an explicit file list.
+Public signing certificates, certificate fingerprints and AdMob unit IDs are
+identifiers, not signing keys or account credentials.
 
 1. **Check the affected platforms.** For a UI, icon or protocol change, check every
    platform that uses it. Run the relevant checks above, build, and test the actual
@@ -225,7 +234,9 @@ Follow this sequence after changing any phone or computer app.
 4. **Commit and push the source.** Run `git diff --check`, review the diff and ensure
    generated files are current. Exclude credentials, builds and local logs. Commit,
    push and inspect CI. Record the exact source commit used for the artifacts.
-5. **Create a new GitHub release draft.** Choose a new tag, attach the newly built
+5. **Create a new GitHub release draft in `Json604/pairIt-download`.** Use
+   `gh release create <tag> --repo Json604/pairIt-download --draft --prerelease`
+   for a preview. Choose a new tag, attach the newly built
    Mac/Windows/Linux/APK files, and include release notes with platform build numbers
    and known limitations. Generate `SHA256SUMS.txt` from the final packaged files
    and attach it. Verify uploaded asset hashes match locally. Mark testing releases
@@ -261,7 +272,12 @@ Follow this sequence after changing any phone or computer app.
    python3 scripts/check-update-feed.py
    ```
 
-   Commit and push the feed change. GitHub APK availability does not imply Google
+   Copy only the validated `release/updates.json` into a separate clean checkout of
+   `Json604/pairIt-download`, review its diff, and commit/push it there. Keep the
+   source copy committed too; pushing the source alone does not publish the feed.
+   The public endpoint is
+   `https://raw.githubusercontent.com/Json604/pairIt-download/main/release/updates.json`.
+   GitHub APK availability does not imply Google
    Play track availability; Play still controls eligibility and installation.
 8. **Update and deploy the website.** Its separate checkout is
    `sites/paircove/` and is intentionally ignored by the app repository. Update

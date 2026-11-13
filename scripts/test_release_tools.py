@@ -22,7 +22,7 @@ class FeedChecks(unittest.TestCase):
     def document(self, **changes):
         entry = dict(platform='mac', bundleID='dev.bluetoothswitch.macrelay', build=11,
                      version='1.1.0', minimumOS='14.2',
-                     url='https://github.com/Json604/pairIt/releases/tag/v1.1.0-preview.7')
+                     url='https://github.com/Json604/pairIt-download/releases/tag/v1.1.0-preview.7')
         entry.update(changes)
         return json.dumps(dict(schema=1, releases=[entry])).encode()
 
@@ -36,7 +36,12 @@ class FeedChecks(unittest.TestCase):
         for path in ('latest', 'tag/latest', 'tag/../other', 'tag/%2e%2e',
                      'tag/v1?redirect=elsewhere', 'tag/v1#fragment', 'tag/v1/extra'):
             with self.subTest(path=path), self.assertRaises(ValueError):
-                self.feed.validate_feed(self.document(url='https://github.com/Json604/pairIt/releases/' + path))
+                self.feed.validate_feed(self.document(url='https://github.com/Json604/pairIt-download/releases/' + path))
+
+    def test_rejects_source_repo_and_lookalike_download_repos(self):
+        for repo in ('pairIt', 'pairIt-download-evil', 'other'):
+            with self.subTest(repo=repo), self.assertRaises(ValueError):
+                self.feed.validate_feed(self.document(url=f'https://github.com/Json604/{repo}/releases/tag/v1'))
 
     def test_rejects_wrong_identity_and_noninteger_build(self):
         for values in ({'bundleID': 'other.app'}, {'build': True}, {'build': 0}, {'minimumOS': 'new'}):
@@ -51,7 +56,7 @@ class FeedChecks(unittest.TestCase):
                 self.feed.validate_feed(raw)
 
     def test_accepts_github_asset_redirect_but_not_unrelated_destination(self):
-        original = 'https://github.com/Json604/pairIt/releases/download/v1.1.0/PairIt.zip'
+        original = 'https://github.com/Json604/pairIt-download/releases/download/v1.1.0/PairIt.zip'
         self.feed.validate_destination(original, 'https://release-assets.githubusercontent.com/asset?signature=example', 'mac')
         for destination in ('http://release-assets.githubusercontent.com/asset',
                             'https://example.com/PairIt.zip'):

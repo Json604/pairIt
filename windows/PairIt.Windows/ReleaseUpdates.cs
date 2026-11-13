@@ -9,7 +9,7 @@ internal sealed class ReleaseUpdates : IDisposable
     internal sealed record Entry(string Platform, string BundleID, int Build, string Version, string MinimumOS, string Url);
     private sealed record Feed(int Schema, Entry[] Releases);
     private static readonly JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true };
-    private static readonly Uri Endpoint = new("https://raw.githubusercontent.com/Json604/pairIt/main/release/updates.json");
+    private static readonly Uri Endpoint = new("https://raw.githubusercontent.com/Json604/pairIt-download/main/release/updates.json");
     private readonly HttpClient client = new(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(12), MaxResponseContentBufferSize = 65536 };
     private readonly string cache = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PairIt", "release-update.json");
     private DateTimeOffset lastAttempt = DateTimeOffset.MinValue;

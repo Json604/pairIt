@@ -30,7 +30,7 @@ def validate_url(value, platform):
         require(url.netloc == 'apps.apple.com' and re.fullmatch(r'/(?:[a-z]{2}/)?app/(?:[A-Za-z0-9-]+/)?id6833655052', url.path), 'Wrong App Store destination')
         return
     require(url.netloc == 'github.com' and '..' not in url.path and re.fullmatch(
-        r'/Json604/pairIt/releases/(?:tag/v[0-9][A-Za-z0-9._-]*|download/v[0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*)',
+        r'/Json604/pairIt-download/releases/(?:tag/v[0-9][A-Za-z0-9._-]*|download/v[0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*)',
         url.path), 'Expected a versioned official GitHub release')
 
 
@@ -66,7 +66,7 @@ def validate_feed(raw):
 def validate_destination(original, final, platform):
     # GitHub redirects versioned assets to its signed, expiring asset CDN.
     # This check only probes availability; the original feed URL stays pinned.
-    if original.startswith('https://github.com/Json604/pairIt/releases/download/'):
+    if original.startswith('https://github.com/Json604/pairIt-download/releases/download/'):
         url = urlsplit(final)
         if (url.scheme == 'https' and url.netloc == 'release-assets.githubusercontent.com'
                 and not url.username and not url.password and not url.fragment):

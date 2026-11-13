@@ -63,3 +63,6 @@ relay-identity.*
 *.cer
 *.csr
 *.certSigningRequest
+
+# Personal release instructions, kept local.
+/PairIt - AudioRelay - Release guide.txt
