@@ -37,7 +37,7 @@ struct ReceiverView: View {
     }
     private var waitingForAudio: Bool { receiver.phase == .buffering && receiver.title == "Connected · play audio on your computer" }
     private var connecting: Bool { (!waitingForAudio && [.connecting, .buffering, .reconnecting].contains(receiver.phase)) || confirmationTask != nil }
-    var body: some View {
+    private var pageContent: some View {
         ZStack {
             PhoneBackdrop()
             if tab == 1 || (tab == 0 && !receiver.phase.macSelected && !pairingReady) {
@@ -73,7 +73,10 @@ struct ReceiverView: View {
         }.overlay {
             if sheet != nil || sharingApp || requestingPairing { Color.black.opacity(0.28).ignoresSafeArea().allowsHitTesting(false) }
         }.foregroundStyle(.white)
+    }
 
+    private var observedContent: some View {
+        pageContent
             .onReceive(invitations.$prompt) { prompt in
                 if prompt != nil && (sheet != nil || showingTour || sharingApp || AudioPresentationGate.isPresenting || tab != 1 || scenePhase != .active) {
                     DispatchQueue.main.async { invitations.answer(false) }
@@ -103,6 +106,10 @@ struct ReceiverView: View {
                     BannerAdSlot(ads: ads, active: scenePhase == .active && !ads.fullscreenActive)
                 }
             }
+    }
+
+    private var lifecycleContent: some View {
+        observedContent
             .onReceive(Timer.publish(every: 900, on: .main, in: .common).autoconnect()) { _ in if scenePhase == .active { updates.check() } }
             .onAppear {
                 invitations.received = acceptInvitation
@@ -123,6 +130,10 @@ struct ReceiverView: View {
             .overlay {
                 if ads.openingScreen { ZStack { Color.black.ignoresSafeArea(); Text("PairIt").font(.title.bold()).foregroundStyle(.white) } }
             }
+    }
+
+    var body: some View {
+        lifecycleContent
             .alert("Approve on your computer", isPresented: $requestingPairing) {
                 Button("Cancel", role: .cancel) { cancelNearbyPairing() }
             } message: {
