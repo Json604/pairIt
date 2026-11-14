@@ -7,6 +7,7 @@ namespace PairIt.Linux;
 
 public sealed record AudioOutput(string Name, string Description, string Monitor, uint? Volume = null, bool Virtual = false)
 {
+    public bool IsRelay => Name.StartsWith("pairit_relay_", StringComparison.Ordinal);
     public override string ToString() => Description;
 }
 
@@ -40,7 +41,7 @@ public static partial class PulseAudio
     }
     public static async Task<IReadOnlyList<AudioOutput>> ListAsync()
     {
-        using var process = Start("/usr/bin/pactl", "--format=json", "list", "sinks");
+        using var process = Start("pactl", "--format=json", "list", "sinks");
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         try
         {
@@ -53,7 +54,7 @@ public static partial class PulseAudio
         }
         finally { Stop(process); }
     }
-    private static async Task<string> ReadBoundedAsync(StreamReader reader, CancellationToken cancellation)
+    internal static async Task<string> ReadBoundedAsync(StreamReader reader, CancellationToken cancellation)
     {
         var text = new System.Text.StringBuilder(); var buffer = new char[4096];
         int count;
@@ -79,7 +80,8 @@ public static partial class PulseAudio
 
 public sealed class LinuxAudioEndpoints : IAudioEndpoints
 {
-    public ISystemAudioSource CreateSource(string endpointId) => new PulseSource(endpointId);
+    public bool KeepCaptureWhilePaused => true;
+    public ISystemAudioSource CreateSource(string endpointId) => new RoutedPulseSource(endpointId);
     public async Task<IMicrophoneSink> OpenMicrophoneSinkAsync(string endpointId, CancellationToken cancellation)
     {
         cancellation.ThrowIfCancellationRequested();
@@ -105,7 +107,7 @@ public sealed class PulseSource(string monitor) : ISystemAudioSource
         var outputs = await PulseAudio.ListAsync();
         if (!outputs.Any(output => output.Monitor == monitor)) throw new IOException("Selected output is no longer available.");
         // Explicit sink monitors only: never fall back to the default microphone.
-        process = PulseAudio.Start("/usr/bin/parec", "--raw", "--format=s16le", "--rate=48000", "--channels=2",
+        process = PulseAudio.Start("parec", "--raw", "--format=s16le", "--rate=48000", "--channels=2",
             "--channel-map=front-left,front-right", "--latency-msec=20", "--client-name=PairIt", "--device=" + monitor);
         volumeObserver = ObserveVolumeAsync();
         errors = process.StandardError.BaseStream.CopyToAsync(Stream.Null, lifetime.Token);

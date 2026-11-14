@@ -32,6 +32,7 @@ internal static class Integration
         CryptographicOperations.ZeroMemory(syntheticPfx);
         var token = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
         await OutputSwitchIntegration.RunAsync(certificate, token);
+        await RoutedPauseIntegration.RunAsync(certificate, token);
         var audio = new SyntheticEndpoints();
         var sessions = new DesktopSessions(audio);
         await using var server = new RelayServer(certificate, token, sessions);
@@ -402,6 +403,7 @@ internal sealed class SyntheticEndpoints : IAudioEndpoints
     private int activeSources;
     public int SourceStarts, SourceStops, MaximumSources, SourceAttempts;
     public bool FailSourceStartup;
+    public bool KeepCaptureWhilePaused { get; init; }
     public SyntheticSink? LastSink;
     public ISystemAudioSource CreateSource(string endpointId) => new SyntheticSource(this);
     public Task<IMicrophoneSink> OpenMicrophoneSinkAsync(string endpointId, CancellationToken cancellation)

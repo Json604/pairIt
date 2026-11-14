@@ -15,6 +15,7 @@ internal sealed class ReleaseUpdates : IDisposable
     private DateTimeOffset lastAttempt = DateTimeOffset.MinValue;
     private bool checking, disposed;
     internal Entry? Available { get; private set; }
+    internal string Status { get; private set; } = "Check for updates";
     internal event Action? Changed;
     internal ReleaseUpdates()
     {
@@ -25,15 +26,15 @@ internal sealed class ReleaseUpdates : IDisposable
             }
         } catch { /* First launch or invalid cache; no effect on listening. */ }
     }
-    internal async Task CheckAsync()
+    internal async Task CheckAsync(bool force = false)
     {
-        if (disposed || checking || DateTimeOffset.UtcNow - lastAttempt < TimeSpan.FromHours(6)) return;
-        checking = true; lastAttempt = DateTimeOffset.UtcNow;
+        if (disposed || checking || !force && DateTimeOffset.UtcNow - lastAttempt < TimeSpan.FromHours(6)) return;
+        checking = true; lastAttempt = DateTimeOffset.UtcNow; Status = "Checking for updates…";
         try {
             using var response = await client.GetAsync(Endpoint);
-            if (response.StatusCode != HttpStatusCode.OK) return;
+            if (response.StatusCode != HttpStatusCode.OK) throw new HttpRequestException("Update feed unavailable.");
             var feed = JsonSerializer.Deserialize<Feed>(await response.Content.ReadAsStringAsync(), Json);
-            if (feed?.Schema != 1 || feed.Releases == null || feed.Releases.Length > 100) return;
+            if (feed?.Schema != 1 || feed.Releases == null || feed.Releases.Length > 100) throw new InvalidDataException("Invalid update feed.");
             if (disposed) return;
             Available = feed.Releases.Where(Eligible).OrderByDescending(e => e.Build).FirstOrDefault();
             try {
@@ -41,10 +42,11 @@ internal sealed class ReleaseUpdates : IDisposable
                 if (Available == null) File.Delete(cache);
                 else File.WriteAllText(cache, JsonSerializer.Serialize(Available, Json));
             } catch { /* A read-only profile must not prevent an update notice. */ }
-            Changed?.Invoke();
+            Status = Available == null ? "No newer release available" : "Update available · " + Available.Version;
         } catch {
+            Status = "Couldn’t check. Try again when online.";
             lastAttempt = DateTimeOffset.UtcNow - TimeSpan.FromHours(6) + TimeSpan.FromMinutes(5);
-        } finally { checking = false; }
+        } finally { checking = false; if (!disposed) Changed?.Invoke(); }
     }
     private static bool Eligible(Entry entry)
     {

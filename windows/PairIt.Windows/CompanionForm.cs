@@ -29,7 +29,7 @@ internal sealed class CompanionForm : Form
         ForeColor = Color.FromArgb(23, 23, 23); FormBorderStyle = FormBorderStyle.FixedToolWindow;
         ShowInTaskbar = false; MaximizeBox = false; MinimizeBox = false; AutoScaleMode = AutoScaleMode.Dpi;
         ClientSize = new Size(300, 326); StartPosition = FormStartPosition.Manual;
-        var content = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(14, 10, 14, 12), ColumnCount = 1, RowCount = 6, BackColor = BackColor };
+        var content = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(14, 10, 14, 12), ColumnCount = 1, RowCount = 7, BackColor = BackColor };
         content.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         foreach (var height in new[] { 38, 30, 48, 65, 48, 45 }) content.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
         var header = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, Margin = Padding.Empty };
@@ -57,6 +57,29 @@ internal sealed class CompanionForm : Form
         actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 55)); actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 45));
         pair.Dock = disconnect.Dock = DockStyle.Fill; pair.Click += async (_, _) => { try { await PairAsync(); } catch { status.Text = "Could not show pairing code."; } }; disconnect.Click += async (_, _) => await StopAllAsync();
         actions.Controls.Add(pair, 0, 0); actions.Controls.Add(disconnect, 1, 0); content.Controls.Add(actions, 0, 5); Controls.Add(content);
+        var updateNotice = new LinkLabel { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft,
+            LinkColor = Color.FromArgb(0, 85, 170), AccessibleName = "Download PairIt update", Visible = false };
+        content.RowStyles.Add(new RowStyle(SizeType.Absolute, 0)); content.Controls.Add(updateNotice, 0, 6);
+        updateNotice.LinkClicked += (_, _) => { if (!updates.Open()) status.Text = "Couldn’t open the download. Try again."; };
+        void RefreshUpdateNotice() {
+            if (IsDisposed || Disposing) return;
+            var available = updates.Available;
+            updateNotice.Text = available == null ? "" : $"Update available · {available.Version} ↗";
+            updateNotice.Visible = available != null;
+            var noticeHeight = available == null ? 0 : (int)Math.Ceiling(38 * DeviceDpi / 96.0);
+            var change = noticeHeight - (int)content.RowStyles[6].Height;
+            content.RowStyles[6].Height = noticeHeight;
+            if (change != 0) {
+                ClientSize = new Size(ClientSize.Width, ClientSize.Height + change);
+                if (Visible) {
+                    var area = Screen.FromControl(this).WorkingArea;
+                    Location = new Point(Math.Max(area.Left, Math.Min(Left, area.Right - Width)),
+                        Math.Max(area.Top, Math.Min(Top, area.Bottom - Height)));
+                }
+            }
+        }
+        updates.Changed += RefreshUpdateNotice;
+        RefreshUpdateNotice();
         updateTimer.Tick += async (_, _) => await updates.CheckAsync(); Activated += async (_, _) => await updates.CheckAsync();
         FormClosing += (_, e) => { if (!ExitRequested) { e.Cancel = true; Hide(); } };
         VisibleChanged += (_, _) => { if (!Visible) pairingWindow?.Close(); };
@@ -162,7 +185,17 @@ internal sealed class CompanionForm : Form
         };
         panel.Controls.Add(microphone);
         var microphoneHelp = TextLabel("Enabling stops computer sharing. Select the cable’s recording output in your calling app, then explicitly start the microphone on your phone."); microphoneHelp.Width = 266; microphoneHelp.Height = 76; panel.Controls.Add(microphoneHelp);
-        var update = ActionButton(updates.Available == null ? "Check for updates" : "Get update"); update.Click += async (_, _) => { await updates.CheckAsync(); if (updates.Available != null) updates.Open(); else update.Text = "No update available"; }; panel.Controls.Add(update);
+        var update = ActionButton("Check for updates");
+        var updateStatus = TextLabel(updates.Status); updateStatus.Width = 266; updateStatus.Height = 35;
+        var getUpdate = ActionButton("Download update ↗"); getUpdate.Visible = updates.Available != null;
+        getUpdate.Click += (_, _) => { if (!updates.Open()) updateStatus.Text = "Couldn’t open the download. Try again."; };
+        update.Click += async (_, _) => {
+            update.Enabled = false; updateStatus.Text = "Checking for updates…";
+            await updates.CheckAsync(force: true);
+            if (dialog.IsDisposed) return;
+            update.Enabled = true; updateStatus.Text = updates.Status; getUpdate.Visible = updates.Available != null;
+        };
+        panel.Controls.Add(update); panel.Controls.Add(updateStatus); panel.Controls.Add(getUpdate);
         var help = ActionButton("Help"); help.Click += (_, _) => { try { Process.Start(new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory, "README.md")) { UseShellExecute = true }); } catch { } }; panel.Controls.Add(help);
         panel.Controls.Add(PhoneDownloads());
         dialog.Controls.Add(panel); dialog.ShowDialog(this);

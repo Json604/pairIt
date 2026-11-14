@@ -70,12 +70,16 @@ Headphone play/pause controls this phone’s relay; the computer player may cont
   apps use. Local speakers keep playing unless you use a separately installed
   virtual render device. Supported players can respond to a best-effort pause;
   PairIt does not automatically press Play.
-- **Linux:** install `pulseaudio-utils libx11-6 libice6 libsm6 libfontconfig1 libicu-dev
-  xdg-utils`, extract the archive and run `./PairIt` as your normal desktop user.
-  Use **Pair a phone** to select an output and start sharing after launching the app.
-  Run `./install-desktop.sh` from its permanent folder to add a launcher.
-  Local speakers keep playing unless you use a virtual sink. Closing the window
-  stops sharing. Linux has no automatic player pause or video compensation.
+- **Linux:** on Ubuntu/Debian, open the matching `.deb` with your graphical package
+  installer, choose **Install**, then open PairIt from the application menu. Required
+  libraries and audio client tools are declared as package dependencies. Other
+  compatible glibc distributions can use the portable archive; see `linux/START-HERE.txt`
+  for dependencies. Use **Pair a phone** to select an output and start sharing.
+  Phone playback temporarily routes the selected output into a private sink, avoiding
+  duplicate laptop-speaker audio. Computer or final disconnect restores playback;
+  pausing an already connected phone holds the silent route. Unrelated outputs and
+  manual routing choices are preserved. Closing the window stops sharing. Linux
+  has no automatic player pause or video compensation.
 - **Timing:** each phone/headphone combination adds its own delay. Shared listening
   does not guarantee synchronized outputs. Use one phone per listener; using two
   headphones on one phone depends on the phone’s own audio-sharing support.
@@ -192,8 +196,10 @@ do not update Google Play or App Store installations.
 ## Releases and contributions
 
 Update notices open the official store or release page; they do not install files
-or stop audio. Linux checks when requested. Other platforms cache notices and check
-periodically. Google Play decides eligibility for each testing/production track.
+or stop audio. Mac, Windows and Linux check automatically on opening/foreground and
+periodically, with visible update notices; Settings supports an immediate check.
+Desktop installation remains explicit: quit PairIt, then install the newer package
+or replace the portable application files. Google Play decides eligibility for each testing/production track.
 Direct APK updates must match both package ID and signing certificate.
 
 ### Release an update, step by step

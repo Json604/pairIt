@@ -16,6 +16,8 @@ if [ "${1:-}" = --update-lock ]; then LOCKED=--force-evaluate; fi
 "$DOTNET" publish PairIt.Linux/PairIt.Linux.csproj --no-restore -c Release -r "$RID" --self-contained true -o "$OUTPUT" -p:DebugType=None -p:DebugSymbols=false
 "$DOTNET" restore PairIt.Linux.Checks/PairIt.Linux.Checks.csproj "$LOCKED"
 "$DOTNET" run --project PairIt.Linux.Checks/PairIt.Linux.Checks.csproj --no-restore -c Release
+"$DOTNET" restore PairIt.UpdateChecks/PairIt.UpdateChecks.csproj "$LOCKED"
+"$DOTNET" run --project PairIt.UpdateChecks/PairIt.UpdateChecks.csproj --no-restore -c Release
 cp "$ROOT/linux/install-desktop.sh" "$OUTPUT/"
 cp "$ROOT/windows/PairIt.Windows/PairIt.ico" "$OUTPUT/PairIt.ico"
 mkdir -p "$OUTPUT/licenses"
@@ -23,5 +25,6 @@ cp "$ROOT/windows/licenses/dotnet-10.0.15-LICENSE.txt" "$OUTPUT/licenses/"
 # Preserve package license notices shipped by the GUI dependencies.
 python3 "$ROOT/scripts/package-linux-licenses.py" "$NUGET_PACKAGES" "$OUTPUT/licenses"
 chmod +x "$OUTPUT/PairIt" "$OUTPUT/install-desktop.sh"
-COPYFILE_DISABLE=1 tar -czf "$ROOT/artifacts/linux/PairIt-1.1.0-preview.16-$RID.tar.gz" -C "$OUTPUT" .
+COPYFILE_DISABLE=1 tar -czf "$ROOT/artifacts/linux/PairIt-1.1.0-preview.17-$RID.tar.gz" -C "$OUTPUT" .
+python3 "$ROOT/scripts/package-linux-deb.py" "$OUTPUT" --rid "$RID"
 echo "Linux preview: $OUTPUT/PairIt"

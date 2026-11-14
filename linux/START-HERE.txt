@@ -4,10 +4,24 @@ Requirements: Ubuntu 24.04+ or Debian 12+ (x64/ARM64), a graphical X11 session
 or Wayland with XWayland, and PulseAudio or PipeWire's PulseAudio compatibility
 service. Other glibc distributions may work but are not yet verified.
 
-On Ubuntu/Debian, install runtime dependencies:
-  sudo apt install pulseaudio-utils libx11-6 libice6 libsm6 libfontconfig1 libicu-dev xdg-utils
-PipeWire desktops also need their pipewire-pulse user service running.
-No .NET installation is required for the published self-contained download.
+Recommended Ubuntu/Debian installation
+--------------------------------------
+Download the .deb matching your computer (amd64 for Intel/AMD, arm64 for ARM).
+Open it with your system's graphical package installer and choose Install.
+The package manager installs the required libraries, PulseAudio client tools,
+and a PairIt application-menu entry. Open PairIt from the application menu.
+If your desktop has no graphical .deb installer, one command installs the
+local package and dependencies: sudo apt install ./PairIt-*.deb
+No .NET installation is required. Installation never starts audio or changes
+pairing data. Updating means installing the newer .deb after quitting PairIt.
+
+Portable archive / other distributions
+--------------------------------------
+The .tar.gz remains available for other compatible glibc distributions.
+These need X11 or XWayland, fontconfig, ICU, OpenSSL 3 and PulseAudio client
+utilities (pactl, parec, pacat), plus a running PulseAudio or pipewire-pulse
+user service. Package names vary by distro; this archive does not install them.
+On Ubuntu/Debian the .deb above is the simpler route.
 
 Extract the entire archive. Run ./PairIt as your normal desktop user, never root.
 Choose the output your apps use in Settings, then select Pair a phone. On the
@@ -21,9 +35,12 @@ Nearby discovery uses multicast UDP 5353 on the local network. If blocked,
 QR pairing still works. Discovery never broadcasts the private pairing token.
 
 The Phone / Computer switch preserves live phone connections.
-Like the Windows preview, Linux captures an output monitor and does not mute or
-reroute local speakers. To listen silently on the computer, route your apps to
-a virtual output using your system audio tools, then select it in PairIt.
+Phone playback temporarily routes applications using the selected output to a
+private PairIt output, so they do not also play through the laptop speakers.
+Other outputs are left alone. Computer restores local playback. Pausing an
+already listening phone keeps its private route; disconnecting the last phone
+or closing PairIt restores the output. Manual routing choices made in system
+audio settings are preserved. Physical speaker mute settings are not changed.
 Paused phones stay paused. There is no automatic player pause
 or Mac-style video compensation in this Linux preview. Capture timing is
 approximate; hardware listening validation is still needed.
@@ -33,8 +50,11 @@ $XDG_DATA_HOME/PairIt (normally ~/.local/share/PairIt). Do not delete identity.j
 to fix a startup problem: existing phones trust that identity. The directory
 must have mode 700, and identity.json mode 600. Never share those files or codes.
 
-Use Check for updates in Settings to open a newer official release. Updates are downloaded
-and installed manually; GitHub releases do not replace a running application.
+PairIt checks for updates at startup and on foreground (at most once per six hours).
+An available update appears in the main window. Settings → Check for updates
+checks immediately. Download opens the official release page; it does not install
+or run anything automatically. Quit PairIt, then install the newer .deb or replace
+the extracted portable app.
 Replace the extracted app files after closing PairIt; keep your user data.
 
 Optional application-menu entry: run ./install-desktop.sh from the extracted

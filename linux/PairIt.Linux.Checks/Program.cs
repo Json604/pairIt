@@ -2,6 +2,14 @@ using PairIt.Linux;
 using System.Text.Json;
 
 static void Require(bool value, string message) { if (!value) throw new Exception(message); }
+if (args.Contains("--route-crash-helper")) {
+    await using var crashRoute = new PulseRoute(new PulseCommands());
+    await crashRoute.StartAsync("pairit_route_test.monitor", CancellationToken.None);
+    Console.WriteLine(crashRoute.SinkName); Console.Out.Flush();
+    await Task.Delay(Timeout.Infinite); return;
+}
+await RoutingChecks.RunAsync();
+if (args.Contains("--routing")) await LiveRoutingChecks.RunAsync();
 var sinks = PulseAudio.ParseSinks("""[{"name":"alsa_output.test","description":"Test speakers","monitor_source":"alsa_output.test.monitor"}]""");
 Require(sinks.Count == 1 && sinks[0].Monitor == "alsa_output.test.monitor", "Must select a sink monitor, never a microphone.");
 Require(PulseAudio.ParseSinks("""[{"name":"bad","monitor_source":"--help"}]""").Count == 0, "Unsafe endpoint accepted.");

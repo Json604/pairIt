@@ -16,6 +16,8 @@ public interface IMicrophoneSink : IAsyncDisposable
 
 public interface IAudioEndpoints
 {
+    // A routed source may need to hold its silent output while a connected phone is paused.
+    bool KeepCaptureWhilePaused => false;
     ISystemAudioSource CreateSource(string endpointId);
     Task<IMicrophoneSink> OpenMicrophoneSinkAsync(string endpointId, CancellationToken cancellation);
 }

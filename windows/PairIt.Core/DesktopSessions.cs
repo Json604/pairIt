@@ -100,9 +100,9 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
     }
 
     private void PublishOutputStatus() => SetMessage(computerOutput
-        ? "Computer output selected. Phone connections stay ready; local computer output is unchanged."
+        ? "Computer output selected. Phone connections stay ready."
         : Status.ActiveReceivers == 0 ? "Phone headphones selected. Start or resume audio on your phone."
-        : "Sharing computer audio. Local computer output stays unchanged.");
+        : "Sharing computer audio with your phone.");
 
     public async Task ConfigureAsync(DesktopSettings value)
     {
@@ -255,7 +255,7 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
             if (computerOutput) { PublishOutputStatus(); return; }
             SetMessage(Status.ActiveReceivers == 0
                 ? "Relay held. The computer player may keep playing locally."
-                : "Sharing computer audio. Local computer output stays unchanged.");
+                : "Sharing computer audio with your phone.");
         }
         finally { lifecycle.Release(); }
     }
@@ -333,6 +333,7 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
     {
         bool hasActive;
         lock (state) hasActive = !computerOutput && (receivers.Values.Any(peer => peer.Active) ||
+            endpoints.KeepCaptureWhilePaused && source != null && receivers.Count > 0 ||
             !handoff.IsAvailable && !mediaHandoffSuppressed && receivers.Values.Any(peer => peer.Parked && peer.ParkReason == ParkReason.Phone));
         if (!hasActive && source != null)
         {

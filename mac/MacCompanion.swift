@@ -126,6 +126,14 @@ struct MacCompanionView: View {
             RelayBackdrop()
             VStack(spacing: 0) {
                 header
+                if let update = updates.available, let url = URL(string: update.url) {
+                    HStack(spacing: 8) {
+                        Text("Update available · \(update.version)").font(.system(size: 11))
+                            .lineLimit(2)
+                        Spacer(minLength: 4)
+                        Link("Download ↗", destination: url).font(.system(size: 11, weight: .semibold))
+                    }.padding(.horizontal, 20).padding(.vertical, 6)
+                }
                 if let feedback = model.feedback, feedback.isError {
                     Text(feedback.message).font(.system(size: 11)).foregroundStyle(.red)
                         .fixedSize(horizontal: false, vertical: true).padding(.horizontal, 20).padding(.bottom, 6)
@@ -133,7 +141,7 @@ struct MacCompanionView: View {
                 ZStack {
                     Group {
                         if model.page == 0 { ScrollView { overview } }
-                        else if model.page == 1 { pairing.padding(20).padding(.top, 2) }
+                        else if model.page == 1 { ScrollView { pairing.padding(20).padding(.top, 2) } }
                         else { ScrollView { Group { if model.page == 3 { sharedListening } else { settings } }.padding(28).padding(.top, 2) } }
                     }.id(model.page).transition(pageTransition)
                 }.frame(maxWidth: .infinity, maxHeight: .infinity).clipped()
@@ -393,6 +401,9 @@ struct MacCompanionView: View {
                 RelaySettingRow(icon: "lock.shield", title: "Audio permission", detail: "Manage in System Settings", action: model.openPermissions)
                 Divider().opacity(0.4)
                 RelaySettingRow(icon: "qrcode", title: "Pair a phone") { model.navigate(to: 1) }
+                Divider().opacity(0.4)
+                RelaySettingRow(icon: "arrow.clockwise", title: "Check for updates", detail: updates.status) { updates.check(force: true) }
+                    .disabled(updates.checking)
             }
             Divider().opacity(0.4)
             VStack(alignment: .leading, spacing: 10) {

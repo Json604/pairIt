@@ -1,0 +1,52 @@
+{
+  "date": "2026-11-15",
+  "publication": "Local changes/builds only. Published preview16 and update feed unchanged.",
+  "versions": {
+    "linux": "1.1.0-preview.17",
+    "windows": "1.1.0-preview.17",
+    "mac": "1.1.0 (19)",
+    "mobile": "unchanged"
+  },
+  "reported_issues": [
+    "Ubuntu UI contrast and placement",
+    "Simultaneous computer and phone output"
+  ],
+  "fixes": {
+    "audio": "Private null sink routes selected-output streams; initial volume/mute copied; subscription handles new streams. Explicit Computer/final disconnect restores; paused connected receiver retains existing silent route. Other outputs/manual routing preserved. Owned-module guard cleans up on process crash.",
+    "ui": "Explicit light theme for existing light surfaces; centered resizable work-area-bounded windows, scrollable main/settings/pairing; single settings window; internal relay outputs hidden.",
+    "updates": "Visible nonmodal notices on all desktop platforms; startup/foreground/periodic checks and forced Settings refresh. Official versioned URLs only; no automatic binary installation.",
+    "installation": "Self-contained amd64/arm64 .deb with runtime dependencies, menu entry and icon; no maintainer scripts or user-data modifications. Portable tar retained."
+  },
+  "verified": [
+    "Ubuntu24 ARM64: PulseAudio and PipeWire1.0.5/WirePlumber live synthetic routing; selected monitor silent, relay audible, volume, old/new streams, unrelated outputs, manual default, stop and crash recovery.",
+    "Ubuntu24 ARM64 Xvfb/Openbox: light/dark, 100/150/200 percent scaling; idle, connected, pairing QR, settings and short-screen overflow. Deliberate theme regression fails check.",
+    "Debian12 ARM64: core, routing and dark-theme graphical checks; actual final17 .deb install/reinstall; installed executable graphical smoke test.",
+    "Linux ARM64/x64 self-contained builds, routing lifecycle and updater tests passed.",
+    "Shared loopback TLS protocol suite including routed-pause lifecycle passed; default Windows capture lifecycle unchanged.",
+    "Windows17 cross-build and protocol checks; universal Mac19 build and trusted update URL checks passed.",
+    "Python release/package tests passed (11). Shell syntax and git diff checks passed.",
+    "Debian12 200-percent pairing-window regression reproduced (negative Y), fixed by post-resize work-area clamping; graphical regression now passes."
+  ],
+  "limits": [
+    "No physical Linux speaker/phone acceptance here; owner friend retest on Ubuntu required. No guarantee for every distro, GNOME/KDE compositor or GPU.",
+    "Wayland requires XWayland; glibc, PulseAudio or pipewire-pulse required. Alpine/musl and native PipeWire-only sessions are not supported by these artifacts.",
+    "A newly started app explicitly pinned to a physical output can sound briefly until routing event handling; explicit manual reroutes are respected.",
+    "Safe automatic installers not implemented. Future options: signed Sparkle updates, signed MSIX/AppInstaller, signed apt repository or Flatpak.",
+    "Mac19 local app is build-verified, not a new notarized release. Desktop changes not pushed/published. Physical Windows/iPhone testing remains with owner."
+  ],
+  "references": [
+    "https://docs.avaloniaui.net/docs/styling/theme-variants",
+    "https://docs.avaloniaui.net/docs/deployment/linux",
+    "https://www.freedesktop.org/wiki/Software/PulseAudio/Documentation/User/Modules/",
+    "https://www.freedesktop.org/wiki/Software/PulseAudio/Documentation/User/DefaultDevice/",
+    "https://docs.pipewire.org/page_man_pipewire-pulse-modules_7.html"
+  ],
+  "evidence_directory": "artifacts/linux-investigation/",
+  "ci": "Expanded Linux job to Ubuntu22.04/24.04 and live routing/UI/2x regression checks. Updated workflow has not run remotely yet.",
+  "artifact_sha256": {
+    "PairIt-1.1.0-preview.17-linux-arm64.tar.gz": "ae7a94c340401c74d72b5a35a6afb76a9cd4130a6cb0b758cd65e61b2e9b7055",
+    "PairIt-1.1.0-preview.17-linux-x64.tar.gz": "ec5eab40a73001ef0cb7e8cb25f068dbb932286817dc2fb1148e19f00e89d7f8",
+    "PairIt-1.1.0-preview.17-arm64.deb": "5255ea9ea1c05c2e601678ee5c3887b6de09b26312d7b7b2225969ba83832d43",
+    "PairIt-1.1.0-preview.17-amd64.deb": "21888fd27b13dd7a2556b88805d74cfaa6e1d01c7b486fb87df551e5272ba8f6"
+  }
+}
