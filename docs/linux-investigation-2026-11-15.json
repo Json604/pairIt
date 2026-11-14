@@ -1,6 +1,6 @@
 {
   "date": "2026-11-15",
-  "publication": "Local changes/builds only. Published preview16 and update feed unchanged.",
+  "publication": "Published v1.1.0-preview.17 to public downloads, advanced update feed, and deployed website version 31. Implementation in private source repo; Android/iOS build30 submissions unchanged.",
   "versions": {
     "linux": "1.1.0-preview.17",
     "windows": "1.1.0-preview.17",
@@ -25,14 +25,15 @@
     "Shared loopback TLS protocol suite including routed-pause lifecycle passed; default Windows capture lifecycle unchanged.",
     "Windows17 cross-build and protocol checks; universal Mac19 build and trusted update URL checks passed.",
     "Python release/package tests passed (11). Shell syntax and git diff checks passed.",
-    "Debian12 200-percent pairing-window regression reproduced (negative Y), fixed by post-resize work-area clamping; graphical regression now passes."
+    "Debian12 200-percent pairing-window regression reproduced (negative Y), fixed by post-resize work-area clamping; graphical regression now passes.",
+    "All 10 uploaded release asset digests match local SHA256; release/feed destinations reachable. Billing service/container/data/DNS removed; unrelated VPS services remain active."
   ],
   "limits": [
     "No physical Linux speaker/phone acceptance here; owner friend retest on Ubuntu required. No guarantee for every distro, GNOME/KDE compositor or GPU.",
     "Wayland requires XWayland; glibc, PulseAudio or pipewire-pulse required. Alpine/musl and native PipeWire-only sessions are not supported by these artifacts.",
     "A newly started app explicitly pinned to a physical output can sound briefly until routing event handling; explicit manual reroutes are respected.",
     "Safe automatic installers not implemented. Future options: signed Sparkle updates, signed MSIX/AppInstaller, signed apt repository or Flatpak.",
-    "Mac19 local app is build-verified, not a new notarized release. Desktop changes not pushed/published. Physical Windows/iPhone testing remains with owner."
+    "Mac19 app and bundled driver are signed/notarized; final DMG verified. Physical Windows/iPhone testing remains with owner."
   ],
   "references": [
     "https://docs.avaloniaui.net/docs/styling/theme-variants",
@@ -42,11 +43,13 @@
     "https://docs.pipewire.org/page_man_pipewire-pulse-modules_7.html"
   ],
   "evidence_directory": "artifacts/linux-investigation/",
-  "ci": "Expanded Linux job to Ubuntu22.04/24.04 and live routing/UI/2x regression checks. Updated workflow has not run remotely yet.",
+  "ci": "All six CI jobs passed on source a0e39bc: Ubuntu22.04/24.04, Windows, Apple including iOS simulator compilation, Android, repository. Run 43631692558. Fixed synthetic TLS harness handling of intentional disconnects; all 13 receiver cases also passed locally.",
   "artifact_sha256": {
     "PairIt-1.1.0-preview.17-linux-arm64.tar.gz": "ae7a94c340401c74d72b5a35a6afb76a9cd4130a6cb0b758cd65e61b2e9b7055",
     "PairIt-1.1.0-preview.17-linux-x64.tar.gz": "ec5eab40a73001ef0cb7e8cb25f068dbb932286817dc2fb1148e19f00e89d7f8",
     "PairIt-1.1.0-preview.17-arm64.deb": "5255ea9ea1c05c2e601678ee5c3887b6de09b26312d7b7b2225969ba83832d43",
     "PairIt-1.1.0-preview.17-amd64.deb": "21888fd27b13dd7a2556b88805d74cfaa6e1d01c7b486fb87df551e5272ba8f6"
-  }
+  },
+  "release_url": "https://github.com/Json604/pairIt-download/releases/tag/v1.1.0-preview.17",
+  "website": "https://pairit.kartikey.xyz"
 }
