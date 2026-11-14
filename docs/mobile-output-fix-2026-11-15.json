@@ -1,0 +1,27 @@
+{
+  "date": "2026-11-15",
+  "build": 31,
+  "source": "83b4ed5",
+  "problem": "After a verified connection/ad, a missing saved Bluetooth route prevented playback even though the phone speaker was available.",
+  "changes": [
+    "Android explicit Connect resolves available wired/USB/Bluetooth or speaker, respects available manual output, and requests Bluetooth permission only for a Bluetooth destination.",
+    "iOS explicit Connect adopts the active system route after activating the playback session.",
+    "Connection UI names the output and distinguishes computer playback.",
+    "Background output recovery keeps the previous route; unplugging headphones never automatically plays on the speaker."
+  ],
+  "verified": [
+    "Android core and selection regression checks passed, including stale device ID, absent Bluetooth, wired fallback, manual speaker, and background speaker prohibition.",
+    "Swift explicit/current versus automatic/saved output policy checks passed.",
+    "Signed Android build31 AAB/APK, release lint, bundletool and signatures passed.",
+    "iOS build31 device archive built; main app and widget versions confirmed31; App Store Connect upload succeeded.",
+    "Preview31 installed alongside the Play-signed app. Production local update correctly refused by Android signature protection; no uninstall or pairing reset.",
+    "All ten GitHub asset digests match local builds.",
+    "All six CI jobs passed on 83b4ed5, run43636281402. Apple server throughput assertion passed locally and on rerun."
+  ],
+  "limits": [
+    "Owner explicitly declined further physical phone testing; post-ad playback/route-label acceptance not completed on hardware.",
+    "Physical iPhone/headset tests remain with owner."
+  ],
+  "artifacts": "artifacts/mobile-output-31/",
+  "publication": "Preview18 public, mobile update feed advanced, website version32 deployed. iOS build31 uploaded to App Store Connect; signed Android AAB ready for owner upload/review."
+}
