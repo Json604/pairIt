@@ -37,6 +37,7 @@ final class RelayTransport {
     private var healthTimer: DispatchSourceTimer?
     private var lastTrafficAt = RelayClock.nanoseconds
     var onUnavailable: (() -> Void)?
+    var onGroupFull: (() -> Void)?
     private func watchConnection() {
         healthTimer?.cancel()
         lastTrafficAt = RelayClock.nanoseconds
@@ -62,6 +63,14 @@ final class RelayTransport {
     private(set) var clockSamples = 0
     private(set) var connections = 0
     private var compensation: Int?
+    private var alignmentReport = "STATS ALIGN1 320 -1\n"
+    var onPresentationTarget: ((Int, Int, Int) -> Void)?
+    func setOutputTiming(minimum: Int, output: Int?) {
+        guard (1...320).contains(minimum), output == nil || (0...1000).contains(output!) else { return }
+        let report = "STATS ALIGN1 \(minimum) \(output ?? -1)\n"
+        guard report != alignmentReport else { return }
+        alignmentReport = report; send(report)
+    }
     private var intent = "RESUME", intentToken: UInt32 = 1, sentToken: UInt32 = 0
     private var controlStatus: UInt32 = 0
     private var acknowledgedConnection = 0
@@ -227,6 +236,7 @@ final class RelayTransport {
         guard running else { return }
         onState?(connections == 0 ? "Connecting to your computer" : "Reconnecting to your computer")
         clockSamples = 0; bestRTT = .max; clockWindow = 0; pingCount = 0; bytes.removeAll()
+        onPresentationTarget?(0, 0, 0)
         capabilitiesKnown = false; controlStatus = 0; intentToken = 1; sentToken = 0; offeredToken = 0; consumedDesktopRequest = 0; desktopStatus = 0
         outputRequestPing = nil // Retry an unacknowledged user choice on the new socket.
         var identityRejected = false
@@ -239,6 +249,7 @@ final class RelayTransport {
             case .ready:
                 self.retry = 0; self.connections += 1; self.lastReceived = RelayClock.nanoseconds
                 self.send(self.mac.token + "\nHELLO " + RelayInstallation.identifier + "\nSTATS CONTROLS1\nSTATS VOLUME1\n")
+                self.send(self.alignmentReport)
                 if let value = self.compensation { self.send("SYNC \(value)\n") }
                 self.onState?("Getting audio ready"); self.startTimer(); self.receive(current)
             case .failed:
@@ -305,6 +316,17 @@ final class RelayTransport {
         guard bytes.count <= 262144 else { return false }
         while bytes.count >= 24 {
             let magic: UInt32 = integer(at: 0)
+            if magic == 0x34435342 {
+                let target: UInt32 = integer(at: 4)
+                let listeners: UInt32 = integer(at: 8), capable: UInt32 = integer(at: 12)
+                guard target <= 2000, listeners <= 4, capable <= listeners else { return false }
+                bytes.removeFirst(24); onPresentationTarget?(Int(target), Int(listeners), Int(capable)); continue
+            }
+            if magic == 0x31455342 {
+                let code: UInt32 = integer(at: 4)
+                guard code == 1 else { return false }
+                suspend(); onGroupFull?(); return true
+            }
             if magic == 0x33435342 {
                 let value: UInt32 = integer(at: 4)
                 guard let volume = ComputerVolume(wireValue: value) else { return false }

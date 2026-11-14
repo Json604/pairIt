@@ -82,3 +82,15 @@ PairIt provides Open PairIt, Settings and Quit in the desktop tray. Keep the
 window minimized to continue sharing. Closing the window quits and restores
 local audio. The normal taskbar window remains available on desktops without
 a tray host; GNOME requires AppIndicator/StatusNotifier support for tray icons.
+
+Shared listening timing
+-----------------------
+Up to four phones can connect directly or join through a listening invitation.
+Phone speakers are valid outputs. A host must already have a live computer
+connection before inviting; the guest needs no previous pairing with that computer.
+With updated companion and phone apps, allow a few seconds for shared timing
+calibration. Each phone uses its measured output latency to target the same
+presentation time. OS estimates do not guarantee acoustically identical outputs.
+Older phone apps keep their existing timing. Updating all listeners enables the
+shared timing feature. A fifth phone receives a clear group-full message.
+Phone volume and pause are independent; computer output selection applies to all.

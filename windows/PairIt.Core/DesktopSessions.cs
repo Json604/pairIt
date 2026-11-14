@@ -143,7 +143,7 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
             if (disposed || microphone != null || !settings.SharingEnabled || string.IsNullOrEmpty(settings.SourceEndpointId)) return false;
             lock (state)
             {
-                if (receivers.Count >= Protocol.MaximumReceivers) return false;
+                if (receivers.Count >= Protocol.MaximumReceivers) { peer.GroupFull = true; return false; }
             }
             if (!await PrepareActivationAsync(peer, cancellation).ConfigureAwait(false)) return false;
             lock (state) receivers.Add(peer.Id, peer);
@@ -198,6 +198,26 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
             PublishOutputStatus();
         }
         finally { lifecycle.Release(); }
+    }
+
+    internal void SetPresentationTiming(ReceiverSession peer, int minimum, int? output) {
+        lock (state) {
+            peer.PresentationAlignment = true;
+            peer.MinimumRenderMilliseconds = minimum;
+            peer.OutputDelayMilliseconds = output;
+        }
+    }
+    internal (uint Target, uint Listeners, uint Capable)? PresentationTarget(ReceiverSession peer) {
+        lock (state) {
+            if (!peer.PresentationAlignment) return null;
+            var active = receivers.Values.Where(p => p.Active && !p.Cancellation.IsCancellationRequested).ToArray();
+            uint count = (uint)active.Length, capable = (uint)active.Count(p => p.PresentationAlignment);
+            if (active.Length < 2 || active.Any(p => !p.PresentationAlignment || p.OutputDelayMilliseconds == null)) return (0, count, capable);
+            // Common source-to-presentation deadline. A slow output adds delay
+            // only to the group, never to a solo listener or a legacy peer.
+            int maximum = active.Max(p => p.MinimumRenderMilliseconds + p.OutputDelayMilliseconds!.Value);
+            return ((uint)((maximum + 9) / 10 * 10), count, capable);
+        }
     }
 
     internal uint ClockStatus(ReceiverSession peer)

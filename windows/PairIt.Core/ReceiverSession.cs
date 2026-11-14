@@ -13,6 +13,7 @@ internal sealed class ReceiverSession(TcpClient socket, SslStream stream) : IDis
     private readonly CancellationTokenSource lifetime = new();
     private int queuedBytes, closed, closeRequested;
     public Guid Id { get; } = Guid.NewGuid();
+    internal bool GroupFull { get; set; }
     public bool Active { get; set; } = true;
     public bool Parked { get; set; }
     public bool VolumeControls { get; set; }
@@ -26,6 +27,9 @@ internal sealed class ReceiverSession(TcpClient socket, SslStream stream) : IDis
     public ParkReason ParkReason { get; set; }
     public string? InstallationId { get; set; }
     public double? SyncMilliseconds { get; set; }
+    public bool PresentationAlignment { get; set; }
+    public int MinimumRenderMilliseconds { get; set; } = 320;
+    public int? OutputDelayMilliseconds { get; set; }
     public long LastControlAt { get; set; } = MonotonicClock.Nanoseconds;
     public CancellationToken Cancellation => lifetime.Token;
 

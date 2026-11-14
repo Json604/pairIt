@@ -3,6 +3,9 @@ import Combine
 enum RelayPlaybackMode { case reliable, interactive }
 @main struct Interop {
  static func main() throws {
+  precondition(!ListeningInvitations.hostProblem(connected: false, phoneOutput: true, available: true).isEmpty)
+  precondition(ListeningInvitations.hostProblem(connected: true, phoneOutput: true, available: true).isEmpty)
+  precondition(!ListeningInvitations.hostProblem(connected: true, phoneOutput: false, available: true).isEmpty)
   let invitations=ListeningInvitations();var finished=false;var sawBusy=false
   let prompt=invitations.$prompt.sink { value in
    guard let value else { return };print("SAS " + value.comparison);fflush(stdout)

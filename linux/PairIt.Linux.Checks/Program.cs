@@ -8,8 +8,10 @@ if (args.Contains("--route-crash-helper")) {
     Console.WriteLine(crashRoute.SinkName); Console.Out.Flush();
     await Task.Delay(Timeout.Infinite); return;
 }
+CaptureTimingChecks.Run();
 await RoutingChecks.RunAsync();
 if (args.Contains("--routing")) await LiveRoutingChecks.RunAsync();
+if (args.Contains("--timing")) await LiveCaptureTimingChecks.RunAsync();
 var sinks = PulseAudio.ParseSinks("""[{"name":"alsa_output.test","description":"Test speakers","monitor_source":"alsa_output.test.monitor"}]""");
 Require(sinks.Count == 1 && sinks[0].Monitor == "alsa_output.test.monitor", "Must select a sink monitor, never a microphone.");
 Require(PulseAudio.ParseSinks("""[{"name":"bad","monitor_source":"--help"}]""").Count == 0, "Unsafe endpoint accepted.");

@@ -81,6 +81,7 @@ struct ReceiverView: View {
                 }
             }
             .onReceive(nearby.$computers) { computers in
+                if !computers.isEmpty && connectionNotice == "Looking for nearby computers…" { connectionNotice = "" }
                 if let mac = pairing.mac, !computers.contains(where: { $0.pin == mac.pin }), receiver.phase == .idle {
                     attemptedPin = nil; pairingReady = false
                 }
@@ -113,6 +114,7 @@ struct ReceiverView: View {
             .onReceive(Timer.publish(every: 900, on: .main, in: .common).autoconnect()) { _ in if scenePhase == .active { updates.check() } }
             .onAppear {
                 invitations.received = acceptInvitation
+                invitations.canHost = { togetherHostProblem.isEmpty }
                 updates.check(); nearby.start(); prepareOpeningAds()
                 #if DEBUG
                 if ProcessInfo.processInfo.arguments.contains("--preview-microphone") { showingMicrophone = true }
@@ -137,10 +139,13 @@ struct ReceiverView: View {
             } message: {
                 Text("Match this code before approving:\n\n" + comparisonCode)
             }
-            .alert(invitations.prompt?.title ?? "Listening invitation", isPresented: Binding(get: { invitations.prompt != nil }, set: { if !$0 { invitations.prompt = nil } })) {
-                Button("Accept") { invitations.answer(true) }
+            .alert(invitations.prompt?.title ?? "Listening invitation", isPresented: Binding(get: { invitations.prompt != nil }, set: { if !$0 { invitations.answer(false) } })) {
+                Button(invitations.prompt?.hosting == true ? "Invite guest" : "Join listening") {
+                    if invitations.prompt?.hosting == true && !togetherHostProblem.isEmpty { invitations.answer(false); invitations.message(togetherHostProblem) }
+                    else { invitations.answer(true) }
+                }
                 Button("Decline", role: .cancel) { invitations.answer(false) }
-            } message: { Text("Compare this code on both phones. Only accept if it matches.\n\n" + (invitations.prompt?.comparison ?? "")) }
+            } message: { Text((invitations.prompt?.hosting == true ? "You are inviting a guest to your computer. " : "You are joining as a guest. This connects you to the host’s computer and replaces your saved computer. ") + "Each phone uses its own speaker or headphones. Compare this code on both phones; only accept if it matches.\n\n" + (invitations.prompt?.comparison ?? "")) }
             .sensoryFeedback(.selection, trigger: selectionCount)
             .sheet(item: $sheet) { value in
                 Group { switch value {
@@ -317,6 +322,7 @@ struct ReceiverView: View {
                     shortcut("Scan QR", icon: "qrcode.viewfinder", destination: .pair)
                     shortcut("Get PC app", icon: "laptopcomputer", destination: .downloads)
                 }
+                connectTools(connected: false)
             }.padding(16).foregroundStyle(RelayPalette.ink).frost(26)
 
         }
@@ -358,9 +364,30 @@ struct ReceiverView: View {
                     shortcut("Audio", icon: "slider.horizontal.3", destination: .audio)
                     shortcut("More", icon: "ellipsis", destination: .connection)
                 }
+                connectTools(connected: true)
+                if !receiver.groupTimingStatus.isEmpty {
+                    Text(receiver.groupTimingStatus).font(.caption).foregroundStyle(RelayPalette.secondary)
+                        .multilineTextAlignment(.center)
+                }
 
             }.padding(18).foregroundStyle(RelayPalette.ink).frost(26)
         }
+    }
+    private func connectTools(connected: Bool) -> some View {
+        HStack(spacing: 8) {
+            Button {
+                if connected { receiver.refreshAudio() }
+                else { nearby.stop(); nearby.start(); connectionNotice = "Looking for nearby computers…" }
+            } label: {
+                Label(connected ? "Refresh audio" : "Refresh nearby", systemImage: "arrow.clockwise")
+                    .font(.caption).frame(maxWidth: .infinity, minHeight: 48)
+            }.disabled(connecting || receiver.pausing || (connected && (receiver.phase != .playing || receiver.computerOutput)))
+            Button { sheet = .sync } label: {
+                Label("Audio / video sync", systemImage: "slider.horizontal.3")
+                    .font(.caption).frame(maxWidth: .infinity, minHeight: 48)
+            }.disabled(connecting || receiver.pausing)
+        }.buttonStyle(RelayControlButtonStyle())
+            .background(Color(white: 0.94), in: RoundedRectangle(cornerRadius: 14))
     }
     private func shortcut(_ title: String, icon: String, destination: ReceiverSheet) -> some View {
         RelayShortcut(title: title, icon: icon) { if destination == .pair { incomingCode = "" }; sheet = destination }
@@ -416,7 +443,12 @@ struct ReceiverView: View {
             nearby.showTogether(false); nearby.invitationPort = port; nearby.showTogether(true)
         }
     }
+    private var togetherHostProblem: String {
+        ListeningInvitations.hostProblem(connected: [.playing, .paused, .buffering, .computerOutput].contains(receiver.phase), phoneOutput: !receiver.computerOutput,
+            available: !AVAudioSession.sharedInstance().currentRoute.outputs.isEmpty)
+    }
     private func invitePhone(_ phone: NearbyDevices.Device) {
+        guard togetherHostProblem.isEmpty else { invitations.message(togetherHostProblem); return }
         guard let saved = pairing.mac else { invitations.message("Connect to a computer first, then invite a phone."); return }
         let host = pairing.hostOverride ?? nearby.computers.first(where: { $0.pin == saved.pin })?.host ?? saved.host
         let value = PairedMac(host: host, pin: saved.pin, token: saved.token, name: saved.name, platform: saved.platform, protocolVersion: saved.protocolVersion)
@@ -440,7 +472,7 @@ struct ReceiverView: View {
     }
     private var togetherPage: some View {
         VStack(spacing: 14) {
-            Text("Tap a phone to invite it to listen.").font(.subheadline).foregroundStyle(.white.opacity(0.75)).frame(maxWidth: .infinity, alignment: .leading)
+            Text(togetherHostProblem.isEmpty ? "Hosting from " + (pairing.mac?.displayName ?? "computer") : "Connect a computer to host, or wait for an invitation.").font(.subheadline).foregroundStyle(.white.opacity(0.75)).frame(maxWidth: .infinity, alignment: .leading)
             Spacer(minLength: 0)
             if nearby.phones.isEmpty {
                 Image(systemName: "person.2").font(.system(size: 40, weight: .light))
@@ -462,9 +494,9 @@ struct ReceiverView: View {
             }
             Spacer(minLength: 0)
             VStack(alignment: .leading, spacing: 10) {
-                Text("Invite a listener").font(.headline)
-                Text("Up to four phones, one computer. Keep Together open on both phones.").font(.caption).foregroundStyle(RelayPalette.secondary)
-                Button { if pairing.mac == nil { tab = 0 } else { sharingApp = true } } label: { Label(pairing.mac == nil ? "Connect a computer" : "Share app", systemImage: pairing.mac == nil ? "laptopcomputer" : "square.and.arrow.up") }.buttonStyle(RelayPrimaryButtonStyle())
+                Text(togetherHostProblem.isEmpty ? "Invite a listener" : "Connect or join").font(.headline)
+                Text(togetherHostProblem.isEmpty ? "Invite up to three guests. Each phone uses its own speaker or headphones. Keep Together open on both phones." : togetherHostProblem).font(.caption).foregroundStyle(RelayPalette.secondary)
+                Button { if !togetherHostProblem.isEmpty { tab = 0 } else { sharingApp = true } } label: { Label(!togetherHostProblem.isEmpty ? "Connect a computer" : "Share app", systemImage: !togetherHostProblem.isEmpty ? "laptopcomputer" : "square.and.arrow.up") }.buttonStyle(RelayPrimaryButtonStyle())
             }.padding(18).foregroundStyle(RelayPalette.ink).frost(26)
             Text(invitations.notice.isEmpty ? "Share app is for friends who haven’t installed PairIt." : invitations.notice).font(.caption2)
         }

@@ -37,6 +37,8 @@ public class RelayService extends Service {
     private volatile int outputRevision;
     private volatile OutputRoute selectedOutput = OutputRoute.BLUETOOTH;
     private volatile boolean interactiveMode, profileReady;
+    static volatile String groupTimingStatus = "";
+    private volatile String alignmentReport = "STATS ALIGN1 320 -1\n";
     private volatile int selectedDeviceId = -1;
     private volatile String activeProfileKey = "";
     private String sessionPin, sessionOverride;
@@ -390,6 +392,7 @@ public class RelayService extends Service {
     }
 
     private void holdForComputerOutput() {
+        groupTimingStatus = "";
         computerOutputSelected = true;
         focusGranted = false; profileReady = false;
         generation.incrementAndGet(); mute(); locks.release();
@@ -411,6 +414,7 @@ public class RelayService extends Service {
         if (track != null) try { track.setVolume(0); } catch (IllegalStateException ignored) { }
     }
     private void pausePlayback(RelayState.Phase phase, String title, String detail) {
+        groupTimingStatus = "";
         cancelOutputRecovery();
         ++startTicket; main.removeCallbacks(finishPausedService);
         main.removeCallbacks(renewLocks);main.removeCallbacks(connectionWatchdog);
@@ -436,6 +440,7 @@ public class RelayService extends Service {
         startForeground(1, notification(), type);
     }
     private void park(RelayHandoff.Intent intent, RelayState.Phase phase, String title) {
+        groupTimingStatus = "";
         cancelOutputRecovery();
         if (userStopped) return;
         ++startTicket; main.removeCallbacks(finishPausedService);
@@ -560,13 +565,17 @@ public class RelayService extends Service {
                 int pendingOutput = pendingOutputOnConnect;
                 if (pendingOutput >= 0) handoff.requestOutput(pendingOutput == 1);
                 interactiveMode = settings.interactive();
+                alignmentReport = "STATS ALIGN1 320 -1\n"; groupTimingStatus = "";
                 startControl(connection);
                 playSession(connection);
                 failures = 0;
             } catch (Exception error) {
                 if (!running) break;
                 Log.w(TAG, "Connection interrupted: " + error.getClass().getSimpleName());
-                if (ConnectionHealth.identityRejected(error)) {
+                if (error instanceof PcmInbox.GroupFull) {
+                    main.post(() -> pausePlayback(RelayState.Phase.ERROR, "Listening group is full", "Four phones are already connected. Disconnect one phone, then tap Connect again."));
+                    break;
+                } else if (ConnectionHealth.identityRejected(error)) {
                     main.post(() -> pausePlayback(RelayState.Phase.ERROR, "Pair with your computer again", "Open pairing in the desktop companion and enter its new code in Connection settings."));
                     break;
                 } else if (error instanceof OutputUnavailable) {
@@ -588,7 +597,7 @@ public class RelayService extends Service {
                 if (!requestedMac && !reconnectable()) {
                     main.post(() -> {
                         if (!requestedMac && socket == null && !reconnectable()) {
-                            if (!userStopped) publish(RelayState.Phase.ERROR, "Computer disconnected", "Keep both devices on the same Wi-Fi and open PairIt on your computer, then reconnect.");
+                            if (!userStopped && state.phase != RelayState.Phase.ERROR) publish(RelayState.Phase.ERROR, "Computer disconnected", "Keep both devices on the same Wi-Fi and open PairIt on your computer, then reconnect.");
                             stopSelf();
                         }
                     });
@@ -602,6 +611,7 @@ public class RelayService extends Service {
 
     private void playSession(Socket connection) throws Exception {
         computerVolume = "";
+        groupTimingStatus = "";
         PcmInbox inbox = new PcmInbox();
         RelayHandoff control = handoff;
         inbox.onHeartbeat = () -> lastTrafficAt=SystemClock.elapsedRealtime();
@@ -616,7 +626,8 @@ public class RelayService extends Service {
         AudioTrack track = null;
         int seenOutputRevision = outputRevision;
         int rate = 0, seenGeneration = -1, underruns = 0, primedFrames = 0, leadFrames = 0;
-        int cushionMs = PlayoutTiming.CUSHION_MS;
+        int cushionMs = PlayoutTiming.CUSHION_MS, minimumCushionMs = cushionMs, outputDelayMs = -1;
+        alignmentReport = "STATS ALIGN1 " + minimumCushionMs + " -1\n";
         InteractivePlayback interactive = interactiveMode ? new InteractivePlayback() : null;
         boolean learning = interactive != null;
         long previousSequence = -1, writtenFrames = 0, lastReport = 0, started = 0;
@@ -632,15 +643,18 @@ public class RelayService extends Service {
                 if (seenOutputRevision != outputRevision) {
                     if (track != null) { activeTrack = null; releaseTrack(track); track = null; }
                     seenOutputRevision = outputRevision; inbox.clear();
+                    outputDelayMs = -1; alignmentReport = "STATS ALIGN1 " + minimumCushionMs + " -1\n";
                 }
                 if (!canPlay()) {
+                    groupTimingStatus = "";
                     if (track != null) { activeTrack = null; releaseTrack(track); track = null; }
                     main.post(() -> { if (!canPlay()) PhoneAudioSession.release(this); });
                     inbox.next(); inbox.clear(); // Parse clocks, discard PCM; no silent AudioTrack.
                     continue;
                 }
                 if (interactiveMode && interactive != null && interactive.fallback() && track != null) {
-                    interactiveMode = false; learning = false; cushionMs = PlayoutTiming.CUSHION_MS;
+                    interactiveMode = false; learning = false; cushionMs = minimumCushionMs = PlayoutTiming.CUSHION_MS;
+                    alignmentReport = "STATS ALIGN1 " + minimumCushionMs + " " + outputDelayMs + "\n";
                     int previousRecoveries = timing.recoveries;
                     timing = new PlayoutTiming(); timing.recoveries = previousRecoveries;
                     track.setVolume(0); track.pause(); track.flush();
@@ -663,6 +677,7 @@ public class RelayService extends Service {
                 if (track == null || packet.rate != rate) {
                     if (track != null) { activeTrack = null; releaseTrack(track); }
                     rate = packet.rate;
+                    outputDelayMs = -1; alignmentReport = "STATS ALIGN1 " + minimumCushionMs + " -1\n";
                     try { track = newTrack(rate); }
                     catch (OutputUnavailable unavailable) {
                         requestedMac = false; main.post(this::loseOutput); continue;
@@ -686,9 +701,22 @@ public class RelayService extends Service {
                     if (!interactive.observe(packet, leadFrames)) continue;
                     if (interactive.fallback()) { inbox.clear(); continue; }
                     learning = false; interactiveMode = !interactive.fallback();
-                    cushionMs = interactive.cushionMs(); timing = new PlayoutTiming(cushionMs);
+                    cushionMs = minimumCushionMs = interactive.cushionMs(); timing = new PlayoutTiming(cushionMs);
+                    alignmentReport = "STATS ALIGN1 " + minimumCushionMs + " " + outputDelayMs + "\n";
                     // Learning packets are never played. The next packet is a fresh epoch anchor.
                     inbox.clear(); previousSequence = -1; continue;
+                }
+                groupTimingStatus = inbox.presentationListeners < 2 ? "" : inbox.presentationCapable < inbox.presentationListeners
+                        ? "Update other phones for shared timing" : inbox.presentationTargetMs == 0 || outputDelayMs < 0
+                        ? "Learning shared timing…" : "Shared timing adjusted";
+                int desiredCushion = PresentationTiming.renderDelay(minimumCushionMs, outputDelayMs, inbox.presentationTargetMs);
+                if (desiredCushion != cushionMs) {
+                    cushionMs = desiredCushion;
+                    int previousRecoveries = timing.recoveries;
+                    timing = new PlayoutTiming(cushionMs); timing.recoveries = previousRecoveries;
+                    generation.incrementAndGet();
+                    publish(RelayState.Phase.BUFFERING, "Aligning listeners", "Keeping the connection while matching output timing.");
+                    continue;
                 }
                 int currentGeneration = seenGeneration;
                 boolean discontinuity = previousSequence >= 0 && packet.sequence != ((previousSequence + 1) & 0xffffffffL);
@@ -713,7 +741,8 @@ public class RelayService extends Service {
                     if (count < 0) throw new OutputUnavailable("Audio output stopped (" + count + ")");
                     offset += count; writtenFrames += count / 4; primedFrames += count / 4;
                     if (!playing && (count == 0 || primedFrames >= Math.min(track.getBufferSizeInFrames(), (interactiveMode ? leadFrames : rate * PlaybackBuffer.TARGET_MS / 1000)))) {
-                        int ready = timing.start(inbox, firstPacket, () -> canPlay() && generation.get() == currentGeneration);
+                        int ready = timing.start(inbox, firstPacket, inbox.presentationTargetMs > 0 && outputDelayMs >= 0,
+                                () -> canPlay() && generation.get() == currentGeneration);
                         if (ready != PlayoutTiming.READY) {
                             Log.i(TAG, "PREFILL restart reason=" + ready + " primedFrames=" + primedFrames + " ageMs=" + (System.nanoTime() - firstPacket.receivedAt) / 1e6);
                             if (ready == PlayoutTiming.TOO_LATE && interactiveMode) { timing.recoveries++; interactive.recovery(); }
@@ -743,6 +772,7 @@ public class RelayService extends Service {
                     if (policy.configure(track, route, rate)) {
                         if (routeConfigured) timing.recoveries++;
                         routeConfigured = true;
+                        outputDelayMs = -1; alignmentReport = "STATS ALIGN1 " + minimumCushionMs + " -1\n";
                         generation.incrementAndGet(); continue;
                     }
                 } else if (track.getBufferSizeInFrames() != leadFrames) {
@@ -758,13 +788,19 @@ public class RelayService extends Service {
                         + (interactiveMode ? "Interactive preview" : (settings.interactive() ? "Reliable (session fallback)" : "Reliable")));
                 Integer videoDelay = videoTiming.observe(track, inbox, packet, writtenFrames, started);
                 if (videoDelay != null && canPlay() && generation.get() == currentGeneration) {
+                    if (outputDelayMs < 0) {
+                        outputDelayMs = PresentationTiming.outputDelay(videoDelay, cushionMs);
+                        alignmentReport = "STATS ALIGN1 " + minimumCushionMs + " " + outputDelayMs + "\n";
+                    }
                     settings.profileEstimate(activeProfileKey, videoDelay);
                     Log.i(TAG, "VIDEO_TIMING estimateMs=" + videoDelay + " correctionMs=" + settings.profileCorrection(activeProfileKey));
                 }
                 long now = SystemClock.elapsedRealtime();
                 // Let route startup settle before correcting tiny clock differences.
-                if (now - started > 3000) {
-                    int corrected = timing.correctedRate(packet);
+                if (now - started > 3000 && timing.correctionDue()) {
+                    int corrected = inbox.presentationTargetMs > 0 && outputDelayMs >= 0
+                            ? timing.correctedPresentationRate(videoTiming.presentationDelay(track, inbox, packet, writtenFrames), inbox.presentationTargetMs, rate)
+                            : timing.correctedRate(packet);
                     if (corrected != 0) track.setPlaybackRate(corrected);
                 }
                 if (now - lastReport >= 1000) {
@@ -787,6 +823,7 @@ public class RelayService extends Service {
               }
             }
         } finally {
+            groupTimingStatus = "";
             activeTrack = null;
             releaseTrack(track);
             try { connection.close(); } finally { reader.interrupt(); reader.join(1500); }
@@ -802,6 +839,7 @@ public class RelayService extends Service {
         RelayHandoff control = handoff;
         new Thread(() -> {
             int sentSync = -1, pings = 0;
+            String sentAlignment = "";
             try {
                 OutputStream output = connection.getOutputStream();
                 output.write(("HELLO " + settings.installationId() + "\nSTATS CONTROLS1\nSTATS VOLUME1\n").getBytes(StandardCharsets.US_ASCII)); output.flush();
@@ -809,6 +847,8 @@ public class RelayService extends Service {
                     int sync = profileReady ? settings.profileCompensation(activeProfileKey) : -1;
                     String message = control.nextCommand() + "PING " + System.nanoTime() + "\n";
                     if (canPlay()) message += "STATS " + state.phase + " " + diagnostics.replace('\n', ' ') + "\n";
+                    String alignment = alignmentReport;
+                    if (!alignment.equals(sentAlignment)) { message = alignment + message; sentAlignment = alignment; }
                     if (sync >= 0 && sync != sentSync) { message = "SYNC " + sync + "\n" + message; sentSync = sync; }
                     output.write(message.getBytes(StandardCharsets.UTF_8)); output.flush();
                     Thread.sleep(++pings < 10 || !canPlay() && !control.acknowledged() ? 250 : 1000);
@@ -886,6 +926,7 @@ public class RelayService extends Service {
         }
     }
     private void requestStop() {
+        groupTimingStatus = "";
         cancelOutputRecovery();
         endListeningFeedback();
         ++startTicket; settings.controlsSource(""); main.removeCallbacks(finishPausedService);

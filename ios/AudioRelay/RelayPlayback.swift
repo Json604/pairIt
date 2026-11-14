@@ -26,6 +26,20 @@ final class RelayPlayback {
     private var learned = false, reliableFallback = false
     private var recoveryTimes: [Double] = []
     private var cushion = 0.320, prime = 0.120
+    private var minimumCushionMs = 320, outputDelayMs: Int?, presentationTargetMs = 0
+    var onOutputTiming: ((Int, Int?) -> Void)?
+    func setPresentationTarget(_ value: Int) {
+        guard (0...2000).contains(value) else { return }
+        presentationTargetMs = value; applyPresentationTarget()
+    }
+    private func applyPresentationTarget() {
+        let delay = PresentationTiming.renderDelay(minimum: minimumCushionMs, output: outputDelayMs, target: presentationTargetMs)
+        guard abs(cushion - Double(delay) / 1000) > 0.0005 else { return }
+        cushion = Double(delay) / 1000
+        // Preserve TLS, output selection and route calibration. Only re-anchor
+        // queued audio when the group's presentation deadline changes.
+        player.stop(); resetEpoch(); onRecovery?()
+    }
     private(set) var mode: RelayPlaybackMode
     private(set) var recoveries = 0, receivedFrames: Int64 = 0
     private(set) var playing = false
@@ -42,6 +56,7 @@ final class RelayPlayback {
     func reset() { player.stop(); resetEpoch(); resetLearning() }
     func configurationChanged(_ object: AnyObject?) {
         guard object === engine, !engine.isRunning else { return }
+        outputDelayMs = nil
         reset(); format = nil; onRecovery?()
     }
     private func resetEpoch() {
@@ -52,6 +67,7 @@ final class RelayPlayback {
     }
     private func configure(rate: Double) throws {
         if format?.sampleRate == rate && engine.isRunning { return }
+        outputDelayMs = nil
         stop()
         guard let next = AVAudioFormat(standardFormatWithSampleRate: rate, channels: 2) else { return }
         engine.disconnectNodeOutput(player); engine.disconnectNodeOutput(speed)
@@ -75,7 +91,7 @@ final class RelayPlayback {
         previous = packet.sequence; receivedFrames += Int64(packet.frames)
         if playing, let stamp = player.lastRenderTime, let position = player.playerTime(forNodeTime: stamp), position.isSampleTimeValid {
             let remaining = scheduled - position.sampleTime
-            if remaining < 0 || remaining > Int64(format.sampleRate * 1.2) { recover() }
+            if remaining < 0 || remaining > Int64(format.sampleRate * max(1.2, cushion + prime + 0.250)) { recover() }
         }
         if scheduled == 0 { sourceAnchor = source; startDeadline = source + cushion; fadeFrames = Int(format.sampleRate * 0.005) }
         guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(packet.frames)), let channels = buffer.floatChannelData else { return }
@@ -95,7 +111,7 @@ final class RelayPlayback {
         }
         player.scheduleBuffer(buffer, completionHandler: nil); scheduled += Int64(packet.frames)
         if !playing && Double(scheduled) / format.sampleRate >= prime {
-            if now - startDeadline > 0.100 { recover(); return }
+            if now - startDeadline > (presentationTargetMs > 0 && outputDelayMs != nil ? 0.005 : 0.100) { recover(); return }
             let start = max(startDeadline, now + 0.005)
             player.play(at: AVAudioTime(hostTime: AVAudioTime.hostTime(forSeconds: start)))
             playing = true; started = start; onPlaying?()
@@ -105,7 +121,8 @@ final class RelayPlayback {
     private func resetLearning() {
         learning.removeAll(keepingCapacity: true); learningStarted = nil; learned = false
         mode = reliableFallback ? .reliable : requestedMode
-        cushion = 0.320; prime = 0.120
+        minimumCushionMs = 320; cushion = Double(PresentationTiming.renderDelay(minimum: minimumCushionMs, output: outputDelayMs, target: presentationTargetMs)) / 1000; prime = 0.120
+        onOutputTiming?(minimumCushionMs, outputDelayMs)
     }
     private func learn(_ packet: RelayPacket) {
         if learningStarted == nil { learningStarted = packet.receivedAt }
@@ -119,12 +136,16 @@ final class RelayPlayback {
         let jitter = sorted[Int(ceil(Double(sorted.count) * 0.95)) - 1]
         let packetDuration = learning.map(\.duration).max()!
         cushion = min(0.320, max(lead, ceil((jitter + packetDuration * 2 + lead) * 1000) / 1000))
+        minimumCushionMs = Int((cushion * 1000).rounded())
+        cushion = Double(PresentationTiming.renderDelay(minimum: minimumCushionMs, output: outputDelayMs, target: presentationTargetMs)) / 1000
+        onOutputTiming?(minimumCushionMs, outputDelayMs)
         prime = lead
         learned = true; learning.removeAll(keepingCapacity: true)
         onModeChange?(.interactive, "Interactive preview · \(Int((cushion * 1000).rounded())) ms network prefill")
     }
     private func fallback(_ reason: String) {
-        reliableFallback = true; mode = .reliable; cushion = 0.320; prime = 0.120
+        reliableFallback = true; mode = .reliable; minimumCushionMs = 320; cushion = Double(PresentationTiming.renderDelay(minimum: minimumCushionMs, output: outputDelayMs, target: presentationTargetMs)) / 1000; prime = 0.120
+        onOutputTiming?(minimumCushionMs, outputDelayMs)
         learning.removeAll(); learned = true
         onModeChange?(.reliable, reason)
     }
@@ -145,8 +166,11 @@ final class RelayPlayback {
         if now - lastDrift >= 2 {
             lastDrift = now
             if referencePhase == nil { referencePhase = phase }
-            filteredError = filteredError * 0.8 + (phase - referencePhase!) * 0.2
-            let correction = abs(filteredError) < 0.004 ? 0 : max(-0.001, min(0.001, filteredError / 20))
+            let aligned = presentationTargetMs > 0 && outputDelayMs != nil
+            let error = aligned ? phase + player.outputPresentationLatency - Double(presentationTargetMs) / 1000 : phase - referencePhase!
+            filteredError = filteredError * 0.8 + error * 0.2
+            let correction = aligned ? PresentationTiming.rateCorrection(errorMs: filteredError * 1000)
+                : (abs(filteredError) < 0.004 ? 0 : max(-0.001, min(0.001, filteredError / 20)))
             speed.rate = Float(1 + correction)
         }
         guard !lockedEstimate, now - lastEstimate >= 0.5 else { return }
@@ -159,6 +183,13 @@ final class RelayPlayback {
         guard estimates.count == 7 else { return }
         let sorted = estimates.sorted(); estimates.removeAll()
         guard sorted[5] - sorted[1] <= 30 else { return }
-        lockedEstimate = true; onEstimate?(Int(sorted[3].rounded()))
+        lockedEstimate = true
+        let total = Int(sorted[3].rounded())
+        onEstimate?(total)
+        if outputDelayMs == nil {
+            outputDelayMs = PresentationTiming.outputDelay(total: total, render: Int((cushion * 1000).rounded()))
+            onOutputTiming?(minimumCushionMs, outputDelayMs)
+            applyPresentationTarget()
+        }
     }
 }

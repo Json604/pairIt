@@ -104,6 +104,7 @@ public sealed class RelayServer(X509Certificate2 certificate, string pairingToke
             if (!authenticatedSessions.Wait(0))
             {
                 if (microphone) await stream.WriteAsync("ERR BUSY\n"u8.ToArray(), deadline.Token).ConfigureAwait(false);
+                else await RejectFullAsync(stream, deadline.Token).ConfigureAwait(false);
                 return;
             }
             authenticatedSlot = true;
@@ -132,10 +133,21 @@ public sealed class RelayServer(X509Certificate2 certificate, string pairingToke
         return CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(supplied), Encoding.ASCII.GetBytes(pairingToken));
     }
 
+    private static async Task RejectFullAsync(SslStream stream, CancellationToken cancellation)
+    {
+        var rejected = new byte[24];
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(rejected, 0x31455342);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(rejected.AsSpan(4), 1);
+        await stream.WriteAsync(rejected, cancellation).ConfigureAwait(false);
+    }
+
     private async Task RunReceiverAsync(TcpClient socket, SslStream stream, ProtocolReader reader, CancellationToken admissionDeadline)
     {
         using var peer = new ReceiverSession(socket, stream);
-        if (!await sessions.AddReceiverAsync(peer, admissionDeadline).ConfigureAwait(false)) return;
+        if (!await sessions.AddReceiverAsync(peer, admissionDeadline).ConfigureAwait(false)) {
+            if (peer.GroupFull) await RejectFullAsync(stream, admissionDeadline).ConfigureAwait(false);
+            return;
+        }
         var writer = peer.WriteFramesAsync();
         try
         {
@@ -173,6 +185,13 @@ public sealed class RelayServer(X509Certificate2 certificate, string pairingToke
             long.TryParse(line.AsSpan(5), NumberStyles.None, CultureInfo.InvariantCulture, out var echoed) && echoed >= 0)
         {
             if (!peer.TryEnqueue(Protocol.ClockReply(echoed, sessions.ClockStatus(peer)))) peer.Close();
+            if (sessions.PresentationTarget(peer) is { } alignment) {
+                var frame = Protocol.ClockReply(echoed, alignment.Target);
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(frame, 0x34435342);
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(frame.AsSpan(8), alignment.Listeners);
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(frame.AsSpan(12), alignment.Capable);
+                if (!peer.TryEnqueue(frame)) peer.Close();
+            }
             if (peer.VolumeControls && sessions.ComputerVolume is uint volume) {
                 var frame=Protocol.ClockReply(echoed,volume);
                 System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(frame,0x33435342);
@@ -218,6 +237,14 @@ public sealed class RelayServer(X509Certificate2 certificate, string pairingToke
             line.AsSpan(6).ContainsAnyExcept("0123456789abcdef".AsSpan()) == false)
         {
             sessions.SetHello(peer, line[6..]);
+            return;
+        }
+        if (line.StartsWith("STATS ALIGN1 ", StringComparison.Ordinal)) {
+            var parts = line.Split(' ');
+            if (parts.Length != 4 || !int.TryParse(parts[2], NumberStyles.None, CultureInfo.InvariantCulture, out int minimum) ||
+                !int.TryParse(parts[3], NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out int output) ||
+                minimum is < 1 or > 320 || output is < -1 or > 1000) throw new InvalidDataException("Invalid presentation timing.");
+            sessions.SetPresentationTiming(peer, minimum, output < 0 ? null : output);
             return;
         }
         if(line=="STATS VOLUME1"){peer.VolumeControls=true;return;}

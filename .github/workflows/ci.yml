@@ -85,6 +85,8 @@ jobs:
           python3 scripts/verify-receiver-handoff.py
           xcrun swiftc ios/AudioRelay/ConnectionOutput.swift scripts/ConnectionOutputCheck.swift -o artifacts/connection-output-check
           artifacts/connection-output-check
+          xcrun swiftc ios/AudioRelay/PresentationTiming.swift scripts/PresentationTimingCheck.swift -o artifacts/presentation-timing-check
+          artifacts/presentation-timing-check
           xcrun swiftc ios/AudioRelay/RemotePlaybackCommand.swift scripts/RemotePlaybackCheck.swift -o artifacts/remote-playback-check
           artifacts/remote-playback-check
           xcrun swiftc ios/AudioRelay/ExternalOutputRecovery.swift scripts/ExternalOutputRecoveryCheck.swift -o artifacts/output-recovery-check

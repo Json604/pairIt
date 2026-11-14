@@ -106,15 +106,31 @@ public sealed class PulseSource(string monitor) : ISystemAudioSource
         if (process != null) throw new InvalidOperationException("Capture already started.");
         var outputs = await PulseAudio.ListAsync();
         if (!outputs.Any(output => output.Monitor == monitor)) throw new IOException("Selected output is no longer available.");
-        // Explicit sink monitors only: never fall back to the default microphone.
-        process = PulseAudio.Start("parec", "--raw", "--format=s16le", "--rate=48000", "--channels=2",
-            "--channel-map=front-left,front-right", "--latency-msec=20", "--client-name=PairIt", "--device=" + monitor);
+        StartCaptureProcess();
         volumeObserver = ObserveVolumeAsync();
-        errors = process.StandardError.BaseStream.CopyToAsync(Stream.Null, lifetime.Token);
         var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        reader = PumpAsync(process.StandardOutput.BaseStream, received, failed, ready);
+        reader = PumpAsync(process!.StandardOutput.BaseStream, received, failed, ready);
         try { await ready.Task.WaitAsync(TimeSpan.FromSeconds(6), cancellation); }
         catch { await DisposeAsync(); throw; }
+    }
+    private void StartCaptureProcess()
+    {
+        lifetime.Token.ThrowIfCancellationRequested();
+        // One packet per wakeup; never fall back to a default microphone.
+        process = PulseAudio.Start("parec", "--raw", "--format=s16le", "--rate=48000", "--channels=2",
+            "--channel-map=front-left,front-right", "--latency-msec=10", "--process-time-msec=5", "--client-name=PairIt", "--device=" + monitor);
+        errors = process.StandardError.BaseStream.CopyToAsync(Stream.Null, lifetime.Token);
+    }
+    private async Task<Stream> RestartCaptureProcessAsync()
+    {
+        // Closing this capture client discards its pipe AND server-side recording
+        // buffers. The route and connected receiver sessions remain untouched.
+        var previous = process!;
+        PulseAudio.Stop(previous);
+        if (errors != null) await errors;
+        previous.Dispose();
+        StartCaptureProcess();
+        return process!.StandardOutput.BaseStream;
     }
     private async Task ObserveVolumeAsync()
     {
@@ -128,16 +144,27 @@ public sealed class PulseSource(string monitor) : ISystemAudioSource
     }
     private async Task PumpAsync(Stream stream, Action<SourcePacket> received, Action<string> failed, TaskCompletionSource ready)
     {
+        var timeline = new CaptureTimeline();
+        long recoveryWindow = 0;
+        int recoveries = 0;
         try
         {
             while (!lifetime.IsCancellationRequested)
             {
-                var bytes = new byte[1920];
+                var bytes = new byte[CaptureTimeline.PacketBytes];
                 await stream.ReadExactlyAsync(bytes, lifetime.Token);
-                // Pipe delivery timestamps are approximate, not driver/video compensation.
-                var timestamp = MonotonicClock.Nanoseconds - 10_000_000;
+                var timing = timeline.Next(MonotonicClock.Nanoseconds, CapturePipe.PendingBytes(stream));
+                if (timing.Restart) {
+                    var now = MonotonicClock.Nanoseconds;
+                    if (now - recoveryWindow > 5_000_000_000) { recoveryWindow = now; recoveries = 0; }
+                    if (++recoveries > 3) throw new IOException("Capture could not keep up with realtime audio.");
+                    stream = await RestartCaptureProcessAsync();
+                    timeline = new CaptureTimeline(recovering: true);
+                    continue;
+                }
                 ready.TrySetResult();
-                received(new SourcePacket(48000, 480, timestamp, bytes));
+                received(new SourcePacket(CaptureTimeline.Rate, CaptureTimeline.Frames,
+                    timing.FirstFrameNanoseconds, bytes, timing.Discontinuity));
             }
         }
         catch (Exception error) when (error is IOException or OperationCanceledException or ObjectDisposedException)
@@ -145,6 +172,7 @@ public sealed class PulseSource(string monitor) : ISystemAudioSource
             ready.TrySetException(new IOException("Selected audio output stopped responding."));
             if (!lifetime.IsCancellationRequested) failed("Audio capture stopped. Check the selected output and start sharing again.");
         }
+        finally { if (lifetime.IsCancellationRequested && process != null) PulseAudio.Stop(process); }
     }
     public async ValueTask DisposeAsync()
     {

@@ -30,7 +30,7 @@ def wait_for(predicate,timeout=3):
 class Client:
     def __init__(self,number,read=True):
         self.socket=socket.create_connection(('127.0.0.1',port),timeout=2)
-        self.socket.settimeout(3);self.packets={};self.clocks=0;self.status=0;self.desktop=0;self.volume=None;self.error=None;self.running=True
+        self.socket.settimeout(3);self.packets={};self.clocks=0;self.status=0;self.desktop=0;self.volume=None;self.error=None;self.running=True;self.presentation=None
         self.send('AUTH '+gateway_token+'\nHELLO '+format(number,'032x')+'\nSTATS CONTROLS1\nSTATS VOLUME1\nACTIVE 1\n')
         if read:
             self.reader=threading.Thread(target=self.run,daemon=True);self.reader.start()
@@ -52,6 +52,7 @@ class Client:
         try:
             while self.running:
                 header=self.read(24);magic,seq,rate,frames,stamp=struct.unpack('<IIIIQ',header)
+                if magic==0x34435342:self.presentation=(seq,rate,frames);continue
                 if magic==0x33435342:self.volume=seq;continue
                 if magic==0x32435342:self.desktop=seq;continue
                 if magic==0x31435342:self.clocks+=1;self.status=seq;continue
@@ -88,6 +89,12 @@ try:
     require(all(c.volume==250 for c in clients),'Computer volume metadata reaches all negotiated receivers')
     require(stats['starts']==1,'One shared capture for four receivers')
     require(stats['adjustments']==[610],'Secondary SYNC cannot change primary timing')
+    clients[0].send('STATS ALIGN1 320 20\n')
+    require(wait_for(lambda:clients[0].presentation==(0,4,1)),'Mixed legacy listeners do not enable presentation alignment')
+    for client,delay in zip(clients[1:],[25,100,180]):client.send(f'STATS ALIGN1 320 {delay}\n')
+    require(wait_for(lambda:all(c.presentation==(500,4,4) for c in clients)),'Four outputs negotiate one bounded presentation deadline')
+    require(json.loads(command('stats'))['starts']==1,'Presentation negotiation does not restart shared capture')
+
     require(wait_for(lambda:all(c.status & 128 for c in clients)),'Computer output controls are advertised')
     for turn in range(2):
         command('computer-output')
@@ -101,12 +108,18 @@ try:
     require(command('reserve')=='BUSY','Microphone rejected during desktop capture')
     with socket.create_connection(('127.0.0.1',port),timeout=2) as fifth:
         fifth.sendall(('AUTH '+gateway_token+'\n').encode())
-        try:rejected=fifth.recv(1)==b''
-        except ConnectionResetError:rejected=True
-    require(rejected,'Fifth receiver is rejected')
+        reply=b''
+        while len(reply)<24:
+            chunk=fifth.recv(24-len(reply))
+            if not chunk:break
+            reply+=chunk
+        rejected=len(reply)==24 and struct.unpack('<II',reply[:8])==(0x31455342,1)
+    require(rejected,'Fifth receiver receives explicit group-full status')
     before=[len(c.packets) for c in clients];time.sleep(.3)
     require(all(len(c.packets)>n for c,n in zip(clients,before)),'Fifth receiver does not evict healthy listeners')
+    other_before=[len(c.packets) for c in clients[1:]]
     clients[0].send('ACTIVE 0\n');time.sleep(.4)
+    require(all(len(c.packets)>n and c.error is None for c,n in zip(clients[1:],other_before)),'Pausing one phone leaves the other three playing')
     require(json.loads(command('stats'))['adjustments'][-1]==730,'Paused primary hands timing to cached successor')
     clients[0].close();clients.pop(0)
     slow=Client(9,read=False);clients.append(slow)

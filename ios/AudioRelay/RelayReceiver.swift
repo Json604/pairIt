@@ -17,6 +17,7 @@ final class RelayReceiver: ObservableObject {
     @Published private(set) var headphones = "Bluetooth headphones"
     @Published private(set) var estimatedMs: Int?
     @Published private(set) var correction = 0
+    @Published private(set) var groupTimingStatus = ""
     @Published private(set) var diagnostics = "No active session."
     @Published private(set) var output: RelayOutput = .bluetooth
     @Published private(set) var playbackMode: RelayPlaybackMode = .reliable
@@ -219,7 +220,7 @@ final class RelayReceiver: ObservableObject {
         disconnect(); try pairing.setHostOverride(value); resetDisplayedTiming()
         publish(.idle, "Computer address saved", "Tap Computer to reconnect securely. An empty address uses automatic discovery.")
     }
-    private func resetDisplayedTiming() { estimatedMs = nil; correction = 0; routeUID = ""; activeMode = playbackMode; modeNote = "" }
+    private func resetDisplayedTiming() { groupTimingStatus = ""; estimatedMs = nil; correction = 0; routeUID = ""; activeMode = playbackMode; modeNote = "" }
     func connect(requestPhoneOutput: Bool = true, useCurrentOutput: Bool = true) {
         cancelOutputRecovery()
         DispatchQueue.main.async { ConnectionAcknowledgment.shared.stopSound() }
@@ -375,6 +376,16 @@ final class RelayReceiver: ObservableObject {
                 self.publish(.playing, "Listening to \(computer.displayName)", "\(route.portName) · Local network")
                 DispatchQueue.main.async { self.setNowPlaying() }
             }
+            self.playback.onOutputTiming = { [weak transport] minimum, output in
+                transport?.setOutputTiming(minimum: minimum, output: output)
+            }
+            transport.onPresentationTarget = { [weak self, weak transport] target, listeners, capable in
+                guard let self, self.transport === transport, self.desired, self.generation == generation else { return }
+                self.playback.setPresentationTarget(target)
+                let message = listeners < 2 ? "" : capable < listeners ? "Update other phones for shared timing" : target == 0 ? "Learning shared timing…" : "Shared timing adjusted"
+                DispatchQueue.main.async { if self.connectionGeneration == connectionTicket { self.groupTimingStatus = self.playIntent && !self.computerOutput && !self.waitingForComputerOutput ? message : "" } }
+            }
+            transport.setOutputTiming(minimum: 320, output: nil)
             self.playback.onEstimate = { [weak self, weak transport] value in
                 guard let self, self.desired, self.generation == generation else { return }
                 let profile = RouteTiming(pin: computer.pin, route: route.uid, mode: self.playback.mode, hostOverride: override)
@@ -405,6 +416,13 @@ final class RelayReceiver: ObservableObject {
                 guard let self, self.desired, self.generation == generation else { return }; self.playback.reset()
                 DispatchQueue.main.async { if self.connectionGeneration == connectionTicket { ConnectionAcknowledgment.shared.disconnected(output: self.output) } }
             }
+            transport.onGroupFull = { [weak self] in
+                DispatchQueue.main.async {
+                    guard let self, self.connectionGeneration == connectionTicket else { return }
+                    self.stopPlayback()
+                    self.publish(.error, "Listening group is full", "Four phones are already connected. Disconnect one phone, then tap Connect again.")
+                }
+            }
             transport.onUnavailable = { [weak self] in
                 DispatchQueue.main.async {
                     guard let self, self.connectionGeneration == connectionTicket else { return }
@@ -433,6 +451,7 @@ final class RelayReceiver: ObservableObject {
         }
     }
     func listenOnComputer() {
+        groupTimingStatus = "";
         cancelOutputRecovery(); interruptedByPhoneAudio = false
         guard supportsOutputControl else { return }
         let requested = queue.sync {
@@ -467,6 +486,7 @@ final class RelayReceiver: ObservableObject {
         parkListening("PAUSE", phase: .phone, title: "Phone audio")
     }
     func disconnect() {
+        groupTimingStatus = "";
         hasRemoteSession = false
         computerVolumeText = ""
         cancelOutputRecovery(); interruptedByPhoneAudio = false
@@ -475,6 +495,7 @@ final class RelayReceiver: ObservableObject {
         publish(.idle, "Ready when you are", "Choose an output, then listen to your computer.")
     }
     private func parkListening(_ reason: String, phase: ReceiverPhase, title: String) {
+        groupTimingStatus = "";
         cancelOutputRecovery()
         endHoldBackgroundTask()
         interruptedByPhoneAudio = reason == "PHONE"
@@ -516,6 +537,7 @@ final class RelayReceiver: ObservableObject {
         }
     }
     private func stopPlayback(keepTransport: Bool = false) {
+        groupTimingStatus = "";
         playIntent = false; intentGeneration += 1
         if !keepTransport { connectionGeneration += 1 }
         endHoldBackgroundTask()
@@ -539,7 +561,14 @@ final class RelayReceiver: ObservableObject {
         guard supportsVideoCompensation, let profile else { return }; profile.setCorrection(0); correction = 0
         queue.async { self.transport?.setCompensation(profile.effective) }
     }
-    func refreshAudio() { if phase.macSelected { connect() } }
+    func refreshAudio() {
+        guard playIntent, phase.macSelected, !computerOutput else { return }
+        queue.async {
+            guard self.desired, self.localPlaybackReady else { return }
+            self.playback.reset()
+            self.publish(.buffering, "Refreshing audio", "Keeping your computer and selected output connected.")
+        }
+    }
     private func publish(_ phase: ReceiverPhase, _ title: String, _ detail: String) {
         let update = {
             if [.playing, .computerOutput, .buffering, .connecting, .reconnecting].contains(phase) && !self.playIntent { return }

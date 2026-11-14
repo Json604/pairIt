@@ -4,11 +4,12 @@ import Combine
 
 /// Foreground-only. Discovery carries no credentials; both users approve a matching transcript.
 final class ListeningInvitations: ObservableObject {
-    struct Prompt: Identifiable { let id = UUID(); let title: String; let comparison: String }
+    struct Prompt: Identifiable { let id = UUID(); let title: String; let comparison: String; let hosting: Bool }
     @Published var prompt: Prompt?
     @Published private(set) var notice = ""
     @Published private(set) var busy = false
     var received: ((String) -> Void)?
+    var canHost: () -> Bool = { true }
     private var listener: NWListener?
     private var exchange: InvitationExchange?
     private var lastIncoming = Date.distantPast
@@ -36,12 +37,13 @@ final class ListeningInvitations: ObservableObject {
         begin(NWConnection(host: .init(host), port: port, using: .tcp), code: code, computer: computer)
     }
     private func begin(_ connection: NWConnection, code: String?, computer: String?) {
-        notice = ""; busy = true
+        notice = code == nil ? "Invitation received. Compare the code with your host." : "Inviting listener… Keep Together open on both phones."; busy = true
         let session = InvitationExchange(connection: connection, code: code, computer: computer)
         exchange = session
+        session.canHost = { [weak self] in self?.canHost() == true }
         session.ask = { [weak self, weak session] title, comparison in
             guard let self, self.exchange === session else { return }
-            self.prompt = Prompt(title: title, comparison: comparison)
+            self.prompt = Prompt(title: title, comparison: comparison, hosting: code != nil)
         }
         session.finish = { [weak self, weak session] code, message in
             guard let self, self.exchange === session else { return }
@@ -56,10 +58,17 @@ final class ListeningInvitations: ObservableObject {
         exchange?.cancel(); exchange = nil; prompt = nil; busy = false
     }
     func message(_ text: String) { notice = text }
+    static func hostProblem(connected: Bool, phoneOutput: Bool, available: Bool) -> String {
+        if !connected { return "Connect this phone to a computer first, then invite a listener. Or keep Together open to join a friend’s invitation." }
+        if !phoneOutput { return "Choose This phone on Connect before inviting a listener." }
+        if !available { return "Choose an available audio output on this phone before inviting." }
+        return ""
+    }
 }
 
 private final class InvitationExchange {
     var ask: ((String, String) -> Void)?
+    var canHost: () -> Bool = { true }
     var finish: ((String?, String) -> Void)?
     private let connection: NWConnection
     private let code: String?
@@ -93,15 +102,16 @@ private final class InvitationExchange {
         read(limit: 160) { line in
             guard line.hasPrefix("READY1 ") else { throw InvitationError.invalid }
             try self.crypto.agree(InvitationCrypto.unhex(String(line.dropFirst(7))), sender: true)
-            self.approve("Invite to " + (self.computer ?? "Computer")) { accepted in
+            self.approve("Host listening on " + (self.computer ?? "Computer")) { accepted in
                 guard accepted else { self.end(nil, "Invitation declined."); return }
                 self.read(limit: 16) { line in
                     guard line == "ACCEPT1", let code = self.code else { throw InvitationError.invalid }
+                    guard self.canHost() else { self.end(nil, "Computer disconnected. Connect again before inviting."); return }
                     let encrypted = try self.crypto.seal(Data(code.utf8))
                     self.send("CODE1 " + InvitationCrypto.hex(encrypted)) {
                         self.read(limit: 16) { line in
                             guard line == "RECEIVED1" else { throw InvitationError.invalid }
-                            self.end(nil, "Invitation accepted. The other phone is connecting.")
+                            self.end(nil, "Invitation accepted. Your guest is connecting to the computer.")
                         }
                     }
                 }

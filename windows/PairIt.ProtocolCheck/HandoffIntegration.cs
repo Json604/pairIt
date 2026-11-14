@@ -47,9 +47,9 @@ internal static class HandoffIntegration
         await using (var other = await connector.ReceiverAsync())
         {
             await other.ProbeAsync();
-            await phone.SendAsync("PARK 3 PHONE\n");
+            await phone.SendAsync("PARK 3 PAUSE\n");
             await ExpectAsync(phone, 3, Protocol.ParkAccepted);
-            Require(media.Attempts == 1 && sessions.Status.ActiveReceivers == 1, "PARK disturbed another active listener.");
+            Require(media.Attempts == 1 && sessions.Status.ActiveReceivers == 1, "Pausing one phone disturbed another active listener.");
             var at = MonotonicClock.Nanoseconds;
             audio.Emit(480, at);
             await UntilAsync(() => other.Frames.Any(frame => frame.CapturedAt == at), "other listener continues during PARK");

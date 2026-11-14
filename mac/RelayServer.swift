@@ -102,9 +102,9 @@ final class RelayServer {
             let supplied = Array(line.utf8), expected = Array(("AUTH " + gatewayToken).utf8)
             var difference: UInt8 = supplied.count == expected.count ? 0 : 1
             if supplied.count == expected.count { for (a, b) in zip(supplied, expected) { difference |= a ^ b } }
-            guard difference == 0, !micLease,
-                  peers.values.filter({ $0.authenticated && !$0.closed }).count < 4 else {
-                lock.unlock(); peer.stop(); return
+            guard difference == 0, !micLease else { lock.unlock(); peer.stop(); return }
+            guard peers.values.filter({ $0.authenticated && !$0.closed }).count < 4 else {
+                lock.unlock(); peer.rejectFull(); return
             }
             peer.authenticated = true; peer.active = true
             lock.unlock(); reconcile(); return
@@ -118,6 +118,20 @@ final class RelayServer {
                 raw.storeBytes(of: status.littleEndian, toByteOffset: 4, as: UInt32.self)
                 raw.storeBytes(of: sent.littleEndian, toByteOffset: 8, as: UInt64.self)
                 raw.storeBytes(of: AudioConvertHostTimeToNanos(AudioGetCurrentHostTime()).littleEndian, toByteOffset: 16, as: UInt64.self)
+            }
+            var alignment: Data?
+            if peer.presentationAlignment {
+                let active = peers.values.filter { $0.authenticated && $0.active && !$0.closed }
+                let ready = active.count >= 2 && active.allSatisfy { $0.presentationAlignment && $0.outputDelay != nil }
+                let maximum = ready ? active.map { $0.minimumRender + ($0.outputDelay ?? 0) }.max() ?? 0 : 0
+                let target = UInt32((maximum + 9) / 10 * 10)
+                alignment = Data(count: 24)
+                alignment!.withUnsafeMutableBytes { raw in
+                    raw.storeBytes(of: UInt32(0x34435342).littleEndian, toByteOffset: 0, as: UInt32.self)
+                    raw.storeBytes(of: target.littleEndian, toByteOffset: 4, as: UInt32.self)
+                    raw.storeBytes(of: UInt32(active.count).littleEndian, toByteOffset: 8, as: UInt32.self)
+                    raw.storeBytes(of: UInt32(active.filter { $0.presentationAlignment }.count).littleEndian, toByteOffset: 12, as: UInt32.self)
+                }
             }
             var volume: Data?
             if peer.volumeControls, let value = capture?.computerVolume {
@@ -135,10 +149,17 @@ final class RelayServer {
                     raw.storeBytes(of: (UInt32(2 | (playing ? 16 : 0)) | peer.intentToken << 8).littleEndian,toByteOffset:4,as:UInt32.self)
                 }
             }
-            lock.unlock(); peer.enqueue(reply); if let command { peer.enqueue(command) }; if let volume { peer.enqueue(volume) }; return
+            lock.unlock(); peer.enqueue(reply); if let command { peer.enqueue(command) }; if let volume { peer.enqueue(volume) }; if let alignment { peer.enqueue(alignment) }; return
         }
         if line == "STATS VOLUME1" { peer.volumeControls = true; lock.unlock(); return }
         if line == "STATS CONTROLS1" { peer.desktopControls=true;lock.unlock();return }
+        if line.hasPrefix("STATS ALIGN1 ") {
+            let values = line.split(separator: " ")
+            guard values.count == 4, let minimum = Int(values[2]), (1...320).contains(minimum),
+                  let output = Int(values[3]), (-1...1000).contains(output) else { lock.unlock(); peer.stop(); return }
+            peer.presentationAlignment = true; peer.minimumRender = minimum; peer.outputDelay = output < 0 ? nil : output
+            lock.unlock(); return
+        }
         let words = line.split(separator: " ")
         if line == "OUTPUT COMPUTER" || line == "OUTPUT PHONE" {
             lock.unlock(); setComputerOutput(line == "OUTPUT COMPUTER"); return
@@ -383,6 +404,9 @@ private final class RelayPeer {
     var intentToken: UInt32 = 0
     var identity: String?
     var compensation: Double?
+    var presentationAlignment = false
+    var minimumRender = 320
+    var outputDelay: Int?
     var onControl: ((String) -> Void)?
     init(socket: Int32) { self.socket = socket }
     func enqueue(_ data: Data) {
@@ -410,6 +434,22 @@ private final class RelayPeer {
             ending = true; shutdown(socket, SHUT_RDWR); return nil
         }
         return item.data
+    }
+    // Called on this peer's run thread, before it is authenticated; no concurrent writer.
+    func rejectFull() {
+        var frame = Data(count: 24)
+        frame.withUnsafeMutableBytes { raw in
+            raw.storeBytes(of: UInt32(0x31455342).littleEndian, toByteOffset: 0, as: UInt32.self)
+            raw.storeBytes(of: UInt32(1).littleEndian, toByteOffset: 4, as: UInt32.self)
+        }
+        frame.withUnsafeBytes { raw in
+            var offset = 0
+            while offset < raw.count {
+                let written = send(socket, raw.baseAddress!.advanced(by: offset), raw.count - offset, 0)
+                if written <= 0 { break }; offset += written
+            }
+        }
+        stop()
     }
     func stop() {
         queueLock.lock()

@@ -17,6 +17,32 @@ with tempfile.TemporaryDirectory(prefix='pairit-receiver-check-') as folder:
     pin = hashlib.sha256(ssl.PEM_cert_to_DER_cert(cert.read_text())).hexdigest()
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.load_cert_chain(cert, key)
+    token = secrets.token_hex(32)
+    listener = socket.socket(); listener.bind(('127.0.0.1', 0)); listener.listen(2); listener.settimeout(4)
+    port = listener.getsockname()[1]; errors = []
+    def reject_full():
+        try:
+            raw, _ = listener.accept(); raw.settimeout(3)
+            with context.wrap_socket(raw, server_side=True) as peer:
+                auth = b''
+                while not auth.endswith(b'\n'): auth += peer.recv(1)
+                assert auth == (token + '\n').encode()
+                peer.sendall(struct.pack('<IIQQ', 0x31455342, 1, 0, 0))
+                time.sleep(.1)
+            listener.settimeout(2.2)
+            try:
+                extra, _ = listener.accept(); extra.close(); errors.append('Group-full transport retried automatically')
+            except socket.timeout: pass
+        except BaseException as error: errors.append(str(error))
+        finally: listener.close()
+    thread = threading.Thread(target=reject_full); thread.start()
+    config = folder / 'group-full.json'
+    config.write_text(json.dumps({'computer': {'host': '127.0.0.1', 'pin': pin, 'token': token, 'platform': 'mac'}, 'port': port, 'modern': True, 'groupFull': True})); os.chmod(config, 0o600)
+    run = subprocess.run([str(binary), str(config)], text=True, capture_output=True, timeout=6)
+    thread.join(5)
+    assert run.returncode == 0 and not errors, (run.stdout, run.stderr, errors)
+    reports.append({'mode': 'group-full', 'passed': True})
+    print('PASS: authenticated group-full status stops retries')
     for mode in ('modern', 'legacy', 'withheld-release-ack', 'modern-output', 'legacy-output'):
         modern = not mode.startswith('legacy')
         output_case = mode.endswith('-output')

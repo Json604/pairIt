@@ -6,6 +6,7 @@ import java.util.concurrent.*;
 
 /** Network reception must keep draining while Android initializes or blocks in AudioTrack. */
 final class PcmInbox {
+    static final class GroupFull extends IOException { GroupFull(){super("Listening group is full");} }
     static final class Packet {
         final int rate, frames;
         final byte[] pcm;
@@ -24,6 +25,7 @@ final class PcmInbox {
     private volatile long synchronizedOffset;
     private volatile long bestRoundTrip = Long.MAX_VALUE;
     volatile int clockSamples;
+    volatile int presentationTargetMs, presentationListeners, presentationCapable;
     private volatile long clockWindow;
     private void clockSample(long sent, long server, long received) {
         if (sent < 0 || server < 0) return;
@@ -48,6 +50,15 @@ final class PcmInbox {
                 byte[] header = new byte[24]; input.readFully(header);
                 ByteBuffer h = ByteBuffer.wrap(header).order(ByteOrder.LITTLE_ENDIAN);
                 int magic = h.getInt();
+                if (magic == 0x34435342) {
+                    int target = h.getInt();
+                    if (target < 0 || target > 2000) throw new IOException("Invalid presentation target");
+                    int listeners = h.getInt(), capable = h.getInt();
+                    if (listeners < 0 || listeners > 4 || capable < 0 || capable > listeners) throw new IOException("Invalid presentation group");
+                    presentationListeners = listeners; presentationCapable = capable;
+                    presentationTargetMs = target; continue;
+                }
+                if (magic == 0x31455342 && h.getInt() == 1) throw new GroupFull();
                 if (magic == 0x33435342) {
                     int volume = h.getInt();
                     if ((volume & ~0x103FF) != 0 || (volume & 0x3FF) > 1000) throw new IOException("Invalid computer volume");

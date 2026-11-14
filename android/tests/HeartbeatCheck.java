@@ -2,7 +2,7 @@ package dev.bluetoothswitch.relay;
 import java.io.*;
 import java.nio.*;
 public final class HeartbeatCheck {
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         ByteBuffer bytes=ByteBuffer.allocate(96).order(ByteOrder.LITTLE_ENDIAN);
         bytes.putInt(0x31435342).putInt(129).putLong(System.nanoTime()).putLong(1);
         bytes.putInt(0x31415342).putInt(0).putInt(48000).putInt(0).putLong(0);
@@ -16,6 +16,11 @@ public final class HeartbeatCheck {
         PcmInbox malformed=new PcmInbox();malformed.onHeartbeat=()->heartbeats[0]++;
         malformed.read(new ByteArrayInputStream(new byte[24]));
         if(heartbeats[0]!=2)throw new AssertionError("Malformed packets must not refresh liveness");
+        ByteBuffer rejected=ByteBuffer.allocate(24).order(ByteOrder.LITTLE_ENDIAN);
+        rejected.putInt(0x31455342).putInt(1);
+        PcmInbox full=new PcmInbox();full.read(new ByteArrayInputStream(rejected.array()));
+        try { full.next(); throw new AssertionError("Group-full rejection lost"); }
+        catch(PcmInbox.GroupFull expected) { }
         System.out.println("Real PCM parser: silent heartbeats stay connected; malformed traffic does not");
     }
 }

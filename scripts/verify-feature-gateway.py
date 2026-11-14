@@ -144,6 +144,23 @@ with tempfile.TemporaryDirectory(prefix='pairit-synthetic-identity-') as directo
                 if seen_pcm and seen_clock:break
             require(seen_pcm and seen_clock,'Retired preview suffix is ignored; authenticated receiver gets PCM/clock over TLS')
             with connect(token+' MIC1') as s:require(line(s)==b'ERR DISABLED\n','Disabled mic cannot disrupt active desktop receiver')
+            others=[]
+            try:
+                for _ in range(3):
+                    extra=connect(token);others.append(extra)
+                    header=read(extra,24);magic,_,_,frames,_=struct.unpack('<IIIIQ',header)
+                    require(magic==0x31415342,'Additional phone receives source audio through TLS')
+                    read(extra,frames*4)
+                with connect(token+' PAIR1') as probe:
+                    require(line(probe)==b'OK PAIR1\n','Fifth-phone pairing preflight remains available at capacity')
+                with connect(token) as fifth:
+                    response=read(fifth,24)
+                    require(struct.unpack('<II',response[:8])==(0x31455342,1),'Fifth phone receives group-full over actual Mac TLS gateway')
+                with connect('0'*64) as invalid:
+                    require(closed(invalid),'Full group does not disclose status before authentication')
+            finally:
+                for extra in others:extra.close()
+
         time.sleep(.3);command('enable');time.sleep(.05)
         with connect(token+' MIC1') as s:
             require(line(s)==b'OK MIC1 48000\n','Mic admitted after last receiver cleanup')

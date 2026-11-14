@@ -31,13 +31,14 @@ enum RelayPlaybackMode { case reliable, interactive }
         precondition(commandProbe.claimDesktopRequest(1 | 2 | 4 | 16 | (2 << 8)) == true)
         precondition(commandProbe.claimDesktopRequest(1 | 2 | 4 | 16 | (1 << 8)) == nil)
         let done = DispatchSemaphore(value: 0)
-        var packets = 0, atPark = 0, atResume = 0, parkAcks = 0, violations = 0
+        var packets = 0, atPark = 0, atResume = 0, parkAcks = 0, violations = 0, fullReplies = 0
         let modern = config["modern"] as! Bool
         let outputCase = config["outputCase"] as? Bool ?? false
         let resumeCase = config["resumeCase"] as? Bool ?? false
         let lostAckCase = config["lostAckCase"] as? Bool ?? false
         var computerOutput = false, outputSupported = false, atComputer = 0, outputEvents = 0
         queue.async {
+            transport.onGroupFull = { fullReplies += 1 }
             transport.onPacket = { _, _ in packets += 1 }
             transport.onHandoff = { value in if value & 4 != 0 { parkAcks += 1 } }
             transport.onOutput = { supported, computer in
@@ -46,6 +47,16 @@ enum RelayPlaybackMode { case reliable, interactive }
                 if computer { atComputer = packets }
             }
             transport.start()
+        }
+        if config["groupFull"] as? Bool == true {
+            queue.asyncAfter(deadline: .now() + 2) {
+                if fullReplies != 1 || packets != 0 || transport.connections != 1 { violations += 1 }
+                transport.suspend()
+                print("{\"violations\":\(violations),\"fullReplies\":\(fullReplies),\"connections\":\(transport.connections)}")
+                done.signal()
+            }
+            guard done.wait(timeout: .now() + 4) == .success else { exit(2) }
+            if violations != 0 { exit(1) }; return
         }
         if config["desktopControls"] as? Bool == true {
             var requests = 0, volumes = 0

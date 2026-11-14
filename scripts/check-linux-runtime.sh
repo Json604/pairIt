@@ -29,7 +29,7 @@ with wave.open(sys.argv[1], 'wb') as f:
 PY
 paplay --device=pairit_test "$ROOT/artifacts/linux/tone.wav" &
 player=$!
-"$DOTNET" run --project "$ROOT/linux/PairIt.Linux.Checks" --no-restore -c Release -- --audio
+"$DOTNET" run --project "$ROOT/linux/PairIt.Linux.Checks" --no-restore -c Release -- --audio --timing
 "$DOTNET" run --project "$ROOT/linux/PairIt.Linux.Checks" --no-restore -c Release -- --routing
 xvfb-run -a timeout 20 "$ROOT/artifacts/linux/${PAIRIT_LINUX_RID:-linux-x64}/PairIt" --smoke-test
 

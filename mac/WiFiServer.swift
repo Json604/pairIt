@@ -97,7 +97,7 @@ final class WiFiServer {
             peer.onAuthenticated = { [weak self, weak peer] in
                 guard let self, let peer else { return }
                 guard !self.microphoneEnabled else { peer.stop(); return }
-                guard self.peers.values.filter({ $0.admittedReceiver }).count < 4 else { peer.stop(); return }
+                guard self.peers.values.filter({ $0.admittedReceiver }).count < 4 else { peer.rejectFull(); return }
                 peer.admittedReceiver = true; peer.connectUpstream()
             }
             peer.onPairingConfirmed = { [weak self] in self?.onPairingConfirmed?() }
@@ -414,6 +414,15 @@ private final class WiFiPeer {
             if accepted { self.processMicrophone() } else { self.stop() }
         }
     }
+    func rejectFull() {
+        guard authenticated, !closed else { stop(); return }
+        var frame = Data(count: 24)
+        frame.withUnsafeMutableBytes { raw in
+            raw.storeBytes(of: UInt32(0x31455342).littleEndian, toByteOffset: 0, as: UInt32.self)
+            raw.storeBytes(of: UInt32(1).littleEndian, toByteOffset: 4, as: UInt32.self)
+        }
+        connection.send(content: frame, completion: .contentProcessed { [weak self] _ in self?.stop() })
+    }
     func connectUpstream() {
         let tcp = NWProtocolTCP.Options(); tcp.noDelay = true
         let upstream = NWConnection(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: upstreamPort)!, using: NWParameters(tls: nil, tcp: tcp))
@@ -438,12 +447,12 @@ private final class WiFiPeer {
     private func pipe(_ source: NWConnection, to destination: NWConnection, control: Bool) {
         source.receive(minimumIncompleteLength: 1, maximumLength: control ? 4096 : 16384) { [weak self] data, _, complete, error in
             guard let self, !self.closed else { return }
-            guard error == nil, !complete, let data, !data.isEmpty else { self.stop(); return }
+            guard error == nil, let data, !data.isEmpty else { self.stop(); return }
             if control { self.lastActivity = ProcessInfo.processInfo.systemUptime }
             // One outstanding send per direction: network backpressure is bounded.
             destination.send(content: data, completion: .contentProcessed { [weak self] error in
                 guard let self else { return }
-                if error != nil { self.stop() } else { self.pipe(source, to: destination, control: control) }
+                if error != nil || complete { self.stop() } else { self.pipe(source, to: destination, control: control) }
             })
         }
     }

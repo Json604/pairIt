@@ -1,0 +1,50 @@
+{
+  "date": "2026-11-15",
+  "status": "Local test candidates, not published; physical acceptance pending",
+  "issue_list": "docs/active-playback-issues.md",
+  "builds": {
+    "android": 32,
+    "ios": 32,
+    "mac": 20,
+    "windows": 20,
+    "linux": 20
+  },
+  "checks": [
+    "Android build and lint",
+    "iOS simulator compilation, no launch",
+    "Mac universal compilation, no audio launch",
+    "Windows x64 publish and shared protocol integration",
+    "Linux x64/ARM64 packaging and installed ARM64 smoke test",
+    "PulseAudio and PipeWire sample timing, stale capture recovery and private route retention",
+    "Mac gateway authenticated fifth-phone error and final-frame delivery",
+    "Android/iOS invitation crypto, acceptance, decline and host readiness",
+    "Group deadline negotiation, legacy fallback, late joins, format/route relearning, independent pause",
+    "Repository Python tests and update-feed schema"
+  ],
+  "evidence_directories": [
+    "artifacts/playback-round2",
+    "artifacts/audio-round2",
+    "artifacts/linux-latency-round2"
+  ],
+  "artifacts": [
+    {
+      "path": "artifacts/playback-round2/PairIt-Preview-32.apk",
+      "sha256": "097ad66064fb3da257e5fc5bf7a6c78b6e5381daed9aebbbc3204491ca634244"
+    },
+    {
+      "path": "artifacts/linux/PairIt-1.1.0-preview.20-amd64.deb",
+      "sha256": "50bd21694f07cd3ed784ebcc86937b4cbc2b618ad27a3a268ab3d1b247eb5ed6"
+    },
+    {
+      "path": "artifacts/linux/PairIt-1.1.0-preview.20-arm64.deb",
+      "sha256": "6dc3dad11a7540cba5ca9b402d98195f66dfead28e2c013fa04244fe31b7fdf3"
+    }
+  ],
+  "limits": [
+    "Physical two-speaker acoustic alignment not verified",
+    "Linux/Windows still lack Mac system video compensation",
+    "Phone UI not run on hardware/simulator this round",
+    "Mac test candidate is ad-hoc signed, not a notarized release",
+    "Public update feed remains preview19; no store uploads performed"
+  ]
+}

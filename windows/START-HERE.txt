@@ -50,3 +50,15 @@ Build and synthetic TLS checks passed; physical Windows/audio checks remain.
 Update notices: PairIt checks for new releases while in use. When available,
 Check for updates is available in Settings. Download, quit PairIt, then replace
 the complete extracted folder. Your pairing identity remains in your profile.
+
+Shared listening timing
+-----------------------
+Up to four phones can connect directly or join through a listening invitation.
+Phone speakers are valid outputs. A host must already have a live computer
+connection before inviting; the guest needs no previous pairing with that computer.
+With updated companion and phone apps, allow a few seconds for shared timing
+calibration. Each phone uses its measured output latency to target the same
+presentation time. OS estimates do not guarantee acoustically identical outputs.
+Older phone apps keep their existing timing. Updating all listeners enables the
+shared timing feature. A fifth phone receives a clear group-full message.
+Phone volume and pause are independent; computer output selection applies to all.

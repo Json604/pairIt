@@ -80,9 +80,14 @@ Headphone play/pause controls this phone’s relay; the computer player may cont
   pausing an already connected phone holds the silent route. Unrelated outputs and
   manual routing choices are preserved. Closing the window stops sharing. Linux
   has no automatic player pause or video compensation.
-- **Timing:** each phone/headphone combination adds its own delay. Shared listening
-  does not guarantee synchronized outputs. Use one phone per listener; using two
-  headphones on one phone depends on the phone’s own audio-sharing support.
+- **Timing:** updated companions and phones negotiate one presentation time for
+  multiple active listeners, compensating for each phone’s measured output delay.
+  Allow a few seconds for “Learning shared timing” to finish. Older phones retain
+  their existing behavior; update every listener for shared timing. OS timestamps
+  are estimates, so acoustic synchronization still needs physical verification.
+  Solo listening retains its existing buffer. Linux/Windows do not provide the
+  Mac driver’s system video compensation. Two headphones on one phone depend on
+  that phone’s own audio-sharing support.
 - **Reconnect:** Android’s running media service retries after network loss; swiping
   away its screen differs from force-stopping the app. iOS retries while execution
   is available, but force-quitting prevents background reconnection. Explicit pause,

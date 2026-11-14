@@ -13,6 +13,8 @@ final class ListeningInvitations {
         void confirm(String title,String comparison,Consumer<Boolean> answer);
         void received(String code);
         void finished(String message);
+        default void progress(String message) {}
+        default boolean canHost(){return true;}
     }
     private final Executor main;
     private static final ScheduledExecutorService deadlines=Executors.newSingleThreadScheduledExecutor(r->{Thread t=new Thread(r,"invitation-deadlines");t.setDaemon(true);return t;});
@@ -23,6 +25,17 @@ final class ListeningInvitations {
     private volatile Socket active;
     private volatile CompletableFuture<Boolean> decision;
     private volatile int generation;
+    private volatile boolean hosting;
+    private volatile String notice="";
+    boolean hosting(){return hosting;}
+    String notice(){return notice;}
+    static String hostProblem(boolean connected,boolean phoneOutput,boolean available){
+        if(!connected)return "Connect this phone to a computer first, then invite a listener. Or keep Together open to join a friend’s invitation.";
+        if(!phoneOutput)return "Choose This phone on Connect before inviting a listener.";
+        if(!available)return "Choose an available audio output on this phone before inviting.";
+        return "";
+    }
+    private void progress(int session,String message){notice=message;main.execute(()->{if(session==generation)ui.progress(message);});}
     ListeningInvitations(UI ui,Executor main){this.ui=ui;this.main=main;}
     boolean busy(){return busy.get();}
     int start(){
@@ -34,7 +47,7 @@ final class ListeningInvitations {
                     Socket socket=listening.accept();socket.setSoTimeout(65000);
                     if(System.nanoTime()-lastIncoming<TimeUnit.SECONDS.toNanos(3)||!busy.compareAndSet(false,true)){socket.close();continue;}
                     lastIncoming=System.nanoTime();
-                    active=socket;exchange(socket,null,null,session);
+                    active=socket;hosting=false;progress(session,"Invitation received. Compare the code with your host.");exchange(socket,null,null,session);
                 }catch(IOException ignored){break;}
             },"listening-invitations");thread.setDaemon(true);thread.start();return listening.getLocalPort();
         }catch(IOException error){return 0;}
@@ -42,7 +55,7 @@ final class ListeningInvitations {
     void invite(String host,int port,String code,String computer){
         if(port==0){ui.finished("Update PairIt on that phone to receive invitations.");return;}
         if(!busy.compareAndSet(false,true)){ui.finished("Finish the current invitation first.");return;}
-        final int session=generation;
+        final int session=generation;hosting=true;progress(session,"Inviting listener… Keep Together open on both phones.");
         Thread thread=new Thread(()->{
             try {
                 Socket socket=new Socket();active=socket;socket.connect(new InetSocketAddress(host,port),5000);socket.setSoTimeout(65000);
@@ -61,10 +74,10 @@ final class ListeningInvitations {
                 String ready=read(connection,160);
                 if(!ready.startsWith("READY1 "))throw new IOException();
                 crypto.agree(InvitationCrypto.unhex(ready.substring(7)),true);
-                if(!approve(session,"Invite to "+computer,crypto.comparison())||!read(connection,16).equals("ACCEPT1"))throw new IOException();
+                if(!approve(session,"Host listening on "+computer,crypto.comparison())||!read(connection,16).equals("ACCEPT1")||!ui.canHost())throw new IOException();
                 send(connection,"CODE1 "+InvitationCrypto.hex(crypto.seal(code.getBytes(StandardCharsets.UTF_8))));
                 if(!read(connection,16).equals("RECEIVED1"))throw new IOException();
-                outcome="Invitation accepted. The other phone is connecting.";
+                outcome="Invitation accepted. Your guest is connecting to the computer.";
             } else {
                 String[] offer=read(connection,1024).split(" ");
                 if(offer.length!=3||!offer[0].equals("INVITE1"))throw new IOException();
@@ -91,7 +104,7 @@ final class ListeningInvitations {
     }
     private void finish(int session,String message){
         if(session!=generation)return;Socket socket=active;active=null;if(socket!=null)try{socket.close();}catch(IOException ignored){}
-        busy.set(false);main.execute(()->{if(session==generation)ui.finished(message);});
+        busy.set(false);notice=message;main.execute(()->{if(session==generation)ui.finished(message);});
     }
     void stop(){generation++;CompletableFuture<Boolean> answer=decision;decision=null;if(answer!=null)answer.complete(false);ServerSocket listener=server;server=null;if(listener!=null)try{listener.close();}catch(IOException ignored){}Socket socket=active;active=null;if(socket!=null)try{socket.close();}catch(IOException ignored){}busy.set(false);}
 }

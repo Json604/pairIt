@@ -19,13 +19,9 @@ final class VideoTiming {
         long now = android.os.SystemClock.elapsedRealtime();
         if (locked || inbox.clockSamples < 3 || now - startedMs < 2500 || now < nextSample) return null;
         nextSample = now + 500;
-        if (!track.getTimestamp(timestamp) || timestamp.framePosition <= previousFrame) return null;
+        double delay = presentationDelay(track, inbox, packet, writtenFrames);
+        if (!Double.isFinite(delay) || timestamp.framePosition <= previousFrame) return null;
         previousFrame = timestamp.framePosition;
-        if (Math.abs(System.nanoTime() - timestamp.nanoTime) > 2_000_000_000L) return null;
-        double sourceEnd = packet.capturedAt + inbox.clockOffset() + packet.frames * 1e9 / packet.rate;
-        double outputEnd = timestamp.nanoTime + (writtenFrames - timestamp.framePosition) * 1e9 / track.getPlaybackRate();
-        double delay = (outputEnd - sourceEnd) / 1e6;
-        if (!Double.isFinite(delay) || delay < 0 || delay > 2000) return null;
         samples[count++] = delay;
         if (count < samples.length) return null;
         double[] sorted = samples.clone(); Arrays.sort(sorted);
@@ -34,4 +30,13 @@ final class VideoTiming {
         locked = true;
         return (int)Math.round(sorted[3]);
     }
+    double presentationDelay(AudioTrack track, PcmInbox inbox, PcmInbox.Packet packet, long writtenFrames) {
+        if (!track.getTimestamp(timestamp) || timestamp.framePosition < 0 ||
+                Math.abs(System.nanoTime() - timestamp.nanoTime) > 2_000_000_000L) return Double.NaN;
+        double sourceEnd = packet.capturedAt + inbox.clockOffset() + packet.frames * 1e9 / packet.rate;
+        double outputEnd = timestamp.nanoTime + (writtenFrames - timestamp.framePosition) * 1e9 / track.getPlaybackRate();
+        double delay = (outputEnd - sourceEnd) / 1e6;
+        return Double.isFinite(delay) && delay >= 0 && delay <= 2000 ? delay : Double.NaN;
+    }
+
 }

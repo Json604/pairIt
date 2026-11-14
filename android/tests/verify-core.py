@@ -20,7 +20,10 @@ with tempfile.TemporaryDirectory(prefix="pairit-android-check-") as temporary:
                     str(android / "src/dev/bluetoothswitch/relay/ListeningFeedback.java"),
                     str(android / "tests/ListeningFeedbackCheck.java"),
                     str(android / "src/dev/bluetoothswitch/relay/PcmInbox.java"),
+                    str(android / "src/dev/bluetoothswitch/relay/PlayoutTiming.java"),
+                    str(android / "src/dev/bluetoothswitch/relay/PresentationTiming.java"),
                     str(android / "tests/HeartbeatCheck.java"),
+                    str(android / "tests/PresentationWireCheck.java"),
                     str(android / "tests/ConnectionToneCheck.java"),
                     str(android / "src/dev/bluetoothswitch/relay/RelayHandoff.java"),
                     str(android / "src/dev/bluetoothswitch/relay/DiscoveryRecord.java"),
@@ -48,6 +51,7 @@ with tempfile.TemporaryDirectory(prefix="pairit-android-check-") as temporary:
     subprocess.run(["java", "-cp", temporary, "dev.bluetoothswitch.relay.ListeningFeedbackCheck"], check=True)
 
     subprocess.run(["java", "-cp", temporary, "dev.bluetoothswitch.relay.HeartbeatCheck"], check=True)
+    subprocess.run(["java", "-cp", temporary, "dev.bluetoothswitch.relay.PresentationWireCheck"], check=True)
 
 
 # Standalone recovery policy also runs without Android runtime.
@@ -67,3 +71,7 @@ with tempfile.TemporaryDirectory() as out:
         p=Path(out)/name; p.write_text(source); paths.append(str(p))
     subprocess.run(["javac","-d",out,*paths,str(android/"src/dev/bluetoothswitch/relay/OutputRoute.java"),str(android/"tests/OutputRouteCheck.java")],check=True)
     subprocess.run(["java","-cp",out,"dev.bluetoothswitch.relay.OutputRouteCheck"],check=True)
+
+with tempfile.TemporaryDirectory() as out:
+    subprocess.run(["javac","-d",out,str(android/"src/dev/bluetoothswitch/relay/PresentationTiming.java"),str(android/"tests/PresentationTimingCheck.java")],check=True)
+    subprocess.run(["java","-cp",out,"dev.bluetoothswitch.relay.PresentationTimingCheck"],check=True)

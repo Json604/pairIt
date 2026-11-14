@@ -33,6 +33,7 @@ internal static class Integration
         var token = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
         await OutputSwitchIntegration.RunAsync(certificate, token);
         await RoutedPauseIntegration.RunAsync(certificate, token);
+        await PresentationIntegration.RunAsync(certificate, token);
         var audio = new SyntheticEndpoints();
         var sessions = new DesktopSessions(audio);
         await using var server = new RelayServer(certificate, token, sessions);
@@ -68,11 +69,15 @@ internal static class Integration
         await listeners[0].SendAsync("PING 123456\nSYNC 123.5\nACTIVE 1\nSTATS harmless-diagnostic\n");
         await UntilAsync(() => listeners[0].Clocks.Contains(123456), "serialized PING response");
 
-        await using (var excess = await connector.ReceiverAsync())
+        await using (var excess = await connector.ReceiverAsync()) {
             await UntilAsync(() => excess.Closed, "fifth receiver rejected");
+            Require(excess.Rejection == 1, "Fifth authenticated receiver needs a group-full explanation.");
+        }
         Require(sessions.Status.Receivers == 4, "Fifth peer evicted a healthy receiver.");
-        await using (var invalid = await connector.ReceiverAsync(new string('0', 64)))
+        await using (var invalid = await connector.ReceiverAsync(new string('0', 64))) {
             await UntilAsync(() => invalid.Closed, "wrong authentication rejected");
+            Require(invalid.Rejection == 0, "Unauthenticated peer must not receive group status.");
+        }
         await using (var invalidLegacy = await connector.ReceiverAsync(new string('0', 64) + " PRO1 retired-preview"))
             await UntilAsync(() => invalidLegacy.Closed, "retired suffix cannot bypass authentication");
         await using (var unknownRole = await connector.ReceiverAsync(token + " MIC2"))
@@ -335,8 +340,11 @@ internal sealed class Receiver : IAsyncDisposable
     private readonly ConcurrentDictionary<long, uint> clockFlags = new();
     private long nextClock;
     public bool Closed { get; private set; }
+    public uint Rejection { get; private set; }
     public int Heartbeats;
     public volatile uint DesktopRequest;
+    public volatile uint PresentationTarget, PresentationListeners, PresentationCapable;
+    public int AlignmentReplies;
 
     public Receiver(Connection connection, bool readFrames)
     {
@@ -366,6 +374,13 @@ internal sealed class Receiver : IAsyncDisposable
                 var header = new byte[24];
                 await connection.Stream.ReadExactlyAsync(header, lifetime.Token);
                 var magic = BinaryPrimitives.ReadUInt32LittleEndian(header);
+                if(magic==0x31455342){Rejection=BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(4));Closed=true;return;}
+                if (magic == 0x34435342) {
+                    PresentationTarget = BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(4));
+                    PresentationListeners = BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(8));
+                    PresentationCapable = BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(12));
+                    Interlocked.Increment(ref AlignmentReplies); continue;
+                }
                 if(magic==0x32435342){DesktopRequest=BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(4));continue;}
                 if (magic == Protocol.ClockMagic)
                 {
