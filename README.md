@@ -117,6 +117,14 @@ troubleshooting; that invalidates existing pairings.
 
 PairIt does not record audio. Phone apps use Google ads; ad/consent requests,
 Android scanner telemetry and update checks are separate from local audio.
+Optional **Report a problem** on Android/iOS sends the text you submit to a dedicated
+HTTPS service, which publishes it as a public issue in `Json604/pairIt-download`.
+The form discloses this before submission. App/OS version details are optional;
+no audio, pairing credentials, device names, network addresses or raw logs are
+attached. The service uses a keyed hash of the request IP for rate limits and
+stores retry metadata, not report text. GitHub stores the public issue. The app
+keeps the draft locally until confirmed. See `reports/README.md` for operations.
+
 See the [privacy policy](https://pairit.kartikey.xyz/privacy.html).
 Encryption does not protect compromised endpoints or prevent every local-network
 attack. Automated checks and source review are not a guarantee of zero vulnerabilities.

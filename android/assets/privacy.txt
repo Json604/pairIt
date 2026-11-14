@@ -48,6 +48,12 @@ On iPhone, open the computer pairing screen from Settings and choose Forget this
 
 PairIt periodically checks for available releases while the app is in use. Google Play installations use Google Play’s update service. Other supported builds request a small public release list hosted on GitHub over HTTPS. GitHub receives ordinary web-request information, including your IP address; PairIt does not attach audio, pairing credentials, a device identifier, or your installed version. Version and signing-certificate comparisons happen on your device. The latest available update may be cached locally so the reminder survives an offline launch. Choosing Get update opens the official store or GitHub release page. Downloads and installation remain under your control. GitHub’s privacy statement is at https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement.
 
+## Optional public problem reports
+
+On Android and iPhone, Report a problem sends the text you choose to submit over HTTPS to the publisher's reporting service, which creates a public GitHub issue in Json604/pairIt-download. No GitHub account is required. The form warns that the report is public. Do not include personal information, passwords or pairing codes. You can choose whether to include the app version and operating-system version. No audio, device names, pairing credentials, network addresses or raw logs are attached automatically.
+
+Your draft and retry identifier are saved locally. The service temporarily processes your text to send it to GitHub; it stores only a report identifier, content hash, keyed IP-address hash, timestamps, status and public issue URL for abuse prevention and duplicate protection. Raw report text and raw IP addresses are not stored in service logs or its database. GitHub stores the published issue under its own privacy policy. Public copies may persist even after removal. Contact support to request removal of a report; clearing app data does not delete a published issue.
+
 ## Other services
 
 Google Play, Apple’s App Store, Android, iOS, your device manufacturer and your email provider may process store, device, crash or support-email information under their own policies and your settings. These platform services are separate from this app’s local audio connection.

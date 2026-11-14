@@ -105,6 +105,7 @@ public class MainActivity extends Activity {
         outer.setOnApplyWindowInsetsListener((v,insets)->{ if(Build.VERSION.SDK_INT>=30){android.graphics.Insets bars=insets.getInsets(WindowInsets.Type.systemBars());v.setPadding(bars.left,bars.top,bars.right,bars.bottom);}return insets;});
         LinearLayout header=row();ImageView brandIcon=new ImageView(this);brandIcon.setImageDrawable(new GlassUI.Glyph("headphones",Color.WHITE));header.addView(brandIcon,new LinearLayout.LayoutParams(dp(26),dp(26)));
         TextView brand=text("PairIt",21,Color.WHITE,true);brand.setGravity(Gravity.CENTER_VERTICAL);LinearLayout.LayoutParams brandParams=new LinearLayout.LayoutParams(0,-2,1);brandParams.setMarginStart(dp(9));header.addView(brand,brandParams);
+        ImageView report=new ImageView(this);report.setImageDrawable(new GlassUI.Glyph("report",Color.WHITE));report.setPadding(dp(10),dp(10),dp(10),dp(10));report.setContentDescription("Report a problem");report.setBackground(shape(0x22ffffff,22,Color.TRANSPARENT));report.setOnClickListener(v->reportProblem());header.addView(report,new LinearLayout.LayoutParams(dp(44),dp(44)));
         layout.addView(header);
         Button updateButton=button("Update available",()->{if(updateURL!=null)updates.open(updateURL);});style(updateButton,true);updateButton.setVisibility(View.GONE);layout.addView(updateButton);
         updates=new ReleaseUpdates(this,(label,url)->{updateURL=url;updateButton.setText(label==null?"":label+" · Update");updateButton.setVisibility(label==null?View.GONE:View.VISIBLE);});
@@ -518,6 +519,28 @@ public class MainActivity extends Activity {
         Window window=dialog.getWindow();if(window==null)return;window.setGravity(Gravity.BOTTOM);window.setLayout(-1,-2);
         View decor=window.getDecorView();decor.setTranslationY(dp(24));decor.setAlpha(0);decor.animate().translationY(0).alpha(1).setDuration(GlassUI.duration(this,220)).setInterpolator(new android.view.animation.PathInterpolator(.22f,1,.36f,1)).start();
     }
+    private void reportProblem() {
+        ProblemReports reports=new ProblemReports(this);LinearLayout body=column();
+        body.addView(text("Reports are public on GitHub. Do not include personal information, passwords or pairing codes.",14,MUTED,false));space(body,12);
+        EditText subject=new EditText(this);subject.setHint("Short summary");subject.setSingleLine(true);subject.setTextColor(INK);subject.setHintTextColor(MUTED);subject.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(100)});subject.setText(reports.saved("title"));body.addView(subject);
+        EditText description=new EditText(this);description.setHint("What happened? What did you expect? Include steps to reproduce.");description.setTextColor(INK);description.setHintTextColor(MUTED);description.setMinLines(4);description.setGravity(Gravity.TOP);description.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);description.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(4000)});description.setText(reports.saved("description"));body.addView(description);
+        android.widget.CheckBox details=new android.widget.CheckBox(this);details.setText("Include app version and Android version");details.setTextColor(INK);details.setChecked(true);body.addView(details);
+        TextView status=text("",13,MUTED,false);status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);body.addView(status);space(body,10);
+        Button submit=button("Submit public report",()->{});style(submit,true);FrameLayout sendFrame=new FrameLayout(this);sendFrame.addView(submit,new FrameLayout.LayoutParams(-1,dp(52)));ActivitySpinner spinner=new ActivitySpinner(this);spinner.setVisibility(View.GONE);FrameLayout.LayoutParams indicator=new FrameLayout.LayoutParams(dp(20),dp(20),Gravity.START|Gravity.CENTER_VERTICAL);indicator.setMarginStart(dp(16));sendFrame.addView(spinner,indicator);body.addView(sendFrame);
+        android.text.TextWatcher watcher=new android.text.TextWatcher(){public void beforeTextChanged(CharSequence s,int a,int c,int f){}public void onTextChanged(CharSequence s,int a,int b,int c){reports.save(subject.getText().toString(),description.getText().toString());}public void afterTextChanged(android.text.Editable e){}};subject.addTextChangedListener(watcher);description.addTextChangedListener(watcher);
+        submit.setOnClickListener(v->{
+            String title=subject.getText().toString().trim(),text=description.getText().toString().trim();
+            if(title.length()<3||text.length()<10){status.setText("Add a summary and at least 10 characters describing the problem.");return;}
+            try {
+                final String payload=reports.payload(title,text,details.isChecked());submit.setEnabled(false);submit.setText("Sending…");spinner.setVisibility(View.VISIBLE);subject.setEnabled(false);description.setEnabled(false);details.setEnabled(false);status.setText("Submitting your public report…");
+                new Thread(()->{org.json.JSONObject response;try{response=ProblemReports.send(payload);}catch(Exception error){response=new org.json.JSONObject();}final org.json.JSONObject result=response;
+                    runOnUiThread(()->{if(isDestroyed())return;spinner.setVisibility(View.GONE);submit.setEnabled(true);String url=result.optString("url");if(ProblemReports.validURL(url)){status.setText("Report sent. Thank you for helping improve PairIt.");submit.setText("View issue ↗");submit.setOnClickListener(button->startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(url))));reports.save("","");}else{status.setText(result.optString("message","Could not confirm submission. Your draft is kept. Retry safely."));submit.setText("Retry submission");subject.setEnabled(true);description.setEnabled(true);details.setEnabled(true);}});
+                },"PairIt-report").start();
+            }catch(Exception error){status.setText("Could not prepare this report. Your draft is kept.");}
+        });
+        openPanel("Report a problem",body);
+    }
+
     private void openPanel(String title,LinearLayout body){
         body.setPadding(dp(20),dp(12),dp(20),dp(16));showPanel(new GlassDialogBuilder(this).setTitle(title).setView(panelScroll(body)).setNegativeButton("Done",null).create());
     }

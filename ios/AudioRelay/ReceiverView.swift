@@ -48,6 +48,7 @@ struct ReceiverView: View {
                     HStack {
                         HStack(spacing: 7) { PairItMark(tint: .white).frame(width: 24, height: 24); Text("PairIt").font(.system(size: 18, weight: .semibold)) }
                         Spacer()
+                        Button { sheet = .report } label: { Image(systemName: "exclamationmark.bubble").font(.system(size: 19)).frame(width: 44, height: 44).background(.white.opacity(0.12), in: Circle()) }.buttonStyle(.plain).accessibilityLabel("Report a problem")
                     }
                     ReleaseUpdateNotice(updates: updates)
                     if tab == 2 { settingsPage }
@@ -149,6 +150,7 @@ struct ReceiverView: View {
             .sensoryFeedback(.selection, trigger: selectionCount)
             .sheet(item: $sheet) { value in
                 Group { switch value {
+                case .report: ProblemReportView()
                 case .pair: PairingView(receiver: receiver, pairing: pairing, initialCode: incomingCode)
                 case .settings: ReceiverSettings(receiver: receiver, pairing: pairing)
                 case .sync: VideoSyncView(receiver: receiver)
@@ -534,7 +536,7 @@ struct ReceiverView: View {
 
 }
 
-enum ReceiverSheet: String, Identifiable { case pair, settings, sync, address, shared, output, downloads, audio, connection; var id: String { rawValue } }
+enum ReceiverSheet: String, Identifiable { case pair, settings, sync, address, shared, output, downloads, audio, connection, report; var id: String { rawValue } }
 
 struct AudioRoutePicker: UIViewRepresentable {
     func makeUIView(context: Context) -> AVRoutePickerView {

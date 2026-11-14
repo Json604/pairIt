@@ -143,6 +143,9 @@ final class GlassUI {
             int original=p.getColor();canvas.save();canvas.translate(getBounds().left,getBounds().top);canvas.scale(getBounds().width()/24f,getBounds().height()/24f);
             if(name.equals("qr")){
                 canvas.drawRoundRect(3,3,9,9,1,1,p);canvas.drawRoundRect(15,3,21,9,1,1,p);canvas.drawRoundRect(3,15,9,21,1,1,p);canvas.drawLine(15,15,18,15,p);canvas.drawLine(18,15,18,18,p);canvas.drawLine(21,18,21,21,p);canvas.drawLine(15,21,18,21,p);
+            }else if(name.equals("report")){
+                android.graphics.Path bubble=new android.graphics.Path();bubble.moveTo(6,3);bubble.lineTo(18,3);bubble.quadTo(21,3,21,6);bubble.lineTo(21,15);bubble.quadTo(21,18,18,18);bubble.lineTo(10,18);bubble.lineTo(5,22);bubble.lineTo(5,18);bubble.quadTo(3,18,3,15);bubble.lineTo(3,6);bubble.quadTo(3,3,6,3);canvas.drawPath(bubble,p);
+                canvas.drawLine(12,7,12,11.5f,p);canvas.drawCircle(12,14.5f,.6f,p);
             }else if(name.equals("windows")){
                 canvas.drawRect(3,3,10,10,p);canvas.drawRect(14,3,21,10,p);canvas.drawRect(3,14,10,21,p);canvas.drawRect(14,14,21,21,p);
             }else if(name.equals("linux")){

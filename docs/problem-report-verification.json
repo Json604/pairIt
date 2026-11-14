@@ -1,0 +1,28 @@
+{
+  "date": "2026-11-15",
+  "platforms": [
+    "Android",
+    "iOS"
+  ],
+  "service": "https://reports.pairit.kartikey.xyz",
+  "repository": "Json604/pairIt-download",
+  "test_issue": "https://github.com/Json604/pairIt-download/issues/1",
+  "test_issue_state": "closed",
+  "live_submission": [
+    201,
+    200
+  ],
+  "duplicate_test": "same issue URL",
+  "server_tests": 12,
+  "android_build": "passed",
+  "android_lint": "passed",
+  "ios_simulator_build": "passed; not launched",
+  "credential_scan": "passed; source and both app artifacts",
+  "android_sha256": "7427736a0699a5b56921e4577755fee6ffb8d595d1766e6b28cf9329d3b3e223",
+  "limits": [
+    "Native form appearance and device interaction not runtime-tested",
+    "Desktop report UI not added",
+    "Not pushed, published or uploaded to stores",
+    "Privacy source updated; hosted privacy page must be updated before app distribution"
+  ]
+}
