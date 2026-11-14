@@ -30,6 +30,27 @@ enum OutputRoute {
         catch (SecurityException ignored) { }
         return null;
     }
+    static AudioDeviceInfo connection(List<AudioDeviceInfo> devices, OutputRoute preferred, int selectedId, boolean explicit) {
+        for (AudioDeviceInfo device : devices)
+            if (preferred.accepts(device) && (selectedId < 0 || device.getId() == selectedId)) return device;
+        if (!explicit) return null;
+        // A user pressing Connect may use another available output. Automatic
+        // recovery must never turn a missing headset into loudspeaker playback.
+        for (OutputRoute route : new OutputRoute[]{preferred, WIRED, BLUETOOTH, SPEAKER})
+            for (AudioDeviceInfo device : devices) if (route.accepts(device)) return device;
+        return null;
+    }
+    static AudioDeviceInfo connection(AudioManager audio, OutputRoute preferred, int selectedId, boolean explicit) {
+        try { return connection(java.util.Arrays.asList(audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS)), preferred, selectedId, explicit); }
+        catch (SecurityException ignored) { return null; }
+    }
+    static OutputRoute kind(AudioDeviceInfo device) {
+        for (OutputRoute route : values()) if (route.accepts(device)) return route;
+        throw new IllegalArgumentException("Unsupported output");
+    }
+    static String name(AudioDeviceInfo device) {
+        return device == null ? "Audio output unavailable" : SPEAKER.accepts(device) ? SPEAKER.label : device.getProductName().toString();
+    }
     static List<AudioDeviceInfo> actual(AudioRouting routing) {
         if (Build.VERSION.SDK_INT >= 36) return routing.getRoutedDevices();
         AudioDeviceInfo device = routing.getRoutedDevice();

@@ -42,6 +42,14 @@ final class RelaySettings {
         }
         return id;
     }
+    android.media.AudioDeviceInfo connectionOutput(android.media.AudioManager audio, boolean explicit) {
+        boolean automatic = explicit && !prefs.getBoolean("output_manually_selected", false);
+        return OutputRoute.connection(audio, automatic ? OutputRoute.WIRED : output(), automatic ? -1 : outputDeviceId(), explicit);
+    }
+    void manuallySelectOutput(OutputRoute route, int deviceId) {
+        prefs.edit().putBoolean("output_manually_selected", true).apply();
+        output(route, deviceId);
+    }
     OutputRoute output() { return OutputRoute.from(prefs.getString("output", "BLUETOOTH")); }
     void output(OutputRoute route) { prefs.edit().putString("output", route.name()).remove("output_device_id").apply(); }
     int outputDeviceId() { return prefs.getInt("output_device_id", -1); }

@@ -58,3 +58,12 @@ with tempfile.TemporaryDirectory() as out:
 with tempfile.TemporaryDirectory() as out:
     subprocess.run(["javac","-d",out,str(android/"src/dev/bluetoothswitch/relay/RelayState.java"),str(android/"src/dev/bluetoothswitch/relay/NotificationPlayback.java"),str(android/"tests/NotificationPlaybackCheck.java")],check=True)
     subprocess.run(["java","-cp",out,"dev.bluetoothswitch.relay.NotificationPlaybackCheck"],check=True)
+
+# Route discovery is stubbed; selection and actual-route checks run unchanged.
+with tempfile.TemporaryDirectory() as out:
+    stub_sources = {'Build.java': 'package android.os; public class Build {public static class VERSION {public static final int SDK_INT=36;}}', 'AudioRouting.java': 'package android.media; import java.util.List; public interface AudioRouting {AudioDeviceInfo getRoutedDevice();List<AudioDeviceInfo> getRoutedDevices();}', 'AudioDeviceInfo.java': 'package android.media; public class AudioDeviceInfo {\npublic static final int TYPE_BUILTIN_SPEAKER=2,TYPE_WIRED_HEADPHONES=3,TYPE_WIRED_HEADSET=4,TYPE_USB_HEADSET=22,TYPE_USB_DEVICE=11,TYPE_BLUETOOTH_A2DP=8,TYPE_BLE_HEADSET=26,TYPE_BLE_SPEAKER=27;\nprivate final int id,type; public AudioDeviceInfo(int id,int type){this.id=id;this.type=type;} public CharSequence getProductName(){return "Test output";} public int getId(){return id;} public int getType(){return type;}}\n', 'AudioManager.java': 'package android.media; public class AudioManager {public static final int GET_DEVICES_OUTPUTS=2;public AudioDeviceInfo[] getDevices(int flags){return new AudioDeviceInfo[0];}}'}
+    paths=[]
+    for name, source in stub_sources.items():
+        p=Path(out)/name; p.write_text(source); paths.append(str(p))
+    subprocess.run(["javac","-d",out,*paths,str(android/"src/dev/bluetoothswitch/relay/OutputRoute.java"),str(android/"tests/OutputRouteCheck.java")],check=True)
+    subprocess.run(["java","-cp",out,"dev.bluetoothswitch.relay.OutputRouteCheck"],check=True)

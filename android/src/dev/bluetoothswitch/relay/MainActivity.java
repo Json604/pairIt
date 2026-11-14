@@ -324,11 +324,11 @@ public class MainActivity extends Activity {
         scanAnother.setVisibility(View.VISIBLE);setShortcut(scanAnother,connected?"Audio":"Scan QR",connected?"settings":"qr");setShortcut(panelAction,connected?"More":"Get PC app",connected?"more":"laptop");
         scanAnother.setEnabled(!verifyingConnection&&inFlight==null);
         android.media.AudioManager routeManager=getSystemService(android.media.AudioManager.class);
-        android.media.AudioDeviceInfo selectedRoute=settings.output().find(routeManager,settings.outputDeviceId());
-        String routeName=selectedRoute==null?"Choose audio output":settings.output()==OutputRoute.SPEAKER?"Phone speaker":selectedRoute.getProductName().toString();
-        setShortcut(outputRoute,"Output",settings.output()==OutputRoute.SPEAKER?"phone":"headphones");
+        android.media.AudioDeviceInfo selectedRoute=settings.connectionOutput(routeManager,!connected);
+        String routeName=OutputRoute.name(selectedRoute);
+        setShortcut(outputRoute,"Output",OutputRoute.SPEAKER.accepts(selectedRoute)?"phone":"headphones");
         outputRoute.setContentDescription("Output, "+routeName);outputRoute.setVisibility(View.VISIBLE);
-        if(!together&&!preferences&&settings.paired()&&selectedRoute!=null){cardTitle.setText(connected?"Audio output":"Ready to connect");cardDetail.setText(routeName+(connected&&!RelayService.computerVolume.isEmpty()?" · "+RelayService.computerVolume:""));cardDetail.setVisibility(View.VISIBLE);}
+        if(!together&&!preferences&&settings.paired()&&selectedRoute!=null){cardTitle.setText(RelayService.computerOutputSelected?"Playing on computer":connected?"Phone audio output":"Ready to connect");cardDetail.setText((RelayService.computerOutputSelected?settings.computerName():routeName)+(connected&&!RelayService.computerVolume.isEmpty()?" · "+RelayService.computerVolume:""));cardDetail.setVisibility(View.VISIBLE);}
         boolean waitingForAudio=state.phase==RelayState.Phase.BUFFERING&&state.title.equals("Waiting for computer audio");
         boolean starting=!waitingForAudio&&!together&&!preferences&&!RelayService.computerOutputSelected&&(verifyingConnection||"PLAY".equals(inFlight)||state.phase==RelayState.Phase.CONNECTING||state.phase==RelayState.Phase.BUFFERING||state.phase==RelayState.Phase.RECONNECTING);
         boolean pausing=!together&&!preferences&&"MEDIA_PAUSE".equals(inFlight);
@@ -348,7 +348,7 @@ public class MainActivity extends Activity {
         if (action.equals("USE_PHONE") && RelayService.state.phase == RelayState.Phase.PHONE) return;
         if ((action.equals("PLAY")) && !settings.paired()) { pair(); return; }
         if (action.equals("USE_PHONE") && RelayService.state.phase == RelayState.Phase.IDLE) return;
-        if (action.equals("PLAY") && settings.output() == OutputRoute.BLUETOOTH && Build.VERSION.SDK_INT >= 31 && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+        if (action.equals("PLAY") && OutputRoute.BLUETOOTH.accepts(settings.connectionOutput(getSystemService(android.media.AudioManager.class),true)) && Build.VERSION.SDK_INT >= 31 && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
             pendingAction = action;
             requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT}, 1); return;
         }
@@ -513,7 +513,7 @@ public class MainActivity extends Activity {
                     dialog.dismiss();requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT},4);return;
                 }
                 boolean live=RelayService.hasControlConnection();
-                settings.output(selected,device.getId());
+                settings.manuallySelectOutput(selected,device.getId());
                 if(live)startService(new Intent(this,RelayService.class).setAction("LOCAL_OUTPUT"));
                 lastState=null;renderedKey="";render();dialog.dismiss();
             });style(choice,false);choice.setTextSize(13);choice.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);

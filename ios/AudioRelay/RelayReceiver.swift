@@ -68,7 +68,7 @@ final class RelayReceiver: ObservableObject {
             if selected != nil { scheduleExternalOutput() }; return
         }
         output = selected; UserDefaults.standard.set(selected.rawValue, forKey: "receiverOutput")
-        cancelOutputRecovery(); connect(requestPhoneOutput: true)
+        cancelOutputRecovery(); connect(requestPhoneOutput: true, useCurrentOutput: false)
     }
     private func waitForExternalOutput() {
         outputRecovery.lost(external: output != .speaker,
@@ -81,7 +81,11 @@ final class RelayReceiver: ObservableObject {
         publish(.headphones, "Waiting for headphones", "Reconnect Bluetooth, wired or USB audio to resume automatically.")
         scheduleExternalOutput()
     }
-    var currentOutputName: String { output.currentRoute()?.portName ?? "Choose audio output" }
+    var currentOutputName: String {
+        if computerOutput { return "Playing on " + (pairing.mac?.displayName ?? "computer") }
+        let route = output.currentRoute() ?? (!playIntent ? AVAudioSession.sharedInstance().currentRoute.outputs.first : nil)
+        return route.map { $0.portType == .builtInSpeaker ? "iPhone speaker" : $0.portName } ?? "Audio output unavailable"
+    }
     func beginOutputChoice() { cancelOutputRecovery(); choosingOutput = true; resumeAfterOutputChoice = playIntent && !computerOutput }
     func endOutputChoice() { choosingOutput = false; resumeAfterOutputChoice = false }
     private var generation = 0
@@ -216,7 +220,7 @@ final class RelayReceiver: ObservableObject {
         publish(.idle, "Computer address saved", "Tap Computer to reconnect securely. An empty address uses automatic discovery.")
     }
     private func resetDisplayedTiming() { estimatedMs = nil; correction = 0; routeUID = ""; activeMode = playbackMode; modeNote = "" }
-    func connect(requestPhoneOutput: Bool = true) {
+    func connect(requestPhoneOutput: Bool = true, useCurrentOutput: Bool = true) {
         cancelOutputRecovery()
         DispatchQueue.main.async { ConnectionAcknowledgment.shared.stopSound() }
         guard !AudioPresentationGate.isPresenting else {
@@ -238,6 +242,10 @@ final class RelayReceiver: ObservableObject {
         } catch {
             publish(.error, "Audio is unavailable", "Finish the current call or audio session, then try again."); return
         }
+        let currentOutput = RelayOutput.allCases.first { $0.currentRoute() != nil }
+        output = ConnectionOutput.resolve(saved: output, current: currentOutput,
+                                          explicit: requestPhoneOutput && useCurrentOutput)
+        UserDefaults.standard.set(output.rawValue, forKey: "receiverOutput")
         guard let route = output.currentRoute() else {
             if output != .speaker && UserDefaults.standard.object(forKey: "trustedAutoReconnect") as? Bool != false { waitForExternalOutput(); return }
             try? session.setActive(false, options: .notifyOthersOnDeactivation)
@@ -249,7 +257,7 @@ final class RelayReceiver: ObservableObject {
         let override = pairing.hostOverride
         let timing = RouteTiming(pin: computer.pin, route: route.uid, mode: requestedMode, hostOverride: override)
         estimatedMs = timing.estimate; correction = timing.correction
-        publish(.connecting, "Connecting to \(computer.displayName)", "Keep PairIt open on your computer.")
+        publish(.connecting, "Connecting to \(computer.displayName)", "Output: \(currentOutputName). Keep PairIt open on your computer.")
         queue.async { [weak self] in
             guard let self else { return }
             self.generation += 1; let generation = self.generation; self.desired = true

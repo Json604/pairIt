@@ -140,7 +140,7 @@ public class RelayService extends Service {
             pausePlayback(RelayState.Phase.ERROR,"Couldn’t use these headphones","Reconnect your headphones, then tap Connect.");return;
         }
         settings.output(kind,destination.getId());selectedOutput=kind;outputRevision++;
-        cancelOutputRecovery();startListening(true);
+        cancelOutputRecovery();startListening(true, false);
         if(!requestedMac && !userStopped && running && state.phase==RelayState.Phase.PHONE){
             outputRecovery.lost(true,settings.autoReconnect());settings.outputRecovery(outputRecovery.waiting());scheduleExternalOutput();
         }
@@ -303,7 +303,9 @@ public class RelayService extends Service {
         startListening(true);
     }
 
-    private void startListening(boolean selectPhoneOutput) {
+    private void startListening(boolean selectPhoneOutput) { startListening(selectPhoneOutput, selectPhoneOutput); }
+
+    private void startListening(boolean selectPhoneOutput, boolean allowOutputFallback) {
         if (!settings.paired()) {
             publish(RelayState.Phase.ERROR, "Connect your computer", "Paste a pairing code from the desktop companion.");
             stopSelf(); return;
@@ -314,12 +316,11 @@ public class RelayService extends Service {
         selectedOutput = settings.output();
         interactiveMode = settings.interactive(); profileReady = false; timingProfileKey = "";
         sessionPin = settings.pin(); sessionOverride = settings.overrideHost();
-        AudioDeviceInfo chosenOutput=selectedOutput.find(audio,settings.outputDeviceId());
-        // Device IDs are temporary: a saved headset can receive a new ID after reconnect/reboot.
-        // Only an explicit listen request may select another available device in the saved category.
-        if (chosenOutput == null && selectPhoneOutput) {
-            chosenOutput = selectedOutput.find(audio);
-            if (chosenOutput != null) settings.output(selectedOutput, chosenOutput.getId());
+        AudioDeviceInfo chosenOutput = settings.connectionOutput(audio, allowOutputFallback);
+        if (chosenOutput != null) {
+            selectedOutput = OutputRoute.kind(chosenOutput);
+            settings.output(selectedOutput, chosenOutput.getId());
+            headphoneName = OutputRoute.name(chosenOutput);
         }
         if (chosenOutput == null && selectedOutput!=OutputRoute.SPEAKER && settings.autoReconnect()) {waitForExternalOutput();return;}
         if (chosenOutput == null) {
@@ -368,7 +369,7 @@ public class RelayService extends Service {
         if (current != null) current.request(RelayHandoff.Intent.LISTEN);
         mediaSession.setActive(true);
         settings.controlsSource("computer");
-        publish(RelayState.Phase.CONNECTING, "Connecting to " + settings.computerName(), "Keep the desktop companion open.");
+        publish(RelayState.Phase.CONNECTING, "Connecting to " + settings.computerName(), "Output: " + headphoneName + ". Keep the desktop companion open.");
         if (!running || worker == null || !worker.isAlive()) {
             running = true; main.removeCallbacks(renewLocks);main.removeCallbacks(connectionWatchdog); main.post(renewLocks);
             worker = new Thread(this::receive, "relay-playback"); worker.start();
@@ -514,7 +515,7 @@ public class RelayService extends Service {
         AudioDeviceInfo device = selectedOutput.find(audio,settings.outputDeviceId());
         if (device == null) throw new OutputUnavailable("Selected output disconnected");
         selectedDeviceId = device.getId();
-        headphoneName = device.getProductName().toString();
+        headphoneName = OutputRoute.name(device);
         profileReady = false;
         int minimum = AudioTrack.getMinBufferSize(rate, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT);
         if (minimum <= 0) throw new OutputUnavailable("Unsupported sample rate");
@@ -733,7 +734,7 @@ public class RelayService extends Service {
                     continue;
                 }
                 AudioDeviceInfo route = actualRoutes.get(0);
-                headphoneName = route.getProductName().toString();
+                headphoneName = OutputRoute.name(route);
                 routeKey = route.getType() + ":" + headphoneName;
                 activeProfileKey = RelaySettings.profileKey(sessionPin, sessionOverride, routeKey, interactiveMode);
                 timingProfileKey = activeProfileKey; profileReady = true;
