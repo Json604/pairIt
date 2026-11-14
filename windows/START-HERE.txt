@@ -47,9 +47,12 @@ Report Windows version, display scale, phone/headphone types, exact steps and
 visible errors. Never include private pairing codes, identity files or audio.
 Build and synthetic TLS checks passed; physical Windows/audio checks remain.
 
-Update notices: PairIt checks for new releases while in use. When available,
-Check for updates is available in Settings. Download, quit PairIt, then replace
-the complete extracted folder. Your pairing identity remains in your profile.
+Update notices: PairIt checks for new releases while in use. Settings also has
+Check for updates. From build22, choose Download & install to download and verify
+the update, quit safely, replace the app folder and reopen PairIt. You can cancel
+the download. Keep the complete extracted app in its own writable folder.
+Pairing identity stays in your profile. Previous folders are retained for recovery.
+Older builds require one manual replacement to gain in-app installation.
 
 Shared listening timing
 -----------------------

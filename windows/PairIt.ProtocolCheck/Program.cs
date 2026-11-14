@@ -19,6 +19,7 @@ internal static class Integration
 {
     public static async Task RunAsync()
     {
+        await InstallerChecks.RunAsync();
         CheckReleaseDestinations();
         DiscoveryChecks.Run();
         using var rsa = RSA.Create(2048);

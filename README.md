@@ -208,11 +208,16 @@ do not update Google Play or App Store installations.
 
 ## Releases and contributions
 
-Update notices open the official store or release page; they do not install files
-or stop audio. Mac, Windows and Linux check automatically on opening/foreground and
-periodically, with visible update notices; Settings supports an immediate check.
-Desktop installation remains explicit: quit PairIt, then install the newer package
-or replace the portable application files. Google Play decides eligibility for each testing/production track.
+Phone update notices open the official store or release page. Desktop apps check
+automatically and Settings supports an immediate check. From desktop build22,
+Download & install verifies the signed download, exits cleanly and reopens the
+updated app. Downloads are cancellable; installation is user initiated and stops
+sharing. Mac uses Sparkle with EdDSA signatures and Developer ID verification.
+Windows/Linux verify a pinned ECDSA signature plus package size/SHA256; Linux
+.deb installation requests system authorization. Portable apps require a dedicated
+writable folder and retain the previous folder for recovery. Pairing/settings
+remain outside app files. Older desktop builds need one manual upgrade.
+Google Play decides eligibility for each testing/production track.
 Direct APK updates must match both package ID and signing certificate.
 
 ### Release an update, step by step
@@ -373,3 +378,5 @@ Original code is [MIT licensed](LICENSE). Third-party licenses remain applicable
 including the [Apple driver sample](mac/driver/APPLE-LICENSE.txt),
 [fonts](design/fonts/OFL.txt) and files in `windows/licenses/`. Linux packages include
 notices in `licenses/`.
+
+Desktop installer release signing and staged rollout: see `docs/desktop-installer-rollout.md`. Publish signed installer metadata and the Mac appcast before advancing the ordinary update notice feed. Never commit release signing private keys.

@@ -19,6 +19,7 @@ internal sealed class TrayApplication : ApplicationContext
         this.sessions = sessions;
         icon = CreateIcon();
         form = new CompanionForm(sessions, identity) { Icon = icon };
+        form.UpdateRestartRequested = ExitAsync;
         var menu = new ContextMenuStrip();
         menu.Items.Add("Open PairIt - AudioRelay", null, (_, _) => form.Reveal());
         menu.Items.Add("Stop all audio", null, async (_, _) => await form.StopAllAsync());

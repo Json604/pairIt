@@ -12,6 +12,7 @@ internal static class Program
     public static int Main(string[] args)
     {
         if (!OperatingSystem.IsLinux()) { Console.Error.WriteLine("This companion runs on Linux."); return 1; }
+        if (DesktopInstaller.IsWorker(args)) return DesktopInstaller.RunWorkerAsync(args[1]).GetAwaiter().GetResult();
         SmokeTest = args.Contains("--smoke-test");
         try { return AppBuilder.Configure<App>().UsePlatformDetect().StartWithClassicDesktopLifetime(args); }
         catch { Console.Error.WriteLine("PairIt could not start. Check your graphical session and the dependencies in START-HERE.txt."); return 1; }

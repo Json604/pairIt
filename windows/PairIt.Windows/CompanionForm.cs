@@ -12,6 +12,9 @@ internal sealed class CompanionForm : Form
     private readonly LocalIdentity identity;
     private DesktopSettings preferences;
     private readonly ReleaseUpdates updates = new();
+    private readonly InstallerProgress installer = new();
+    internal Func<Task>? UpdateRestartRequested;
+    private Task InstallUpdateAsync() => updates.Available is { } entry && UpdateRestartRequested != null ? installer.StartOrCancelAsync(entry.Build, UpdateRestartRequested) : Task.CompletedTask;
     private readonly Label status = TextLabel("No phones connected"), device = TextLabel(Environment.MachineName);
     private readonly Button phone = ActionButton("Phone"), computer = ActionButton("Computer");
     private readonly Button pair = ActionButton("Pair a phone"), disconnect = ActionButton("Disconnect");
@@ -60,13 +63,14 @@ internal sealed class CompanionForm : Form
         var updateNotice = new LinkLabel { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft,
             LinkColor = Color.FromArgb(0, 85, 170), AccessibleName = "Download PairIt update", Visible = false };
         content.RowStyles.Add(new RowStyle(SizeType.Absolute, 0)); content.Controls.Add(updateNotice, 0, 6);
-        updateNotice.LinkClicked += (_, _) => { if (!updates.Open()) status.Text = "Couldn’t open the download. Try again."; };
+        updateNotice.LinkClicked += async (_, _) => await InstallUpdateAsync();
         void RefreshUpdateNotice() {
             if (IsDisposed || Disposing) return;
             var available = updates.Available;
-            updateNotice.Text = available == null ? "" : $"Update available · {available.Version} ↗";
-            updateNotice.Visible = available != null;
-            var noticeHeight = available == null ? 0 : (int)Math.Ceiling(38 * DeviceDpi / 96.0);
+            updateNotice.Text = installer.Status ?? (available == null ? "" : $"Download & install · {available.Version}");
+            updateNotice.Enabled = available != null && (!installer.Busy || installer.CanCancel);
+            updateNotice.Visible = available != null || installer.Status != null;
+            var noticeHeight = !updateNotice.Visible ? 0 : (int)Math.Ceiling(38 * DeviceDpi / 96.0);
             var change = noticeHeight - (int)content.RowStyles[6].Height;
             content.RowStyles[6].Height = noticeHeight;
             if (change != 0) {
@@ -79,11 +83,12 @@ internal sealed class CompanionForm : Form
             }
         }
         updates.Changed += RefreshUpdateNotice;
+        installer.Changed += RefreshUpdateNotice;
         RefreshUpdateNotice();
         updateTimer.Tick += async (_, _) => await updates.CheckAsync(); Activated += async (_, _) => await updates.CheckAsync();
         FormClosing += (_, e) => { if (!ExitRequested) { e.Cancel = true; Hide(); } };
         VisibleChanged += (_, _) => { if (!Visible) pairingWindow?.Close(); };
-        Disposed += (_, _) => { updateTimer.Dispose(); updates.Dispose(); logo.Image?.Dispose(); pairingWindow?.Dispose(); };
+        Disposed += (_, _) => { updateTimer.Dispose(); updates.Dispose(); installer.Dispose(); logo.Image?.Dispose(); pairingWindow?.Dispose(); };
         Render(sessions.Status);
     }
     private void Render(DesktopStatus value)
@@ -186,14 +191,26 @@ internal sealed class CompanionForm : Form
         panel.Controls.Add(microphone);
         var microphoneHelp = TextLabel("Enabling stops computer sharing. Select the cable’s recording output in your calling app, then explicitly start the microphone on your phone."); microphoneHelp.Width = 266; microphoneHelp.Height = 76; panel.Controls.Add(microphoneHelp);
         var update = ActionButton("Check for updates");
-        var updateStatus = TextLabel(updates.Status); updateStatus.Width = 266; updateStatus.Height = 35;
-        var getUpdate = ActionButton("Download update ↗"); getUpdate.Visible = updates.Available != null;
-        getUpdate.Click += (_, _) => { if (!updates.Open()) updateStatus.Text = "Couldn’t open the download. Try again."; };
+        var updateStatus = TextLabel(updates.Status); updateStatus.Width = 266; updateStatus.Height = 64;
+        var getUpdate = ActionButton("Download & install"); getUpdate.Visible = updates.Available != null;
+        getUpdate.Click += async (_, _) => await InstallUpdateAsync();
+        void RefreshInstaller() {
+            if (dialog.IsDisposed) return;
+            update.Enabled = !installer.Busy;
+            updateStatus.Text = installer.Status ?? updates.Status;
+            getUpdate.Text = installer.Busy ? installer.CanCancel ? "Cancel download" : "Preparing installation…" : "Download & install";
+            getUpdate.Enabled = !installer.Busy || installer.CanCancel;
+            getUpdate.Visible = updates.Available != null;
+        }
+        installer.Changed += RefreshInstaller; updates.Changed += RefreshInstaller;
+        dialog.FormClosed += (_, _) => { installer.Changed -= RefreshInstaller; updates.Changed -= RefreshInstaller; };
+        RefreshInstaller();
         update.Click += async (_, _) => {
+            installer.ClearStatus();
             update.Enabled = false; updateStatus.Text = "Checking for updates…";
             await updates.CheckAsync(force: true);
             if (dialog.IsDisposed) return;
-            update.Enabled = true; updateStatus.Text = updates.Status; getUpdate.Visible = updates.Available != null;
+            RefreshInstaller();
         };
         panel.Controls.Add(update); panel.Controls.Add(updateStatus); panel.Controls.Add(getUpdate);
         var help = ActionButton("Help"); help.Click += (_, _) => { try { Process.Start(new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory, "README.md")) { UseShellExecute = true }); } catch { } }; panel.Controls.Add(help);

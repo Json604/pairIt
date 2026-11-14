@@ -120,18 +120,19 @@ final class MacCompanionModel: ObservableObject {
 struct MacCompanionView: View {
     @ObservedObject var model: MacCompanionModel
     @StateObject private var updates = ReleaseUpdates()
+    @StateObject private var installerUpdates = MacInstallerUpdates()
     @Environment(\.accessibilityReduceMotion) private var reduced
     var body: some View {
         ZStack(alignment: .bottom) {
             RelayBackdrop()
             VStack(spacing: 0) {
                 header
-                if let update = updates.available, let url = URL(string: update.url) {
+                if let update = updates.available {
                     HStack(spacing: 8) {
                         Text("Update available · \(update.version)").font(.system(size: 11))
                             .lineLimit(2)
                         Spacer(minLength: 4)
-                        Link("Download ↗", destination: url).font(.system(size: 11, weight: .semibold))
+                        Button("Download & Install") { installerUpdates.downloadAndInstall() }.disabled(!installerUpdates.canCheck).font(.system(size: 11, weight: .semibold))
                     }.padding(.horizontal, 20).padding(.vertical, 6)
                 }
                 if let feedback = model.feedback, feedback.isError {
@@ -173,8 +174,9 @@ struct MacCompanionView: View {
             else { Text(model.page == 1 ? "Pair a phone" : model.page == 3 ? "Listen together" : "Settings")
                 .font(RelayTypography.display(20, strong: true)).contentTransition(.opacity).accessibilityAddTraits(.isHeader) }
             Spacer()
-            if let update = updates.available, let url = URL(string: update.url) {
-                Link(destination: url) { Image(systemName: "arrow.down.circle").frame(width: 28, height: 32) }
+            if let update = updates.available {
+                Button { installerUpdates.downloadAndInstall() } label: { Image(systemName: "arrow.down.circle").frame(width: 28, height: 32) }
+                    .disabled(!installerUpdates.canCheck)
                     .help("Update PairIt to \(update.version)").accessibilityLabel("Update available")
             }
             Button { model.navigate(to: 2) } label: { Image(systemName: "slider.horizontal.3").frame(width: 32, height: 32) }
@@ -402,8 +404,8 @@ struct MacCompanionView: View {
                 Divider().opacity(0.4)
                 RelaySettingRow(icon: "qrcode", title: "Pair a phone") { model.navigate(to: 1) }
                 Divider().opacity(0.4)
-                RelaySettingRow(icon: "arrow.clockwise", title: "Check for updates", detail: updates.status) { updates.check(force: true) }
-                    .disabled(updates.checking)
+                RelaySettingRow(icon: "arrow.clockwise", title: "Check for updates", detail: "Download, verify and install in PairIt") { installerUpdates.downloadAndInstall() }
+                    .disabled(!installerUpdates.canCheck)
             }
             Divider().opacity(0.4)
             VStack(alignment: .leading, spacing: 10) {

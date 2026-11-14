@@ -25,6 +25,8 @@ cp "$ROOT/windows/licenses/dotnet-10.0.15-LICENSE.txt" "$OUTPUT/licenses/"
 # Preserve package license notices shipped by the GUI dependencies.
 python3 "$ROOT/scripts/package-linux-licenses.py" "$NUGET_PACKAGES" "$OUTPUT/licenses"
 chmod +x "$OUTPUT/PairIt" "$OUTPUT/install-desktop.sh"
-COPYFILE_DISABLE=1 tar -czf "$ROOT/artifacts/linux/PairIt-1.1.0-preview.21-$RID.tar.gz" -C "$OUTPUT" .
+python3 "$ROOT/scripts/write-install-inventory.py" "$OUTPUT"
+python3 "$ROOT/scripts/package-update-zip.py" "$OUTPUT" "$ROOT/artifacts/linux/PairIt-1.1.0-preview.22-$RID.zip"
+COPYFILE_DISABLE=1 tar -czf "$ROOT/artifacts/linux/PairIt-1.1.0-preview.22-$RID.tar.gz" -C "$OUTPUT" .
 python3 "$ROOT/scripts/package-linux-deb.py" "$OUTPUT" --rid "$RID"
 echo "Linux preview: $OUTPUT/PairIt"

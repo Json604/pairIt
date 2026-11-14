@@ -7,8 +7,9 @@ namespace PairIt.Windows;
 internal static class Program
 {
     [STAThread]
-    private static void Main()
+    private static void Main(string[] args)
     {
+        if (DesktopInstaller.IsWorker(args)) { Environment.ExitCode = DesktopInstaller.RunWorkerAsync(args[1]).GetAwaiter().GetResult(); return; }
         ApplicationConfiguration.Initialize();
         using var singleInstance = new Mutex(true, @"Local\PairIt.Windows.Companion", out var created);
         if (!created)

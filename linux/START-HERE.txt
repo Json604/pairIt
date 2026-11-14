@@ -94,3 +94,12 @@ presentation time. OS estimates do not guarantee acoustically identical outputs.
 Older phone apps keep their existing timing. Updating all listeners enables the
 shared timing feature. A fifth phone receives a clear group-full message.
 Phone volume and pause are independent; computer output selection applies to all.
+
+In-app updates (build22 and newer)
+---------------------------------
+Choose Download & install in the update notice or Settings. PairIt verifies the
+signed release, downloads the matching processor/package, then quits and reopens.
+Ubuntu/Debian installations request your system password to install the .deb.
+Portable installations must be in their own writable folder; their previous
+folder is retained for recovery. Pairing/settings stay in your user profile.
+Older builds require one manual upgrade to gain this feature.

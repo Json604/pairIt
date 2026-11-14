@@ -37,6 +37,8 @@ internal sealed class CompanionWindow : Window
     private readonly Button updateNotice = new() { IsVisible = false, HorizontalAlignment = HorizontalAlignment.Stretch,
         Background = Brush.Parse("#E8F0FA"), Foreground = Brush.Parse("#173C68"), CornerRadius = new CornerRadius(9), MinHeight = 36 };
     private readonly ReleaseUpdates? releaseUpdates;
+    private readonly InstallerProgress installer = new();
+    private Task InstallUpdateAsync() => releaseUpdates?.Available is { } entry ? installer.StartOrCancelAsync(entry.Build, () => { Close(); return Task.CompletedTask; }) : Task.CompletedTask;
     private readonly DispatcherTimer? updateTimer;
 
     public CompanionWindow(bool startServices = true)
@@ -77,7 +79,8 @@ internal sealed class CompanionWindow : Window
             button.Padding = new Thickness(6, 3); button.HorizontalAlignment = HorizontalAlignment.Stretch;
         }
         panel.Children.Add(updateNotice);
-        updateNotice.Click += (_, _) => { if (releaseUpdates?.Available is { } update) OpenUrl(update.Url); };
+        updateNotice.Click += async (_, _) => await InstallUpdateAsync();
+        installer.Changed += UpdateReleaseNotice;
         if (startServices) {
             releaseUpdates = new ReleaseUpdates();
             updateTimer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(15) };
@@ -103,7 +106,7 @@ internal sealed class CompanionWindow : Window
             if (closed) return;
             e.Cancel = true;
             if (closing) return;
-            closing = true; updateTimer?.Stop(); releaseUpdates?.Dispose(); UpdateButtons();
+            closing = true; installer.Dispose(); updateTimer?.Stop(); releaseUpdates?.Dispose(); UpdateButtons();
             try { discovery?.Dispose(); if (server != null) await server.DisposeAsync(); }
             finally { tray?.Dispose(); identity?.Dispose(); instance?.Dispose(); closed = true; Close(); }
         };
@@ -112,9 +115,9 @@ internal sealed class CompanionWindow : Window
     private void UpdateReleaseNotice()
     {
         if (closing) return;
-        updateNotice.IsVisible = releaseUpdates?.Available != null;
-        if (releaseUpdates?.Available is { } update)
-            updateNotice.Content = new TextBlock { Foreground = Brush.Parse("#171717"), Text = $"Update available · {update.Version} ↗", TextWrapping = TextWrapping.Wrap };
+        updateNotice.IsVisible = releaseUpdates?.Available != null || installer.Status != null;
+        updateNotice.IsEnabled = releaseUpdates?.Available != null && (!installer.Busy || installer.CanCancel);
+        updateNotice.Content = new TextBlock { Foreground = Brush.Parse("#171717"), Text = installer.Status ?? $"Download & install · {releaseUpdates?.Available?.Version}", TextWrapping = TextWrapping.Wrap };
     }
     private static ScrollViewer ScrollContent(Control content) => new() {
         Content = content, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
@@ -290,17 +293,28 @@ internal sealed class CompanionWindow : Window
         apply.Click += async (_, _) => { if (choices.SelectedItem is AudioOutput selected && sessions != null) await ChangeAsync(() => sessions.ConfigureAsync(sessions.CurrentSettings with { SourceEndpointId = selected.Monitor })); };
         var reload = new Button { Foreground = Brushes.Black, Background = Brush.Parse("#EEEEEE"), Content = "Refresh outputs" }; reload.Click += async (_, _) => { await RefreshAsync(); choices.ItemsSource = outputs.ItemsSource; choices.SelectedItem = outputs.SelectedItem; };
         var update = new Button { Foreground = Brushes.Black, Background = Brush.Parse("#EEEEEE"), Content = "Check for updates" };
-        var downloadUpdate = new Button { Foreground = Brushes.Black, Background = Brush.Parse("#EEEEEE"), Content = "Download update ↗", IsVisible = releaseUpdates?.Available != null };
-        downloadUpdate.Click += (_, _) => { if (releaseUpdates?.Available is { } available) OpenUrl(available.Url); };
+        var downloadUpdate = new Button { Foreground = Brushes.Black, Background = Brush.Parse("#EEEEEE"), Content = "Download & install", IsVisible = releaseUpdates?.Available != null };
+        downloadUpdate.Click += async (_, _) => await InstallUpdateAsync();
         var updateStatus = new TextBlock { Foreground = Brush.Parse("#171717"), Text = releaseUpdates?.Status ?? "", FontSize = 11, TextWrapping = TextWrapping.Wrap };
+        void RefreshInstaller() {
+            update.IsEnabled = !installer.Busy;
+            updateStatus.Text = installer.Status ?? releaseUpdates?.Status ?? "";
+            downloadUpdate.Content = installer.Busy ? installer.CanCancel ? "Cancel download" : "Preparing installation…" : "Download & install";
+            downloadUpdate.IsEnabled = !installer.Busy || installer.CanCancel;
+            downloadUpdate.IsVisible = releaseUpdates?.Available != null;
+        }
+        installer.Changed += RefreshInstaller;
+        dialog.Closed += (_, _) => installer.Changed -= RefreshInstaller;
+        RefreshInstaller();
         update.Click += async (_, _) => {
             if (releaseUpdates == null) return;
+            installer.ClearStatus();
             update.IsEnabled = false; update.Content = "Checking…";
             try { await releaseUpdates.CheckAsync(force: true); }
             finally {
                 update.IsEnabled = true;
                 update.Content = "Check for updates"; downloadUpdate.IsVisible = releaseUpdates.Available != null;
-                updateStatus.Text = releaseUpdates.Status;
+                RefreshInstaller();
             }
         };
         var virtualOutputs = (outputs.ItemsSource as IEnumerable<AudioOutput> ?? []).Where(o => o.Virtual).ToArray();

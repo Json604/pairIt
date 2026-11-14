@@ -17,6 +17,8 @@ try {
     if ($LASTEXITCODE) { throw 'Protocol-check restore failed.' }
     & $dotnetExe run --project PairIt.ProtocolCheck/PairIt.ProtocolCheck.csproj --no-restore -c Release
     if ($LASTEXITCODE) { throw 'Synthetic protocol check failed.' }
+    python (Join-Path $projectRoot 'scripts/write-install-inventory.py') (Join-Path $projectRoot 'artifacts/feature-preview/windows/win-x64')
+    if ($LASTEXITCODE) { throw 'Inventory failed.' }
     Write-Output 'Built Windows x64 preview. Hardware, tray, firewall and acoustic acceptance remain separate checks.'
 }
 finally { Pop-Location }

@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parent.parent
 DEPENDENCIES = ('ca-certificates, tzdata, libc6 (>= 2.35), libgcc-s1, libstdc++6, zlib1g, libssl3 | libssl3t64, '
                 'libicu70 | libicu72 | libicu74 | libicu76 | libicu78, '
                 'libx11-6, libice6, libsm6, libfontconfig1, libfreetype6, '
-                'pulseaudio-utils, xdg-utils')
+                'pulseaudio-utils, xdg-utils, pkexec')
 DESKTOP = '''[Desktop Entry]
 Type=Application
 Name=PairIt - AudioRelay
