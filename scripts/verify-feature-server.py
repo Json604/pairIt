@@ -123,8 +123,12 @@ try:
     require(json.loads(command('stats'))['adjustments'][-1]==730,'Paused primary hands timing to cached successor')
     clients[0].close();clients.pop(0)
     slow=Client(9,read=False);clients.append(slow)
-    before=len(clients[0].packets);time.sleep(3)
-    require(len(clients[0].packets)>before+300 and clients[0].error is None,'Stalled receiver cannot block healthy capture')
+    before=len(clients[0].packets)
+    # Keep the packet-count assertion, but wait for the event instead of assuming
+    # a shared CI runner schedules synthetic capture at a fixed wall-clock rate.
+    progressed=wait_for(lambda: len(clients[0].packets)>before+300 or clients[0].error is not None, timeout=6)
+    require(progressed and len(clients[0].packets)>before+300 and clients[0].error is None,
+            f'Stalled receiver cannot block healthy capture (packets={len(clients[0].packets)-before}, error={clients[0].error})')
     slow.close();clients.remove(slow)
     with socket.create_connection(('127.0.0.1',port),timeout=2) as bad:
         bad.sendall(('AUTH '+gateway_token+'\n').encode()+b'x'*4097)
