@@ -1,0 +1,45 @@
+{
+  "date": "2026-11-15",
+  "implementation_commit": "b8cbb1b353cc21eb4b47611ca65ac7bbccc10f11",
+  "release": "v1.1.0-preview.19",
+  "changes": [
+    "Explicit app and dialog theme plus label/button contrast",
+    "Compact main and pairing windows; connected playback expansion; work-area bounds and scrolling at 200% scale",
+    "Registered desktop tray icon with Open PairIt, Settings and Quit; normal taskbar fallback",
+    "Linux x64/ARM64 graphical installers retained"
+  ],
+  "verification": {
+    "linux_ci": [
+      "Ubuntu 22.04 passed",
+      "Ubuntu 24.04 passed"
+    ],
+    "local": [
+      "Dark/light host-theme checks and theme change while dialog open",
+      "200% scale, work-area placement and short-screen scroll reachability",
+      "Tray registration/menu/disposal checks",
+      "ARM64 Debian package upgrade from preview17 to preview19 and installed graphical smoke test",
+      "Package metadata regression checks",
+      "Website release links match staged release assets"
+    ],
+    "ci_run": 43638011217,
+    "apple_note": "Initial unrelated stalled-receiver throughput assertion failed; same test passed locally and the synthetic protocol CI step passed on rerun.",
+    "assets": "All 10 uploaded release assets matched local SHA-256 digests.",
+    "site_version": 33,
+    "ci_result": "All six jobs passed; Apple passed on rerun."
+  },
+  "limits": [
+    "Exact friend desktop rendering was not reproduced in isolated Xvfb tests",
+    "GNOME tray host and physical Ubuntu/Bluetooth acceptance remain unverified",
+    "No every-distribution guarantee"
+  ],
+  "mobile": {
+    "android": 31,
+    "ios": 31,
+    "submission": "Owner reports uploading Android31 and submitting iOS31; no new phone build for this Linux-only change."
+  },
+  "publication": {
+    "release": "https://github.com/Json604/pairIt-download/releases/tag/v1.1.0-preview.19",
+    "website": "https://pairit.kartikey.xyz",
+    "site_version": 33
+  }
+}
