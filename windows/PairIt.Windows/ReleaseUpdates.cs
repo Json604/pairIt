@@ -1,3 +1,4 @@
+using PairIt.Core;
 using System.Diagnostics;
 using System.Net;
 using System.Text.Json;
@@ -32,7 +33,7 @@ internal sealed class ReleaseUpdates : IDisposable
         checking = true; lastAttempt = DateTimeOffset.UtcNow; Status = "Checking for updates…";
         try {
             using var response = await client.GetAsync(Endpoint);
-            if (response.StatusCode != HttpStatusCode.OK) throw new HttpRequestException("Update feed unavailable.");
+            if (response.StatusCode != HttpStatusCode.OK) throw new HttpRequestException("Update feed unavailable.", null, response.StatusCode);
             var feed = JsonSerializer.Deserialize<Feed>(await response.Content.ReadAsStringAsync(), Json);
             if (feed?.Schema != 1 || feed.Releases == null || feed.Releases.Length > 100) throw new InvalidDataException("Invalid update feed.");
             if (disposed) return;
@@ -43,8 +44,8 @@ internal sealed class ReleaseUpdates : IDisposable
                 else File.WriteAllText(cache, JsonSerializer.Serialize(Available, Json));
             } catch { /* A read-only profile must not prevent an update notice. */ }
             Status = Available == null ? "No newer release available" : "Update available · " + Available.Version;
-        } catch {
-            Status = "Couldn’t check. Try again when online.";
+        } catch (Exception error) {
+            Status = UpdateCheckFailure.Describe(error);
             lastAttempt = DateTimeOffset.UtcNow - TimeSpan.FromHours(6) + TimeSpan.FromMinutes(5);
         } finally { checking = false; if (!disposed) Changed?.Invoke(); }
     }

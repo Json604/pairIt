@@ -1,3 +1,4 @@
+using PairIt.Core;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.Json;
@@ -37,9 +38,9 @@ internal sealed class ReleaseUpdates : IDisposable
             if (disposed) return;
             Available = entry;
             Status = entry == null ? "No newer release available" : "Update available · " + entry.Version;
-        } catch {
+        } catch (Exception error) {
             if (disposed) return;
-            Status = "Couldn’t check. Try again when online.";
+            Status = UpdateCheckFailure.Describe(error);
             lastAttempt = DateTimeOffset.UtcNow - TimeSpan.FromHours(6) + TimeSpan.FromMinutes(5);
         } finally {
             Checking = false;

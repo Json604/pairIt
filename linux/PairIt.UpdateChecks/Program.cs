@@ -20,18 +20,35 @@ await updates.CheckAsync();
 Require(handler.Requests == 1, "Automatic checks must be throttled.");
 handler.Fail = true;
 await updates.CheckAsync(force: true);
-Require(handler.Requests == 2 && updates.Status.Contains("Couldn’t check") && updates.Available?.Build == 17, "Manual failed check must run, report failure, and retain known update.");
+Require(handler.Requests == 2 && updates.Status.Contains("network") && updates.Available?.Build == 17, "Manual failed check must run, report failure, and retain known update.");
 handler.Fail = false; handler.Body = Encoding.UTF8.GetBytes("{\"schema\":2,\"releases\":[]}");
 await updates.CheckAsync(force: true);
-Require(updates.Status.Contains("Couldn’t check"), "Unsupported feed must not report up to date.");
+Require(updates.Status.Contains("invalid"), "Unsupported feed must not report up to date.");
+foreach (var (error, expected) in new (Exception, string)[] {
+    (new HttpRequestException("private proxy URL", null, HttpStatusCode.Forbidden), "HTTP 403"),
+    (new HttpRequestException(HttpRequestError.SecureConnectionError, "private certificate"), "certificate"),
+    (new HttpRequestException(HttpRequestError.NameResolutionError, "private address"), "DNS"),
+    (new HttpRequestException(HttpRequestError.ProxyTunnelError, "private proxy"), "proxy"),
+    (new TaskCanceledException("private request"), "timed out"),
+    (new System.Text.Json.JsonException("private body"), "invalid")
+}) {
+    handler.Error = error;
+    await updates.CheckAsync(force: true);
+    Require(updates.Status.Contains(expected) && !updates.Status.Contains("private"), "Failure category must be actionable and private.");
+    Require(updates.Available?.Build == 17, "Failed checks must retain the previously verified release.");
+}
+handler.Error = null; handler.Body = Feed();
+await updates.CheckAsync(force: true);
+Require(updates.Status.StartsWith("Update available"), "Manual retry must recover after a failed request.");
 Console.WriteLine("PASS: trusted Linux feed, architecture/build filter, manual refresh, failure status.");
 
 sealed class FakeHandler : HttpMessageHandler
 {
-    internal byte[] Body = []; internal bool Fail; internal int Requests;
+    internal byte[] Body = []; internal Exception? Error; internal bool Fail; internal int Requests;
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellation)
     {
         Requests++;
+        if (Error != null) throw Error;
         if (Fail) throw new HttpRequestException("offline");
         return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(Body) });
     }
