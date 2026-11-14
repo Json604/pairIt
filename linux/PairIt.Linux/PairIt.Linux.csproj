@@ -1,8 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework>
-    <Product>PairIt - AudioRelay</Product><AssemblyTitle>PairIt - AudioRelay</AssemblyTitle><AssemblyName>PairIt</AssemblyName><Version>1.1.0-preview.13</Version>
-    <FileVersion>1.1.0.13</FileVersion><RuntimeIdentifiers>linux-x64;linux-arm64</RuntimeIdentifiers>
+    <Product>PairIt - AudioRelay</Product><AssemblyTitle>PairIt - AudioRelay</AssemblyTitle><AssemblyName>PairIt</AssemblyName><Version>1.1.0-preview.16</Version>
+    <FileVersion>1.1.0.16</FileVersion><RuntimeIdentifiers>linux-x64;linux-arm64</RuntimeIdentifiers>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../PairIt.Linux.Core/PairIt.Linux.Core.csproj" />

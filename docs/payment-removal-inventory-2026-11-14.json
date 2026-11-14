@@ -1,0 +1,170 @@
+{
+  "purpose": "Read-only audit inventory for returning PairIt to free with ads. No payment resources removed.",
+  "publication": "All release publication remains on hold. Default payment config disabled/test; VPS test service remains running.",
+  "target_behavior": [
+    "Free app with existing AdMob ads subject to consent and normal eligibility",
+    "Four simultaneous listeners for everyone; no paid host requirement",
+    "Notification and lock-screen playback bypass in-app ad flow",
+    "No billing calls, purchase UI, license verification or payment SDK"
+  ],
+  "payment_only_source_files": [
+    "android/src/dev/bluetoothswitch/relay/ProAccess.java",
+    "android/src/dev/bluetoothswitch/relay/ProConfiguration.java",
+    "android/src/dev/bluetoothswitch/relay/ProGrant.java",
+    "android/src/dev/bluetoothswitch/relay/ProDialog.java",
+    "android/src/dev/bluetoothswitch/relay/ProShineButton.java",
+    "ios/AudioRelay/ProAccess.swift",
+    "ios/AudioRelay/ProView.swift",
+    "apple/ProConfiguration.swift",
+    "apple/ProGrant.swift",
+    "windows/PairIt.Core/ProConfiguration.cs",
+    "windows/PairIt.Core/ProGrant.cs",
+    "windows/PairIt.Core/ProPolicy.cs",
+    "windows/PairIt.ProtocolCheck/ProAdmissionChecks.cs",
+    "scripts/ProGrantCheck.swift",
+    "scripts/generate-payment-config.py",
+    "release/payments.json",
+    "payments/"
+  ],
+  "mixed_source_edits": {
+    "android/src/dev/bluetoothswitch/relay/MainActivity.java": "Remove checkout launcher/callback, Pro header/settings/paywall, Together gate, refresh/reconcile, checkout ad exclusions, ProDialog lifecycle. Reassess ComponentActivity dependency.",
+    "android/src/dev/bluetoothswitch/relay/BannerAds.java": "Remove every Pro exemption; preserve consent and normal ad lifecycle.",
+    "android/src/dev/bluetoothswitch/relay/RelaySettings.java": "Remove Pro token accessor and payment-only context use; preserve pairing and installation ID.",
+    "android/src/dev/bluetoothswitch/relay/RelayConnection.java": "Remove PRO1 proof from TLS handshake; retain MIC1 and pairing.",
+    "android/src/dev/bluetoothswitch/relay/DiscoveryField.java": "Remove paid-state pulse/color parameters; retain ordinary dotted discovery visual.",
+    "android/build.gradle": "Remove Dodo checkout-android 1.1.0, dodoCallbackScheme placeholders; reassess checkout-only Fragment constraint. Keep ads/UMP and security constraints.",
+    "ios/AudioRelay/ReceiverView.swift": "Remove Dodo import/callback, Pro state/header/paywall/settings, Together invitation gates, license refresh, payment preview/test hooks and associated ad eligibility conditions.",
+    "ios/AudioRelay/BannerAds.swift": "Remove Pro token checks/purchaseChanged; keep Google ads and consent.",
+    "ios/AudioRelay/RelayTransport.swift": "Remove PRO1 and ProAccess; preserve volume and playback protocol.",
+    "ios/AudioRelay/DiscoveryVisual.swift": "Remove paid state; preserve full-screen radial coverage improvement.",
+    "ios/AudioRelay/Info.plist": "Remove only PairIt checkout URL entry/pairitcheckout scheme; preserve pairing and background audio/mic settings.",
+    "mac/WiFiServer.swift": "Remove Pro expiry/token verification and 1-or-4 admission; keep fixed four limit, TLS and mic exclusion.",
+    "windows/PairIt.Core/DesktopSessions.cs": "Remove ProPolicy dependency/expiry/verification; restore Protocol.MaximumReceivers for all. Linux uses this shared core.",
+    "windows/PairIt.Core/RelayServer.cs": "Remove PRO1 entitlement parser/assignment; preserve TLS and mic/volume/playback protocols.",
+    "windows/PairIt.Core/ReceiverSession.cs": "Remove ProExpires only.",
+    "windows/PairIt.ProtocolCheck/Program.cs": "Remove ProAdmissionChecks call only.",
+    "scripts/ReceiverHandoffHarness.swift": "Remove ProAccess stub after transport cleanup.",
+    "scripts/build-mac.sh": "Remove shared Pro compiler inputs, preserve ComputerVolume.",
+    "scripts/verify-feature-gateway.py": "Remove Pro compiler inputs, preserve microphone test correction and volume.",
+    "scripts/generate-ios-project.py": "Remove Dodo package registration and shared Pro inputs; regenerate Xcode project and resolve package lock.",
+    ".github/workflows/ci.yml": "Remove payment config generation/diff checks, ProGrant tests and Node payments job; preserve all nonpayment checks.",
+    "scripts/prepare-play-content.py": "Remove payment privacy section; regenerate privacy outputs.",
+    "android/assets/privacy.txt": "Regenerate without Pro purchases section.",
+    "release/google-play/site/privacy.html": "Regenerate without payment section; deployed copy needs separate verification.",
+    "docs/platform-audit-2026-11-14.json": "Update payment-related features/tests/blockers; retain nonpayment findings.",
+    ".gitignore": "Payment data/secrets entries obsolete only after cleanup; preserve generic secret protection."
+  },
+  "device_purchase_data": {
+    "android": "SharedPreferences pairit_pro: key/grant/checkout/checkout_saved; Keystore alias pairit.purchase.",
+    "ios": "Keychain service dev.bluetoothswitch.pro, accounts purchase and checkout.",
+    "sdk": "Inspect any persisted Dodo SDK checkout state before removing SDK.",
+    "preserve": "Pairing credentials/pins, installation IDs, Android relay preferences, iOS pairing Keychain, Google consent settings.",
+    "warning": "Disabled checkout does not stop valid saved Pro grants suppressing ads; remove exemptions, not just flag."
+  },
+  "dodo_test_resources": {
+    "product": "pdt_0Nrsc6JYw4jIlIU8mlktK",
+    "price": "USD6.99 base; INR349 country override; tax inclusive",
+    "localized_price": "lcp_0Nrsc6KPolzWoSlIIhzhu",
+    "entitlement": "ent_0Nrsc6IP9ySOagsY1kPvV; license_key, active, one activation",
+    "discounts": [
+      "dsc_0NrsgK6XHpf2b99aLSHKp:20%",
+      "dsc_0NrsgK4A04oaGrMt8dEAa:100%"
+    ],
+    "history": "6 delivered license grants; 3 currently activated instances. Related test checkout/payment/customer records exist; do not delete shared customers or unrelated products.",
+    "eventual_cleanup": "Archive/disable PairIt product, entitlement and discounts; revoke PairIt-only credentials; provider historical records may remain.",
+    "live": "No live PairIt configuration created in recorded work; merchant verification request was user initiated. Do not delete whole Dodo account."
+  },
+  "local_runtime_and_artifacts": [
+    ".env.payments.local (credential; contents not printed)",
+    "payments/data/activations.sqlite, -shm, -wal",
+    "artifacts/pro-payments/: signing-private.pem, purchase/grant/session JSON, configs, deploy archives, logs, screenshots, APK and iOS builds",
+    "artifacts/pro-radial-preview/index.html and payment-specific artifacts/pro-* files",
+    "Local Node payment server PID13968,127.0.0.1:8787 (recheck PID/cwd before eventual stop)",
+    "Local Python preview server PID85422,127.0.0.1:8876 (recheck PID/cwd before eventual stop)",
+    "artifacts/release-16 bundles/archives/AAB/APK/DMG contain payment sources; rebuild after removal",
+    "Installed preview apps may retain grants; update/migrate without wiping pairing",
+    "artifacts/release-audit/source-scan includes payment source copies",
+    "Generated iOS build directories contain Dodo SDK caches",
+    "/tmp/pairit-payments.log",
+    "/tmp/implement-pro-radial.py"
+  ],
+  "preserve_unrelated_work": [
+    "AdMob/UMP and existing ad placements",
+    "Android notification fixes and iOS remote playback fixes/tests",
+    "Desktop media controls and volume/mute protocol",
+    "Phone microphone and Linux virtual-sink support",
+    "Tour removal",
+    "Mac startup guidance and styled compact DMG",
+    "Ordinary dotted radial and full-screen coverage",
+    "Pairing TLS authentication and microphone exclusivity",
+    "Build-number increments unless intentionally changed"
+  ],
+  "rollout_notes": [
+    "Do not reset all modified files to Git HEAD.",
+    "Update phones and desktops together: older paid test phones send PRO1; decide whether ignore-only compatibility parsing is needed.",
+    "Free builds first, then retire backend/DNS/keys so installed test versions are not stranded unexpectedly.",
+    "No push, release or store upload authorized by this inventory request."
+  ],
+  "acceptance_checks": [
+    "No checkout SDK, callback scheme, paywall or billing request",
+    "Old Pro data cannot suppress ads",
+    "Four listeners admitted without Pro on Mac/Windows/Linux",
+    "Ad consent and normal ad timing preserved",
+    "Notification and lock-screen resume still work directly",
+    "Pairing/audio/microphone/media-control regressions pass",
+    "Fresh mobile/desktop builds replace obsolete payment builds"
+  ],
+  "backend_components": {
+    "payments/src/server.mjs": "HTTP endpoints, Dodo client, rate limits/security headers; health, pro, complete, checkout begin/claim/acknowledge, activate/refresh/deactivate",
+    "payments/src/checkout.mjs": "Hosted checkout, mobile return, hashed claim secret, server-side verification, replay/expiry handling",
+    "payments/src/licensing.mjs": "License activation/validation/deactivation and signed30-day P256 grants",
+    "payments/src/store.mjs": "SQLite mappings and checkout state",
+    "other_files": [
+      "public/pro.html",
+      "package.json",
+      "package-lock.json",
+      "Dockerfile",
+      ".dockerignore",
+      "compose.yaml",
+      "Caddyfile.fragment",
+      "test/checkout.test.mjs",
+      "test/licensing.test.mjs",
+      "scripts/verify-checkout-integration.mjs",
+      "scripts/verify-license-policy.mjs",
+      "README.md",
+      "PROMO-CODES.md"
+    ],
+    "webhooks": "No webhook handler in deployed service; API reads perform verification. Do not assume any account webhook exists without checking."
+  },
+  "vps_verified": {
+    "host": "159.89.169.228 (droplet)",
+    "deployment": "/opt/pairit-payments/ including source, public copy, secrets, deploy-auto.tar.gz",
+    "container": "pairit-payments-activation-1: running healthy test_mode; unless-stopped",
+    "image": "pairit-payments-activation:latest",
+    "port": "127.0.0.1:8787 ->8787/tcp",
+    "network": "pairit-payments_default",
+    "volume": "pairit-payments_purchases mounted /app/data; backing /var/lib/docker/volumes/pairit-payments_purchases/_data contains activations.sqlite/-wal/-shm",
+    "secrets": [
+      "/opt/pairit-payments/secrets/dodo-api-key",
+      "/opt/pairit-payments/secrets/signing-private.pem"
+    ],
+    "dns": "billing.pairit.kartikey.xyz A159.89.169.228; Vercel record ID not inspected",
+    "proxy": "/etc/caddy/Caddyfile lines47-52: dedicated billing hostname ->127.0.0.1:8787",
+    "certificate_cache": "/var/lib/caddy/.local/share/caddy/certificates/acme-v02.api.letsencrypt.org-directory/billing.pairit.kartikey.xyz/",
+    "deployment_difference": "Backend hashes match local src; deployed pro.html differs from local current copy",
+    "preserve": [
+      "Shared VPS",
+      "Caddy service and unrelated host blocks",
+      "Global ACME account/certificate store",
+      "Docker engine and other projects/volumes/images",
+      "Firewall/SSH setup"
+    ],
+    "cleanup_rule": "Target only owned payment resources; no blanket Docker prune."
+  },
+  "verification_limits": [
+    "Source inventories reflect current working tree; many files combine payment and unrelated edits.",
+    "Dodo read-only inventory used the existing test resources; no live resources changed or removed.",
+    "Vercel DNS record ID and full Dodo historical checkout/customer inventory not enumerated.",
+    "Installed device storage and remote backups were not fully enumerated; cleanup must verify them."
+  ]
+}

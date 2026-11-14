@@ -1,0 +1,87 @@
+{
+  "date": "2026-11-14",
+  "status": "Free-with-ads conversion in progress; publication remains on hold",
+  "publication": {
+    "github_push": false,
+    "github_release": false,
+    "store_upload": false,
+    "website_deployment": false,
+    "reason": "Owner requested no publication; payment support is being removed in favor of free access with ads"
+  },
+  "versions": {
+    "android": "1.1.0 (30)",
+    "ios": "1.1.0 (30)",
+    "mac": "1.1.0 (18)",
+    "windows": "1.1.0-preview.16",
+    "linux": "1.1.0-preview.16"
+  },
+  "feature_parity": {
+    "group_limits": {
+      "mac": "Four authenticated receivers, no license required",
+      "windows": "Four authenticated receivers, no license required",
+      "linux": "Same free four-listener core as Windows",
+      "legacy_clients": "Retired PRO1 suffix ignored; original pairing authentication remains mandatory"
+    },
+    "desktop_control": {
+      "mac": "volume/mute metadata and PCM scaling; pause/resume control protocol",
+      "windows": "WASAPI volume/mute reporting; acknowledged phone playback controls",
+      "linux": "PulseAudio volume/mute reporting; acknowledged phone playback controls",
+      "android": "computer volume display and playback commands",
+      "ios": "computer volume display and playback commands"
+    },
+    "phone_microphone": {
+      "android": "explicit microphone permission/start; TLS MIC1",
+      "ios": "explicit microphone permission/start; TLS MIC1",
+      "mac": "explicit virtual-cable output; exclusive session",
+      "windows": "explicit virtual-cable output; exclusive session",
+      "linux": "new virtual-sink output and settings; bounded PCM queue, flush, exclusive session"
+    },
+    "phone_demo_tour": {
+      "android": "removed",
+      "ios": "removed"
+    },
+    "mac_installer": "Compact styled DMG with dotted blue background and fixed icon positions; build script regenerates layout",
+    "monetization": {
+      "model": "Free with ads; no purchases or paid feature gates",
+      "mobile": "AdMob banner, opening and connection ads retained; notification actions bypass foreground ads",
+      "desktop": "No advertising"
+    }
+  },
+  "checks": {
+    "android_core": "passed",
+    "android_release": "Fresh free-with-ads signed AAB/APK, lint, bundletool and signature verification passed; no payment SDK/classes in final package",
+    "ios_simulator_compile": "Fresh free-with-ads compile passed; never launched",
+    "ios_device_archive": "Fresh free-with-ads generic-device archive passed, unsigned; no export/upload",
+    "mac_universal_compile": "Free-with-ads rebuild passed; no GUI/audio launch; local ad-hoc signature",
+    "mac_gateway": "passed after updating stale test to switch off microphone mode before starting receiver audio",
+    "mac_fanout": "Passed after free-with-ads conversion; four-listener shared capture and volume metadata",
+    "apple_receiver_handoff": "Passed after payment-token removal; desktop controls, volume metadata and background handoff retained",
+    "computer_volume": "PCM scaling, mute and wire validation passed",
+    "windows_x64": "Free-with-ads cross-build and full synthetic protocol suite passed",
+    "linux_x64_arm64": "Free-with-ads cross-builds and parser/identity checks passed",
+    "linux_arm64_runtime": "isolated Docker: real PulseAudio monitor capture, phone microphone PCM, flush/disposal and graphical startup passed",
+    "invitation_crypto_and_sockets": "passed on Java and Swift",
+    "repository": "9 release-tool tests and offline update-feed validation passed",
+    "credential_scan": "Gitleaks source snapshot: no leaks found",
+    "free_with_ads_desktop": "Mac universal build, Windows x64 cross-build/full synthetic protocol suite, Mac TLS gateway, Linux x64/ARM64 builds and core checks passed. Four listeners require no license; retired preview suffix cannot bypass pairing authentication.",
+    "purchase_cleanup": "Android/iOS migration tests preserve pairing and consent; only retired purchase storage deleted"
+  },
+  "remaining_acceptance": [
+    "Physical iPhone UI, audio routes and microphone",
+    "Windows desktop UI and physical audio/microphone",
+    "Fresh Mac driver install and physical volume/mute/microphone acceptance",
+    "Four real phones in one session",
+    "Linux real desktop/audio hardware; automated runtime used a virtual sink",
+    "AdMob privacy-message confirmation"
+  ],
+  "release_blockers": [
+    "Owner publication hold; final free-with-ads builds must be regenerated and verified",
+    "Mac candidate is currently ad-hoc signed; Developer ID signing, driver installer signing, notarization and stapling pending",
+    "iOS archive still needs distribution export/validation before upload"
+  ],
+  "preserved_platform_limits": {
+    "linux": "No native automatic media-player pause or Mac driver/video compensation; manual playback controls and volume reporting supported",
+    "windows": "Uses selected loopback output; does not automatically mute physical speakers",
+    "mac": "Driver-based output differs from loopback capture; this is intentional platform architecture"
+  }
+}

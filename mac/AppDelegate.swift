@@ -47,6 +47,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
         model.retrySharing = { [weak self] in self?.startSharing() }
         model.installOutput = { [weak self] in self?.installOutput() }
+        model.enableMicrophone = { [weak self] enabled in
+            guard let self else { return }
+            if enabled && (self.model.connected || !self.model.sharing || !self.model.microphoneDestinations.contains(where: { $0.id == self.model.microphoneUID })) {
+                self.model.showFeedback("Disconnect listening phones and choose an installed virtual cable first.", isError: true); return
+            }
+            self.model.microphoneEnabled = enabled
+            self.wifi.configureMicrophone(enabled: enabled, uid: self.model.microphoneUID)
+        }
+        model.selectMicrophone = { [weak self] uid in
+            guard let self else { return }
+            self.model.enableMicrophone(false); self.model.microphoneUID = uid
+            UserDefaults.standard.set(uid, forKey: "microphoneDestinationUID")
+        }
         model.openPermissions = {
             NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AudioCapture")!)
         }
@@ -89,6 +102,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         startSharing(announceCompletion: false)
         setupTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             guard let self else { return }
+            self.model.volumeControlsInstalled = SyncOutput.volumeControlsInstalled
+            let destinations = MicrophoneOutput.destinations()
+            if destinations != self.model.microphoneDestinations { self.model.microphoneDestinations = destinations }
+            if self.model.microphoneEnabled && !destinations.contains(where: { $0.id == self.model.microphoneUID }) { self.model.enableMicrophone(false) }
             let installed = SyncOutput.installed
             if self.model.outputInstalled != installed { self.model.outputInstalled = installed }
             let addresses = LocalIdentity.addresses()
@@ -191,7 +208,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             currentWiFi.stop(); currentServer.stop()
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                self.model.sharing = false; self.model.connected = false; self.model.receiverCount = 0; self.model.parkedCount = 0; self.model.outputHeld = false; self.model.computerOutput = false
+                self.model.sharing = false; self.model.microphoneEnabled = false; self.model.connected = false; self.model.receiverCount = 0; self.model.parkedCount = 0; self.model.outputHeld = false; self.model.computerOutput = false
                 self.model.detail = "Sharing stopped. Your Mac is using its normal audio output."
                 self.model.network = "Paused"; self.model.sharingAction = nil
                 self.item.button?.toolTip = "PairIt - AudioRelay · Sharing stopped"
@@ -210,9 +227,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         model.sharingAction = .starting
         model.network = "Starting local Wi-Fi…"
         model.detail = "Getting your Mac ready."
+        model.microphoneEnabled = false
         let previousServer = server, previousWiFi = wifi
         let nextServer = RelayServer()
         let nextWiFi = WiFiServer(upstreamToken: nextServer.gatewayToken)
+        nextWiFi.onMicrophoneStatus = { [weak self, weak nextWiFi] text in
+            guard let self, self.wifi === nextWiFi else { return }
+            self.model.microphoneStatus = text
+        }
         nextWiFi.reserveMicrophone = { [weak nextServer] in nextServer?.reserveMicrophone() ?? false }
         nextWiFi.releaseMicrophone = { [weak nextServer] in nextServer?.releaseMicrophone() }
         server = nextServer; wifi = nextWiFi

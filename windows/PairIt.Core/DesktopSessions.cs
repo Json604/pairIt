@@ -64,6 +64,7 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
             throw new TimeoutException("Phone did not respond. Try again.");
         } finally {lock(state){foreach(var p in targets)p.DesktopRequest=null;}playbackCommands.Release();}
     }
+    internal uint? ComputerVolume { get { lock(state) return source?.ComputerVolume; } }
     internal uint? DesktopPlaybackRequest(ReceiverSession peer) {
         lock(state) return peer.DesktopControls && peer.DesktopRequest is bool playing ? (peer.IntentToken<<8)|2u|(playing?16u:0u) : null;
     }

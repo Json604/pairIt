@@ -8,7 +8,7 @@ OUT = ROOT / 'artifacts/simple-listening/verification'
 OUT.mkdir(parents=True, exist_ok=True)
 binary = OUT / 'receiver-handoff-harness'
 subprocess.run(['xcrun', 'swiftc', '-O', '-swift-version', '5', '-framework', 'AVFAudio', '-framework', 'Network', '-framework', 'Security',
-    *[str(ROOT / p) for p in ('ios/AudioRelay/RelayTransport.swift', 'ios/AudioRelay/RelaySecurity.swift', 'ios/AudioRelay/PairingStore.swift', 'ios/AudioRelay/PairingConfirmation.swift', 'scripts/ReceiverHandoffHarness.swift')], '-o', str(binary)], check=True)
+    *[str(ROOT / p) for p in ('apple/ComputerVolume.swift', 'ios/AudioRelay/RelayTransport.swift', 'ios/AudioRelay/RelaySecurity.swift', 'ios/AudioRelay/PairingStore.swift', 'ios/AudioRelay/PairingConfirmation.swift', 'scripts/ReceiverHandoffHarness.swift')], '-o', str(binary)], check=True)
 reports = []
 with tempfile.TemporaryDirectory(prefix='pairit-receiver-check-') as folder:
     folder = Path(folder)
@@ -103,6 +103,7 @@ with tempfile.TemporaryDirectory(prefix='pairit-receiver-check-') as folder:
                                     line,buffered=buffered.split(b'\n',1);words=line.decode().split(' ')
                                     if words[0]=='PING':
                                         peer.sendall(struct.pack('<IIQQ',0x31435342,status,int(words[1]),time.monotonic_ns()))
+                                        if desktop_controls: peer.sendall(struct.pack('<IIQQ',0x33435342,0x10000|250,0,0))
                                         if desktop_controls and status>>8 in (1,2):
                                             request=(status&0xffffff00)|2|(16 if status>>8==2 else 0)
                                             peer.sendall(struct.pack('<IIQQ',0x32435342,request,0,0))

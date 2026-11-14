@@ -83,12 +83,18 @@ jobs:
           python3 scripts/verify-feature-server.py
           python3 scripts/verify-feature-gateway.py
           python3 scripts/verify-receiver-handoff.py
+          xcrun swiftc ios/AudioRelay/RemotePlaybackCommand.swift scripts/RemotePlaybackCheck.swift -o artifacts/remote-playback-check
+          artifacts/remote-playback-check
           xcrun swiftc ios/AudioRelay/ExternalOutputRecovery.swift scripts/ExternalOutputRecoveryCheck.swift -o artifacts/output-recovery-check
           artifacts/output-recovery-check
           xcrun swiftc -swift-version 5 -framework Security mac/LocalIdentity.swift mac/tests/LocalIdentityCheck.swift -o artifacts/local-identity-check
           artifacts/local-identity-check
           xcrun swiftc -swift-version 5 apple/RelayStyle.swift apple/ReleaseUpdates.swift mac/tests/ReleaseUpdateCheck.swift -o artifacts/release-update-check
           artifacts/release-update-check
+      - name: Computer volume protocol and PCM checks
+        run: |
+          xcrun swiftc apple/ComputerVolume.swift scripts/ComputerVolumeCheck.swift -o artifacts/computer-volume-check
+          artifacts/computer-volume-check
       - name: iOS simulator build
         run: bash scripts/build-ios.sh simulator
 

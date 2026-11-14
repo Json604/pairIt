@@ -7,7 +7,9 @@ protocol RelayCaptureSource: AnyObject {
     func stop()
     func adjustSync(_ milliseconds: Double) throws
     func nextPacket() -> Data?
+    var computerVolume: ComputerVolume? { get }
 }
+extension RelayCaptureSource { var computerVolume: ComputerVolume? { nil } }
 
 /// One capture owner and one ring consumer. Each receiver owns its socket writer.
 /// The lifecycle queue can refresh HAL latency without stopping packet dispatch.
@@ -117,6 +119,14 @@ final class RelayServer {
                 raw.storeBytes(of: sent.littleEndian, toByteOffset: 8, as: UInt64.self)
                 raw.storeBytes(of: AudioConvertHostTimeToNanos(AudioGetCurrentHostTime()).littleEndian, toByteOffset: 16, as: UInt64.self)
             }
+            var volume: Data?
+            if peer.volumeControls, let value = capture?.computerVolume {
+                volume = Data(count: 24)
+                volume!.withUnsafeMutableBytes { raw in
+                    raw.storeBytes(of: UInt32(0x33435342).littleEndian, toByteOffset: 0, as: UInt32.self)
+                    raw.storeBytes(of: value.wireValue.littleEndian, toByteOffset: 4, as: UInt32.self)
+                }
+            }
             var command: Data?
             if peer.desktopControls, let playing = peer.desktopRequest {
                 command=Data(count:24)
@@ -125,8 +135,9 @@ final class RelayServer {
                     raw.storeBytes(of: (UInt32(2 | (playing ? 16 : 0)) | peer.intentToken << 8).littleEndian,toByteOffset:4,as:UInt32.self)
                 }
             }
-            lock.unlock(); peer.enqueue(reply); if let command { peer.enqueue(command) }; return
+            lock.unlock(); peer.enqueue(reply); if let command { peer.enqueue(command) }; if let volume { peer.enqueue(volume) }; return
         }
+        if line == "STATS VOLUME1" { peer.volumeControls = true; lock.unlock(); return }
         if line == "STATS CONTROLS1" { peer.desktopControls=true;lock.unlock();return }
         let words = line.split(separator: " ")
         if line == "OUTPUT COMPUTER" || line == "OUTPUT PHONE" {
@@ -364,6 +375,7 @@ private final class RelayPeer {
     var active = false
     var parked = false
     var phoneInterrupted = false
+    var volumeControls = false
     var desktopControls=false
     var desktopRequest: Bool?
     var resumeOffered = false

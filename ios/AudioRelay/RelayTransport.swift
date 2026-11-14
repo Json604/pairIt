@@ -75,6 +75,7 @@ final class RelayTransport {
     private var outputRequestPing: Int64?
     var pendingComputerOutput: Bool? { requestedComputerOutput }
     private var offeredToken: UInt32 = 0
+    var onComputerVolume: ((ComputerVolume) -> Void)?
     var onDesktopPlayback: ((Bool) -> Void)?
     private var desktopStatus: UInt32 = 0
     private var consumedDesktopRequest: UInt32 = 0
@@ -237,7 +238,7 @@ final class RelayTransport {
             switch state {
             case .ready:
                 self.retry = 0; self.connections += 1; self.lastReceived = RelayClock.nanoseconds
-                self.send(self.mac.token + "\nHELLO " + RelayInstallation.identifier + "\nSTATS CONTROLS1\n")
+                self.send(self.mac.token + "\nHELLO " + RelayInstallation.identifier + "\nSTATS CONTROLS1\nSTATS VOLUME1\n")
                 if let value = self.compensation { self.send("SYNC \(value)\n") }
                 self.onState?("Getting audio ready"); self.startTimer(); self.receive(current)
             case .failed:
@@ -304,6 +305,11 @@ final class RelayTransport {
         guard bytes.count <= 262144 else { return false }
         while bytes.count >= 24 {
             let magic: UInt32 = integer(at: 0)
+            if magic == 0x33435342 {
+                let value: UInt32 = integer(at: 4)
+                guard let volume = ComputerVolume(wireValue: value) else { return false }
+                onComputerVolume?(volume); bytes.removeFirst(24); continue
+            }
             if magic == 0x32435342 {
                 let command: UInt32 = integer(at: 4)
                 if let playing = claimDesktopRequest(command) { onDesktopPlayback?(playing) }

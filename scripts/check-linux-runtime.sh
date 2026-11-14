@@ -6,10 +6,12 @@ DOTNET="${PAIRIT_DOTNET:-dotnet}"
 export NUGET_PACKAGES="$ROOT/artifacts/linux/nuget"
 pulseaudio --start --exit-idle-time=-1
 sink=$(pactl load-module module-null-sink sink_name=pairit_test rate=48000 channels=2)
+mic_sink=$(pactl load-module module-null-sink sink_name=pairit_mic_test rate=48000 channels=2)
 player=''
 cleanup() {
   if [ -n "$player" ]; then kill "$player" 2>/dev/null || true; fi
   pactl unload-module "$sink" || true
+  pactl unload-module "$mic_sink" || true
 }
 trap cleanup EXIT
 pactl set-default-sink pairit_test
@@ -22,4 +24,4 @@ PY
 paplay --device=pairit_test "$ROOT/artifacts/linux/tone.wav" &
 player=$!
 "$DOTNET" run --project "$ROOT/linux/PairIt.Linux.Checks" --no-restore -c Release -- --audio
-xvfb-run -a timeout 20 "$ROOT/artifacts/linux/linux-x64/PairIt" --smoke-test
+xvfb-run -a timeout 20 "$ROOT/artifacts/linux/${PAIRIT_LINUX_RID:-linux-x64}/PairIt" --smoke-test

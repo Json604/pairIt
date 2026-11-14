@@ -31,8 +31,10 @@ static OSStatus Relay_GetPropertyDataSize(AudioServerPlugInDriverRef driver, Aud
         switch (address->mSelector) {
             case kRelayLatency: *size = sizeof(CFNumberRef); return noErr;
             case kAudioObjectPropertyCustomPropertyInfoList: *size = sizeof(AudioServerPlugInCustomPropertyInfo); return noErr;
-            case kAudioObjectPropertyControlList: *size = 0; return noErr;
+            case kAudioObjectPropertyControlList:
+                *size = address->mScope == kAudioObjectPropertyScopeInput ? 0 : 2 * sizeof(AudioObjectID); return noErr;
             case kAudioObjectPropertyOwnedObjects:
+                *size = address->mScope == kAudioObjectPropertyScopeInput ? 0 : 3 * sizeof(AudioObjectID); return noErr;
             case kAudioDevicePropertyStreams:
                 *size = address->mScope == kAudioObjectPropertyScopeInput ? 0 : sizeof(AudioObjectID); return noErr;
         }
@@ -63,8 +65,12 @@ static OSStatus Relay_GetPropertyData(AudioServerPlugInDriverRef driver, AudioOb
             *(AudioServerPlugInCustomPropertyInfo*)data = (AudioServerPlugInCustomPropertyInfo){
                 kRelayLatency, kAudioServerPlugInCustomPropertyDataTypeCFPropertyList, kAudioServerPlugInCustomPropertyDataTypeNone };
             return noErr;
-        case kAudioObjectPropertyControlList: return noErr;
+        case kAudioObjectPropertyControlList:
+            if (needed) { ((AudioObjectID*)data)[0] = kObjectID_Volume_Output_Master; ((AudioObjectID*)data)[1] = kObjectID_Mute_Output_Master; }
+            return noErr;
         case kAudioObjectPropertyOwnedObjects:
+            if (needed) { ((AudioObjectID*)data)[0] = kObjectID_Stream_Output; ((AudioObjectID*)data)[1] = kObjectID_Volume_Output_Master; ((AudioObjectID*)data)[2] = kObjectID_Mute_Output_Master; }
+            return noErr;
         case kAudioDevicePropertyStreams:
             if (needed) *(AudioObjectID*)data = kObjectID_Stream_Output;
             return noErr;

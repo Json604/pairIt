@@ -38,7 +38,7 @@
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_audiorelay._tcp</string>
-        <string>_pairit-phone._tcp</string>
+		<string>_pairit-phone._tcp</string>
 	</array>
 	<key>NSCameraUsageDescription</key>
 	<string>Scan the pairing code shown in PairIt on your computer. No photos or video are saved.</string>
@@ -275,5 +275,7 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>When you choose Start microphone, PairIt sends microphone audio directly to your paired computer. Leaving the microphone screen stops transmission.</string>
 </dict>
 </plist>

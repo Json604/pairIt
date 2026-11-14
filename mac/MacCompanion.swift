@@ -15,6 +15,13 @@ final class MacCompanionModel: ObservableObject {
     @Published var sharingAction: SharingAction?
     @Published var connected = false
     @Published var outputInstalled = SyncOutput.installed
+    @Published var volumeControlsInstalled = SyncOutput.volumeControlsInstalled
+    @Published var microphoneEnabled = false
+    @Published var microphoneStatus = "Microphone mode is off"
+    @Published var microphoneDestinations = MicrophoneOutput.destinations()
+    @Published var microphoneUID = UserDefaults.standard.string(forKey: "microphoneDestinationUID") ?? ""
+    var enableMicrophone: (Bool) -> Void = { _ in }
+    var selectMicrophone: (String) -> Void = { _ in }
     @Published var detail = "Getting your Mac ready."
     @Published var network = "Starting local Wi-Fi…"
     @Published private(set) var pairingCode = ""
@@ -45,7 +52,7 @@ final class MacCompanionModel: ObservableObject {
     var setPhonePlayback: (Bool) -> Void = { _ in }
     var selectOutput: (Bool) -> Void = { _ in }
     var panelWidth: CGFloat { page == 1 ? 500 : 300 }
-    var panelHeight: CGFloat { page == 1 ? 330 : page == 0 ? ((connected || parkedCount > 0) ? 326 : (!outputInstalled || !sharing || connectionFailed ? 240 : 200)) : 440 }
+    var panelHeight: CGFloat { page == 1 ? 330 : page == 0 ? (microphoneEnabled ? 340 : !outputInstalled ? 390 : ((connected || parkedCount > 0) ? 326 : (!sharing || connectionFailed ? 240 : 200)) + (outputInstalled && !volumeControlsInstalled ? 76 : 0)) : 440 }
     var needsAudioPermission: Bool { outputInstalled && detail.hasPrefix("Capture failed") }
     var connectionFailed: Bool { detail.hasPrefix("Couldn’t start") || network.hasPrefix("Wi-Fi unavailable") }
 
@@ -198,8 +205,28 @@ struct MacCompanionView: View {
     private var overview: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(model.macName).font(.system(size: 15, weight: .semibold)).lineLimit(2)
-            if model.needsAudioPermission || model.connectionFailed || !model.outputInstalled || !model.sharing {
+            if model.microphoneEnabled {
+                Text("Phone microphone").font(.system(size: 12, weight: .semibold))
+                Text(model.microphoneStatus).font(.system(size: 11)).foregroundStyle(RelayPalette.secondary)
+                Text("Select your virtual cable as the microphone in your calling app. Start recording explicitly in PairIt on your phone.")
+                    .font(.system(size: 11)).foregroundStyle(RelayPalette.secondary).fixedSize(horizontal: false, vertical: true)
+                Button("Turn off microphone mode") { model.enableMicrophone(false) }.buttonStyle(RelayPrimaryButtonStyle())
+                Button("Pair a phone") { model.navigate(to: 1) }.buttonStyle(RelayQuietButtonStyle())
+            } else if model.needsAudioPermission || model.connectionFailed || !model.outputInstalled || !model.sharing {
                 Text(stateTitle).font(.system(size: 12)).foregroundStyle(RelayPalette.secondary)
+                if !model.outputInstalled {
+                    Text("Your Mac needs a small audio output before your phone can listen.")
+                        .font(.system(size: 12)).foregroundStyle(RelayPalette.secondary).fixedSize(horizontal: false, vertical: true)
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label("Install the audio output", systemImage: "1.circle")
+                        Label("Allow audio capture when asked", systemImage: "2.circle")
+                        Label("Pair your phone and press Start audio", systemImage: "3.circle")
+                    }.font(.system(size: 11)).padding(.vertical, 8)
+                    Text("Installation needs your Mac password and briefly restarts system audio. Pause anything playing first.")
+                        .font(.system(size: 10)).foregroundStyle(RelayPalette.secondary).fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text(stateDetail).font(.system(size: 11)).foregroundStyle(RelayPalette.secondary).fixedSize(horizontal: false, vertical: true)
+                }
                 Button(primaryTitle, action: primaryAction).buttonStyle(RelayPrimaryButtonStyle())
             } else if model.connected || model.parkedCount > 0 {
                 HStack(spacing: 10) {
@@ -231,6 +258,12 @@ struct MacCompanionView: View {
             } else {
                 Text(model.sharingAction == nil ? "No phones connected" : "Connecting…").font(.system(size: 12)).foregroundStyle(RelayPalette.secondary)
                 Button { model.navigate(to: 1) } label: { Label("Pair a phone", systemImage: "qrcode") }.buttonStyle(RelayPrimaryButtonStyle())
+            }
+            if model.outputInstalled && !model.volumeControlsInstalled {
+                Divider()
+                Button("Enable Mac volume keys", action: model.installOutput).buttonStyle(RelayQuietButtonStyle())
+                Text("Update the audio output. Pause playback first; installation briefly restarts system audio.")
+                    .font(.system(size: 10)).foregroundStyle(RelayPalette.secondary).fixedSize(horizontal: false, vertical: true)
             }
         }.padding(.horizontal, 18).padding(.top, 10).padding(.bottom, 14)
     }
@@ -348,15 +381,35 @@ struct MacCompanionView: View {
                         Image(systemName: "speaker.wave.2").foregroundStyle(RelayPalette.blue).frame(width: 28, height: 34)
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Audio output").font(.body.weight(.medium))
-                            Text("Installed").font(.footnote).foregroundStyle(RelayPalette.secondary)
+                            Text(model.volumeControlsInstalled ? "Installed · volume keys ready" : "Update available for volume keys").font(.footnote).foregroundStyle(RelayPalette.secondary)
                         }
                         Spacer(); Image(systemName: "checkmark").foregroundStyle(RelayPalette.secondary)
                     }.padding(.vertical, 12)
                 } else { RelaySettingRow(icon: "speaker.wave.2", title: "Audio output", detail: "Setup required", action: model.installOutput) }
+                if model.outputInstalled && !model.volumeControlsInstalled {
+                    RelaySettingRow(icon: "arrow.down.circle", title: "Update audio output", detail: "Enable Mac volume and mute keys", action: model.installOutput)
+                }
                 Divider().opacity(0.4)
                 RelaySettingRow(icon: "lock.shield", title: "Audio permission", detail: "Manage in System Settings", action: model.openPermissions)
                 Divider().opacity(0.4)
                 RelaySettingRow(icon: "qrcode", title: "Pair a phone") { model.navigate(to: 1) }
+            }
+            Divider().opacity(0.4)
+            VStack(alignment: .leading, spacing: 10) {
+                Text("PHONE MICROPHONE").font(.system(size: 10, weight: .medium)).tracking(0.8).foregroundStyle(RelayPalette.secondary)
+                Text("Use your phone as a microphone for this Mac.").font(.system(size: 12))
+                if model.microphoneDestinations.isEmpty {
+                    Text("Install a compatible virtual audio cable first. PairIt will never send microphone audio to your speakers.").font(.system(size: 11)).foregroundStyle(RelayPalette.secondary)
+                } else {
+                    Picker("Virtual cable", selection: Binding(get: { model.microphoneUID }, set: model.selectMicrophone)) {
+                        Text("Choose a cable").tag("")
+                        ForEach(model.microphoneDestinations) { Text($0.name).tag($0.id) }
+                    }.font(.system(size: 11))
+                    Toggle("Allow phone microphone", isOn: Binding(get: { model.microphoneEnabled }, set: model.enableMicrophone))
+                        .font(.system(size: 12)).disabled(!model.sharing || model.microphoneUID.isEmpty)
+                }
+                Text("Disconnect listening phones before enabling. Then select the cable as your calling app’s input. Nothing records until you start it on the phone.")
+                    .font(.system(size: 10)).foregroundStyle(RelayPalette.secondary)
             }
             Divider().opacity(0.4)
             VStack(alignment: .leading, spacing: 12) {

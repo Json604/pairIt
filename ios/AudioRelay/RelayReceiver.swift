@@ -10,6 +10,7 @@ enum ReceiverPhase {
 }
 
 final class RelayReceiver: ObservableObject {
+    @Published private(set) var computerVolumeText = "";
     @Published private(set) var phase = ReceiverPhase.idle
     @Published private(set) var title = "Ready to listen"
     @Published private(set) var detail = "Choose an output, then listen to your computer."
@@ -29,6 +30,8 @@ final class RelayReceiver: ObservableObject {
     private var transport: RelayTransport?
     private var playback = RelayPlayback()
     private var observers: [NSObjectProtocol] = []
+    private var remoteTargets: [(MPRemoteCommand, Any)] = []
+    private var hasRemoteSession = false
     private var desired = false // Playback queue.
     private var localPlaybackReady = false // Playback queue.
     private var playIntent = false // Main thread; independent of asynchronously published phase.
@@ -157,19 +160,16 @@ final class RelayReceiver: ObservableObject {
             }
         })
         let commands = MPRemoteCommandCenter.shared()
-        commands.pauseCommand.addTarget { [weak self] _ in DispatchQueue.main.async { self?.pauseComputer() }; return .success }
-        commands.playCommand.addTarget { [weak self] _ in
-            guard !AudioPresentationGate.isPresenting else { return .commandFailed }
-            DispatchQueue.main.async { if let self, self.phase.macSelected { self.connect() } }; return .success
+        for (command, intent) in [(commands.playCommand, RemotePlaybackCommand.play),
+                                  (commands.pauseCommand, .pause),
+                                  (commands.togglePlayPauseCommand, .toggle),
+                                  (commands.stopCommand, .pause)] {
+            let target = command.addTarget { [weak self] _ in
+                let perform = { self?.performRemoteCommand(intent) ?? .commandFailed }
+                return Thread.isMainThread ? perform() : DispatchQueue.main.sync(execute: perform)
+            }
+            remoteTargets.append((command, target))
         }
-        commands.togglePlayPauseCommand.addTarget { [weak self] _ in
-            guard !AudioPresentationGate.isPresenting else { return .commandFailed }
-            DispatchQueue.main.async {
-                guard let self, self.phase.macSelected else { return }
-                if self.phase == .paused { self.connect() } else { self.pauseComputer() }
-            }; return .success
-        }
-        commands.stopCommand.addTarget { [weak self] _ in DispatchQueue.main.async { self?.pauseComputer() }; return .success }
         // A live relay has no track queue. Do not reinterpret next/previous as source switches.
         commands.nextTrackCommand.isEnabled = false; commands.previousTrackCommand.isEnabled = false
         #if DEBUG
@@ -179,7 +179,29 @@ final class RelayReceiver: ObservableObject {
         }
         #endif
     }
-    deinit { observers.forEach(NotificationCenter.default.removeObserver) }
+    deinit {
+        observers.forEach(NotificationCenter.default.removeObserver)
+        remoteTargets.forEach { $0.0.removeTarget($0.1) }
+    }
+    private func performRemoteCommand(_ command: RemotePlaybackCommand) -> MPRemoteCommandHandlerStatus {
+        if command == .pause && outputRecovery.waiting {
+            pauseComputer()
+            return .success
+        }
+        let listening = playIntent && !computerOutput && !waitingForComputerOutput
+        switch command.action(paired: pairing.mac != nil, listening: listening) {
+        case .unavailable: return .noSuchContent
+        case .none: return .success
+        case .pause:
+            pauseComputer()
+            return .success
+        case .connect:
+            // Direct service action: no pairing interstitial or app-open ad is requested.
+            guard !AudioPresentationGate.isPresenting, !calls.calls.contains(where: { !$0.hasEnded }) else { return .commandFailed }
+            connect(requestPhoneOutput: true)
+            return playIntent || outputRecovery.waiting ? .success : .commandFailed
+        }
+    }
     func selectOutput(_ value: RelayOutput) {
         cancelOutputRecovery(); interruptedByPhoneAudio = false
         guard value != output else { return }
@@ -201,6 +223,7 @@ final class RelayReceiver: ObservableObject {
             publish(.idle, "Ready to listen", "Close the advertisement, then choose Computer to start audio."); return
         }
         guard let computer = pairing.mac else { publish(.idle, "Connect your computer", "Open PairIt on your computer and scan its pairing code."); return }
+        hasRemoteSession = true
         waitingForComputerOutput = false
         stopPlayback(keepTransport: true)
         let intentTicket = intentGeneration
@@ -272,6 +295,12 @@ final class RelayReceiver: ObservableObject {
                         if UIApplication.shared.applicationState == .active { self.connect(requestPhoneOutput: false) }
                         else { self.parkListening("OUTPUT", phase: .paused, title: "Ready to listen here") }
                     }
+                }
+            }
+            transport.onComputerVolume = { [weak self, weak transport] volume in
+                DispatchQueue.main.async {
+                    guard let self, let transport, self.transport === transport else { return }
+                    self.computerVolumeText = volume.description
                 }
             }
             transport.onDesktopPlayback = { [weak self] playing in
@@ -430,6 +459,8 @@ final class RelayReceiver: ObservableObject {
         parkListening("PAUSE", phase: .phone, title: "Phone audio")
     }
     func disconnect() {
+        hasRemoteSession = false
+        computerVolumeText = ""
         cancelOutputRecovery(); interruptedByPhoneAudio = false
         DispatchQueue.main.async { ConnectionAcknowledgment.shared.disconnected(output: self.output) }
         stopPlayback()
@@ -506,11 +537,14 @@ final class RelayReceiver: ObservableObject {
             if [.playing, .computerOutput, .buffering, .connecting, .reconnecting].contains(phase) && !self.playIntent { return }
             if phase == .playing && (self.computerOutput || self.waitingForComputerOutput) { return }
             self.phase = phase; self.title = title; self.detail = detail
+            if self.hasRemoteSession && [.connecting, .buffering, .playing, .reconnecting, .paused, .headphones, .error].contains(phase) {
+                self.setNowPlaying(paused: !self.playIntent)
+            }
         }
         if Thread.isMainThread { update() } else { DispatchQueue.main.async(execute: update) }
     }
     private func setNowPlaying(paused: Bool = false) {
-        guard !computerOutput, !waitingForComputerOutput, paused || playIntent else { return }
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = [MPMediaItemPropertyTitle: "Computer audio", MPMediaItemPropertyArtist: "PairIt", MPNowPlayingInfoPropertyIsLiveStream: true, MPNowPlayingInfoPropertyPlaybackRate: paused ? 0 : 1]
+        guard hasRemoteSession, !computerOutput, !waitingForComputerOutput, paused || playIntent else { return }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = [MPMediaItemPropertyTitle: title, MPMediaItemPropertyArtist: pairing.mac?.displayName ?? "PairIt", MPNowPlayingInfoPropertyIsLiveStream: true, MPNowPlayingInfoPropertyPlaybackRate: paused ? 0 : 1]
     }
 }

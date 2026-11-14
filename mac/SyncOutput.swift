@@ -37,6 +37,22 @@ final class SyncOutput {
         return value == deviceUID || value.hasPrefix("dev.bluetoothswitch.sync.")
     }
     static var installed: Bool { devices().contains { uid($0) == deviceUID } }
+    static var volumeControlsInstalled: Bool {
+        guard let device = devices().first(where: { uid($0) == deviceUID }) else { return false }
+        var property = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyVolumeScalar, mScope: kAudioObjectPropertyScopeOutput, mElement: kAudioObjectPropertyElementMain)
+        return AudioObjectHasProperty(device, &property)
+    }
+    func computerVolume() -> ComputerVolume? {
+        guard output != 0 else { return nil }
+        var property = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyVolumeScalar, mScope: kAudioObjectPropertyScopeOutput, mElement: kAudioObjectPropertyElementMain)
+        var volume: Float32 = 1, size: UInt32 = 4
+        guard AudioObjectGetPropertyData(output, &property, 0, nil, &size, &volume) == noErr else { return nil }
+        property.mSelector = kAudioDevicePropertyMute
+        var muted: UInt32 = 0
+        guard AudioObjectGetPropertyData(output, &property, 0, nil, &size, &muted) == noErr else { return nil }
+        return ComputerVolume(level: Double(volume), muted: muted != 0)
+    }
+
 
     static func recoverAfterCrash() {
         let all = devices()

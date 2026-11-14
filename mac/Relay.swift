@@ -43,6 +43,10 @@ final class Capture {
     private var format = AudioStreamBasicDescription()
     private var sequence: UInt32 = 0
     private var callbacks = 0
+    private let volumeLock = NSLock()
+    private var cachedVolume: ComputerVolume?
+    private var nextVolumeRead: TimeInterval = 0
+    var computerVolume: ComputerVolume? { volumeLock.lock(); defer { volumeLock.unlock() }; return cachedVolume }
     private let syncOutput = SyncOutput()
     let queue = PacketQueue()
 
@@ -131,7 +135,17 @@ final class Capture {
 }
 
 extension Capture: RelayCaptureSource {
-    func nextPacket() -> Data? { queue.pop() }
+    func nextPacket() -> Data? {
+        let now = ProcessInfo.processInfo.systemUptime
+        if now >= nextVolumeRead {
+            let value = syncOutput.computerVolume()
+            volumeLock.lock(); cachedVolume = value; volumeLock.unlock()
+            nextVolumeRead = now + 0.05
+        }
+        guard var packet = queue.pop() else { return nil }
+        computerVolume?.apply(to: &packet)
+        return packet
+    }
 }
 
 let app = NSApplication.shared

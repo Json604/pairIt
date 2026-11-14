@@ -62,7 +62,7 @@ internal sealed class CompanionWindow : Window
         show.Content = "Pair a phone";
         var actions = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), Height = 36 };
         Grid.SetColumn(disconnect, 1); actions.Children.Add(show); actions.Children.Add(disconnect); panel.Children.Add(actions);
-        disconnect.Click += async (_, _) => { await ChangeAsync(() => sessions!.ConfigureAsync(sessions.CurrentSettings with { SharingEnabled = false })); UpdateButtons(); };
+        disconnect.Click += async (_, _) => { await ChangeAsync(() => sessions!.ConfigureAsync(sessions.CurrentSettings with { SharingEnabled = false, MicrophoneEnabled = false })); UpdateButtons(); };
         foreach (var button in new[] { phone, computer, show, disconnect, settings }) {
             button.Background = Brushes.Transparent; button.Foreground = Brushes.Black; button.CornerRadius = new CornerRadius(9);
             button.Padding = new Thickness(6, 3); button.HorizontalAlignment = HorizontalAlignment.Stretch;
@@ -124,7 +124,7 @@ internal sealed class CompanionWindow : Window
         addresses.ItemsSource = available;
         addresses.SelectedItem = available.Contains(previous) ? previous : available.FirstOrDefault();
     }
-    private string ConnectionStatus(DesktopStatus value) => value.Receivers > 0
+    private string ConnectionStatus(DesktopStatus value) => value.MicrophoneActive ? "Phone microphone active" : sessions?.CurrentSettings.MicrophoneEnabled == true ? "Ready for phone microphone" : value.Receivers > 0
         ? (value.Receivers == 1 ? "Your phone" : $"{value.Receivers} phones") + "\n" +
           (value.ActiveReceivers > 0 && !value.ComputerOutput ? "Listening" : value.ComputerOutput ? "Computer output" : "Paused")
         : "No phones connected";
@@ -151,7 +151,7 @@ internal sealed class CompanionWindow : Window
         var ready = sessions?.Status.Receivers > 0;
         playback.IsVisible=ready;playback.IsEnabled=ready&&!playbackBusy&&!closing;
         if(!playbackBusy)playback.Content=sessions?.Status.ActiveReceivers>0&&sessions?.Status.ComputerOutput!=true?"Pause audio":"Resume audio";
-        outputArea.IsVisible = ready; disconnect.IsVisible = ready || running;
+        outputArea.IsVisible = ready; disconnect.IsVisible = ready || running || sessions?.CurrentSettings.MicrophoneEnabled == true;
         disconnect.IsEnabled = !busy && !closing && sessions != null;
         phone.IsEnabled = computer.IsEnabled = !busy && !closing && running;
         var onComputer = sessions?.Status.ComputerOutput == true;
@@ -193,14 +193,28 @@ internal sealed class CompanionWindow : Window
     private void HideCode() { pairingWindow?.Close(); }
     private void ShowSettings()
     {
-        var dialog = new Window { Title = "Settings", Width = 300, Height = 320, CanResize = false, Background = Brushes.White, WindowStartupLocation = WindowStartupLocation.CenterOwner };
+        var dialog = new Window { Title = "Settings", Width = 330, Height = 520, CanResize = false, Background = Brushes.White, WindowStartupLocation = WindowStartupLocation.CenterOwner };
         var choices = new ComboBox { ItemsSource = outputs.ItemsSource, SelectedItem = outputs.SelectedItem, HorizontalAlignment = HorizontalAlignment.Stretch };
         choices.SelectionChanged += (_, _) => { outputs.SelectedItem = choices.SelectedItem; };
         var apply = new Button { Content = "Apply source" };
         apply.Click += async (_, _) => { if (choices.SelectedItem is AudioOutput selected && sessions != null) await ChangeAsync(() => sessions.ConfigureAsync(sessions.CurrentSettings with { SourceEndpointId = selected.Monitor })); };
         var reload = new Button { Content = "Refresh outputs" }; reload.Click += async (_, _) => { await RefreshAsync(); choices.ItemsSource = outputs.ItemsSource; choices.SelectedItem = outputs.SelectedItem; };
         var update = new Button { Content = "Check for updates" }; update.Click += async (_, _) => { try { var link = await ReleaseUpdates.CheckAsync(); if (link != null) OpenUrl(link); else update.Content = "No update available"; } catch { update.Content = "Check failed. Try again."; } };
-        dialog.Content = new StackPanel { Margin = new Thickness(14), Spacing = 8, Children = { Label("Audio source"), choices, new WrapPanel { Children = { apply, reload } }, Label("Local speakers stay on. Use a virtual output to silence them."), update, PhoneDownloads() } };
+        var virtualOutputs = (outputs.ItemsSource as IEnumerable<AudioOutput> ?? []).Where(o => o.Virtual).ToArray();
+        var micOutputs = new ComboBox { ItemsSource = virtualOutputs, SelectedIndex = virtualOutputs.Length > 0 ? 0 : -1, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var mic = new Button { Content = sessions?.CurrentSettings.MicrophoneEnabled == true ? "Turn off phone microphone" : "Use phone microphone" };
+        mic.Click += async (_, _) => {
+            if (sessions == null) return;
+            if (sessions.CurrentSettings.MicrophoneEnabled) {
+                await ChangeAsync(() => sessions.ConfigureAsync(sessions.CurrentSettings with { MicrophoneEnabled = false }));
+            } else if (micOutputs.SelectedItem is AudioOutput selected) {
+                await ChangeAsync(() => sessions.ConfigureAsync(sessions.CurrentSettings with {
+                    SharingEnabled = false, MicrophoneEnabled = true, MicrophoneEndpointId = selected.Name, VirtualEndpointConfirmed = true }));
+            }
+            mic.Content = sessions.CurrentSettings.MicrophoneEnabled ? "Turn off phone microphone" : "Use phone microphone";
+        };
+        mic.IsEnabled = virtualOutputs.Length > 0 || sessions?.CurrentSettings.MicrophoneEnabled == true;
+        dialog.Content = new StackPanel { Margin = new Thickness(14), Spacing = 8, Children = { Label("Audio source"), choices, new WrapPanel { Children = { apply, reload } }, Label("Local speakers stay on. Use a virtual output to silence them."), Heading("Phone microphone"), micOutputs, mic, new TextBlock { Text = "Choose a virtual sink, then its monitor as the microphone in your calling app. Start capture explicitly on your phone. See START-HERE.txt for setup.", TextWrapping = TextWrapping.Wrap, FontSize = 11 }, update, PhoneDownloads() } };
         dialog.Show(this);
     }
     private Control PhoneDownloads()

@@ -66,10 +66,10 @@ internal sealed class CompanionForm : Form
     private void Render(DesktopStatus value)
     {
         var ready = value.Receivers > 0;
-        status.Text = value.Receivers > 0 ? $"Your phone{(value.Receivers > 1 ? " · +" + (value.Receivers - 1) : "")}\n{(value.ActiveReceivers > 0 && !value.ComputerOutput ? "Listening" : value.ComputerOutput ? "Computer output" : "Paused")}" : "No phones connected";
+        status.Text = value.Receivers > 0 ? $"Your phone{(value.Receivers > 1 ? " · +" + (value.Receivers - 1) : "")}\n{(value.ActiveReceivers > 0 && !value.ComputerOutput ? "Listening" : value.ComputerOutput ? "Computer output" : "Paused")}" : sessions.CurrentSettings.MicrophoneEnabled ? value.MicrophoneActive ? "Phone microphone active" : "Phone microphone ready. Start it on your phone." : "No phones connected";
         playback.Visible=ready;playback.Enabled=ready&&!playbackBusy;
         if(!playbackBusy)playback.Text=value.ActiveReceivers>0&&!value.ComputerOutput?"Pause audio":"Resume audio";
-        outputs.Visible = ready; disconnect.Visible = ready || sessions.CurrentSettings.SharingEnabled;
+        outputs.Visible = ready; disconnect.Visible = ready || sessions.CurrentSettings.SharingEnabled || sessions.CurrentSettings.MicrophoneEnabled;
         phone.Enabled = computer.Enabled = sessions.CurrentSettings.SharingEnabled && !updating;
         PairItAppearance.Select(phone, !value.ComputerOutput); PairItAppearance.Select(computer, value.ComputerOutput);
         PairItAppearance.Select(pair, !ready);
@@ -106,7 +106,7 @@ internal sealed class CompanionForm : Form
     }
     private async Task PairAsync()
     {
-        if (!sessions.CurrentSettings.SharingEnabled)
+        if (!sessions.CurrentSettings.SharingEnabled && !sessions.CurrentSettings.MicrophoneEnabled)
         {
             var available = WindowsAudioEndpoints.List();
             var source = available.FirstOrDefault(x => x.Id == preferences.SourceEndpointId) ?? available.FirstOrDefault();
@@ -136,8 +136,8 @@ internal sealed class CompanionForm : Form
     }
     private void ShowSettings()
     {
-        using var dialog = new Form { Text = "Settings", ClientSize = new Size(300, 300), BackColor = Color.White, Font = Font, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, MinimizeBox = false, StartPosition = FormStartPosition.CenterParent };
-        var panel = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(14) };
+        using var dialog = new Form { Text = "Settings", ClientSize = new Size(320, 580), BackColor = Color.White, Font = Font, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, MinimizeBox = false, StartPosition = FormStartPosition.CenterParent };
+        var panel = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(14) };
         panel.Controls.Add(TextLabel("Audio source"));
         var source = new ComboBox { Width = 266, DropDownStyle = ComboBoxStyle.DropDownList, AccessibleName = "Audio source" };
         foreach (var endpoint in WindowsAudioEndpoints.List()) source.Items.Add(endpoint);
@@ -146,6 +146,22 @@ internal sealed class CompanionForm : Form
         panel.Controls.Add(source);
         var apply = ActionButton("Apply source"); apply.Click += async (_, _) => { if (source.SelectedItem is RenderEndpoint endpoint) await ApplyAsync(preferences with { SourceEndpointId = endpoint.Id }); }; panel.Controls.Add(apply);
         var explanation = TextLabel("Local speakers stay on. Use a virtual output to silence them."); explanation.Width = 266; explanation.Height = 45; panel.Controls.Add(explanation);
+        panel.Controls.Add(TextLabel("Phone microphone"));
+        var cable = new ComboBox { Width = 266, DropDownStyle = ComboBoxStyle.DropDownList, AccessibleName = "Virtual microphone cable" };
+        foreach (var endpoint in WindowsAudioEndpoints.List().Where(value => value.IsVirtualCable)) cable.Items.Add(endpoint);
+        cable.SelectedItem = cable.Items.Cast<RenderEndpoint>().FirstOrDefault(value => value.Id == preferences.MicrophoneEndpointId);
+        panel.Controls.Add(cable);
+        var confirm = new CheckBox { Text = "This is my installed virtual audio cable", Width = 266, Height = 38, Checked = preferences.VirtualEndpointConfirmed };
+        panel.Controls.Add(confirm);
+        var microphone = ActionButton(sessions.CurrentSettings.MicrophoneEnabled ? "Turn off microphone" : "Enable microphone"); microphone.Width = 266;
+        microphone.Click += async (_, _) => {
+            if (sessions.CurrentSettings.MicrophoneEnabled) await ApplyAsync(preferences with { MicrophoneEnabled = false });
+            else if (cable.SelectedItem is RenderEndpoint endpoint && confirm.Checked) await ApplyAsync(preferences with { SharingEnabled = false, MicrophoneEnabled = true, MicrophoneEndpointId = endpoint.Id, VirtualEndpointConfirmed = true });
+            else { status.Text = "Choose and confirm your virtual cable first."; return; }
+            microphone.Text = sessions.CurrentSettings.MicrophoneEnabled ? "Turn off microphone" : "Enable microphone";
+        };
+        panel.Controls.Add(microphone);
+        var microphoneHelp = TextLabel("Enabling stops computer sharing. Select the cable’s recording output in your calling app, then explicitly start the microphone on your phone."); microphoneHelp.Width = 266; microphoneHelp.Height = 76; panel.Controls.Add(microphoneHelp);
         var update = ActionButton(updates.Available == null ? "Check for updates" : "Get update"); update.Click += async (_, _) => { await updates.CheckAsync(); if (updates.Available != null) updates.Open(); else update.Text = "No update available"; }; panel.Controls.Add(update);
         var help = ActionButton("Help"); help.Click += (_, _) => { try { Process.Start(new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory, "README.md")) { UseShellExecute = true }); } catch { } }; panel.Controls.Add(help);
         panel.Controls.Add(PhoneDownloads());

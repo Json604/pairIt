@@ -54,7 +54,8 @@ internal static class Integration
             pendingHandshakes.Add(socket);
         }
         var listeners = new List<Receiver>();
-        for (var index = 0; index < 4; index++) listeners.Add(await connector.ReceiverAsync());
+        for (var index = 0; index < 4; index++)
+            listeners.Add(await connector.ReceiverAsync(index == 0 ? token + " PRO1 retired-preview" : token));
         await UntilAsync(() => sessions.Status.Receivers == 4 && audio.SourceStarts == 1, "four receivers with one capture");
         foreach (var socket in pendingHandshakes) socket.Dispose();
 
@@ -71,6 +72,8 @@ internal static class Integration
         Require(sessions.Status.Receivers == 4, "Fifth peer evicted a healthy receiver.");
         await using (var invalid = await connector.ReceiverAsync(new string('0', 64)))
             await UntilAsync(() => invalid.Closed, "wrong authentication rejected");
+        await using (var invalidLegacy = await connector.ReceiverAsync(new string('0', 64) + " PRO1 retired-preview"))
+            await UntilAsync(() => invalidLegacy.Closed, "retired suffix cannot bypass authentication");
         await using (var unknownRole = await connector.ReceiverAsync(token + " MIC2"))
             await UntilAsync(() => unknownRole.Closed, "unknown microphone protocol rejected without capture");
         using (var busy = await connector.ConnectAsync())

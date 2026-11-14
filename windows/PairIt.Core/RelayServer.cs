@@ -88,6 +88,9 @@ public sealed class RelayServer(X509Certificate2 certificate, string pairingToke
             }, deadline.Token).ConfigureAwait(false);
             var reader = new ProtocolReader(stream);
             var line = await reader.ReadLineAsync(deadline.Token).ConfigureAwait(false);
+            var proIndex = line.IndexOf(" PRO1 ", StringComparison.Ordinal);
+            // Retired preview suffix is ignored; it never bypasses pairing-token validation.
+            if (proIndex >= 0) line = line[..proIndex];
             var microphone = line.EndsWith(" MIC1", StringComparison.Ordinal);
             var pairing = line.EndsWith(" PAIR1", StringComparison.Ordinal);
             var supplied = pairing ? line[..^6] : microphone ? line[..^5] : line;
@@ -170,6 +173,11 @@ public sealed class RelayServer(X509Certificate2 certificate, string pairingToke
             long.TryParse(line.AsSpan(5), NumberStyles.None, CultureInfo.InvariantCulture, out var echoed) && echoed >= 0)
         {
             if (!peer.TryEnqueue(Protocol.ClockReply(echoed, sessions.ClockStatus(peer)))) peer.Close();
+            if (peer.VolumeControls && sessions.ComputerVolume is uint volume) {
+                var frame=Protocol.ClockReply(echoed,volume);
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(frame,0x33435342);
+                if(!peer.TryEnqueue(frame))peer.Close();
+            }
             if(sessions.DesktopPlaybackRequest(peer) is uint request){
                 var frame=Protocol.ClockReply(echoed,request);
                 System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(frame,0x32435342);
@@ -212,6 +220,7 @@ public sealed class RelayServer(X509Certificate2 certificate, string pairingToke
             sessions.SetHello(peer, line[6..]);
             return;
         }
+        if(line=="STATS VOLUME1"){peer.VolumeControls=true;return;}
         if(line=="STATS CONTROLS1"){peer.DesktopControls=true;return;}
         if (line.StartsWith("STATS ", StringComparison.Ordinal)) return;
         throw new InvalidDataException("Unsupported control line.");

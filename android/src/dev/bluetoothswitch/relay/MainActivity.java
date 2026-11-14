@@ -94,7 +94,7 @@ public class MainActivity extends Activity {
     private final Button[] tabs = new Button[3];
 
     @Override public void onCreate(Bundle saved) {
-        super.onCreate(saved); settings=new RelaySettings(this);
+        super.onCreate(saved); LegacyPurchaseCleanup.run(this); settings=new RelaySettings(this);
         setVolumeControlStream(android.media.AudioManager.STREAM_MUSIC);
         getWindow().getDecorView().setSystemUiVisibility(0);
         getWindow().setStatusBarColor(Color.BLACK);getWindow().setNavigationBarColor(Color.BLACK);
@@ -246,7 +246,7 @@ public class MainActivity extends Activity {
         connectionCard.addView(settingRow("Paired computers",settings.paired()?settings.computerName():"None",this::connectionDialog));devicesArea.addView(connectionCard,new LinearLayout.LayoutParams(-1,-2));space(devicesArea,18);
         TextView general=text("GENERAL",10,0xffcccccc,false);general.setLetterSpacing(.12f);devicesArea.addView(general);space(devicesArea,9);
         LinearLayout generalCard=column();generalCard.setPadding(dp(16),dp(2),dp(16),dp(2));generalCard.setBackground(shape(0xfff6f6f8,27,Color.TRANSPARENT));
-        generalCard.addView(settingRow("Quick tour","",()->startActivity(new Intent(this,QuickTourActivity.class))));
+        generalCard.addView(settingRow("Phone microphone","Use on your computer",()->{stopAudioForSettings();startActivity(new Intent(this,MicrophoneActivity.class));}));
         generalCard.addView(settingRow("Help & setup","",()->InformationActivity.open(this,"help")));
         generalCard.addView(settingRow("Privacy","",()->InformationActivity.open(this,"privacy")));
         generalCard.addView(settingRow("More settings","",this::settingsDialog));devicesArea.addView(generalCard,new LinearLayout.LayoutParams(-1,-2));
@@ -305,7 +305,7 @@ public class MainActivity extends Activity {
         if(failed){trustedNearby=false;}
         observedPhase=state.phase;
         boolean connected=settings.paired()&&!failed&&(state.phase!=RelayState.Phase.IDLE)&&(state.phase!=RelayState.Phase.PHONE||RelayService.hasControlConnection());
-        String key=tab+":"+verifyingConnection+":"+state.phase+":"+state.detail+":"+settings.paired()+":"+trustedNearby+":"+settings.output()+":"+RelayService.outputControlSupported+":"+RelayService.computerOutputSelected+":"+inFlight+":"+connected;
+        String key=tab+":"+verifyingConnection+":"+state.phase+":"+state.detail+":"+settings.paired()+":"+trustedNearby+":"+settings.output()+":"+RelayService.outputControlSupported+":"+RelayService.computerOutputSelected+":"+inFlight+":"+connected+":"+RelayService.computerVolume;
         if(key.equals(renderedKey))return;renderedKey=key;
         for(int i=0;i<3;i++){tabs[i].setTextColor(i==tab?INK:0xffbbbbbb);tabs[i].setBackgroundColor(Color.TRANSPARENT);GlassUI.Glyph icon=new GlassUI.Glyph(i==0?"headphones":i==1?"people":"settings",i==tab?INK:0xffbbbbbb);icon.setBounds(0,0,dp(22),dp(22));tabs[i].setCompoundDrawables(null,icon,null,null);}
         moveIndicator(true);
@@ -316,8 +316,8 @@ public class MainActivity extends Activity {
         card.setVisibility(preferences?View.GONE:View.VISIBLE);subtitle.setVisibility(preferences||connected?View.GONE:View.VISIBLE);devicesArea.setGravity(Gravity.CENTER);
         if(preferences)settingsPage();else showDevices(together,connected);
         cardTitle.setText(preferences?"Preferences":together?"Invite a listener":connected?"Audio output":settings.paired()?"Saved computer":"QR pairing");
-        cardDetail.setText(preferences?"Audio, pairing, privacy and updates.":together?"Up to four phones, one computer. Keep Together open on both phones.":connected?"Choose where to listen.":settings.paired()?settings.computerName():"Scan the code on your computer.");
-        cardIcon.setImageDrawable(new GlassUI.Glyph(together?"people":settings.paired()?"laptop":"qr",INK));cardDetail.setVisibility(!together&&connected?View.GONE:View.VISIBLE);
+        cardDetail.setText(preferences?"Audio, pairing, privacy and updates.":together?"Up to four phones, one computer. Keep Together open on both phones.":connected?(RelayService.hasControlConnection()?RelayService.computerVolume:""):settings.paired()?settings.computerName():"Scan the code on your computer.");
+        cardIcon.setImageDrawable(new GlassUI.Glyph(together?"people":settings.paired()?"laptop":"qr",INK));cardDetail.setVisibility(!together&&connected&&RelayService.computerVolume.isEmpty()?View.GONE:View.VISIBLE);
         sourceFrame.setVisibility(!together&&!preferences&&connected?View.VISIBLE:View.GONE);boolean selectedComputer="OUTPUT_COMPUTER".equals(inFlight)||(!"PLAY".equals(inFlight)&&RelayService.computerOutputSelected);moveOutputIndicator(true);phone.setEnabled(RelayService.outputControlSupported&&inFlight==null);mac.setEnabled(inFlight==null);
         primary.setText(preferences?"Open settings":together?(settings.paired()?"Share app":"Connect a computer"):!settings.paired()?"Scan QR code":!connected?"Connect":state.phase==RelayState.Phase.PLAYING?"Pause audio":"Start audio");primary.setEnabled(inFlight==null);primary.setVisibility(!together&&!preferences&&RelayService.computerOutputSelected?View.INVISIBLE:View.VISIBLE);GlassUI.Glyph actionIcon=new GlassUI.Glyph(together?"people":settings.paired()?"headphones":"qr",Color.WHITE);actionIcon.setBounds(0,0,dp(18),dp(18));primary.setCompoundDrawables(actionIcon,null,null,null);primary.setCompoundDrawablePadding(dp(8));
         shortcuts.setVisibility(!together&&!preferences?View.VISIBLE:View.GONE);
@@ -328,7 +328,7 @@ public class MainActivity extends Activity {
         String routeName=selectedRoute==null?"Choose audio output":settings.output()==OutputRoute.SPEAKER?"Phone speaker":selectedRoute.getProductName().toString();
         setShortcut(outputRoute,"Output",settings.output()==OutputRoute.SPEAKER?"phone":"headphones");
         outputRoute.setContentDescription("Output, "+routeName);outputRoute.setVisibility(View.VISIBLE);
-        if(!together&&!preferences&&settings.paired()&&selectedRoute!=null){cardTitle.setText(connected?"Audio output":"Ready to connect");cardDetail.setText(routeName);cardDetail.setVisibility(View.VISIBLE);}
+        if(!together&&!preferences&&settings.paired()&&selectedRoute!=null){cardTitle.setText(connected?"Audio output":"Ready to connect");cardDetail.setText(routeName+(connected&&!RelayService.computerVolume.isEmpty()?" · "+RelayService.computerVolume:""));cardDetail.setVisibility(View.VISIBLE);}
         boolean waitingForAudio=state.phase==RelayState.Phase.BUFFERING&&state.title.equals("Waiting for computer audio");
         boolean starting=!waitingForAudio&&!together&&!preferences&&!RelayService.computerOutputSelected&&(verifyingConnection||"PLAY".equals(inFlight)||state.phase==RelayState.Phase.CONNECTING||state.phase==RelayState.Phase.BUFFERING||state.phase==RelayState.Phase.RECONNECTING);
         boolean pausing=!together&&!preferences&&"MEDIA_PAUSE".equals(inFlight);
@@ -795,7 +795,7 @@ public class MainActivity extends Activity {
     private void space(LinearLayout parent, int height) { parent.addView(new View(this), new LinearLayout.LayoutParams(1, dp(height))); }
     private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
     @Override public void onResume() {
-        super.onResume(); if(!QuickTourActivity.completed(this)){ startActivity(new Intent(this,QuickTourActivity.class)); return; } if (updates != null) updates.checkOnResume(); visible = true; RelayService.restoreControlsNotification(this);
+        super.onResume(); if (updates != null) updates.checkOnResume(); visible = true; RelayService.restoreControlsNotification(this);
         if(bannerAds!=null)bannerAds.resume();confirmedPin="";trustedNearby=false; if(nearby!=null&&tab!=2){if(tab==1)nearby.invitationPort=invitations.start();nearby.start(tab==1);} renderedKey="";
         handler.removeCallbacks(refresh);handler.post(refresh);
         if(appOpeningOpportunity&&!scanningCode&&!PairingInterstitial.isPresenting()&&!AppOpenAds.isPresenting()){

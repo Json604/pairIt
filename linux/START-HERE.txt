@@ -24,7 +24,7 @@ The Phone / Computer switch preserves live phone connections.
 Like the Windows preview, Linux captures an output monitor and does not mute or
 reroute local speakers. To listen silently on the computer, route your apps to
 a virtual output using your system audio tools, then select it in PairIt.
-Paused phones stay paused. There is no automatic player pause, microphone relay,
+Paused phones stay paused. There is no automatic player pause
 or Mac-style video compensation in this Linux preview. Capture timing is
 approximate; hardware listening validation is still needed.
 
@@ -39,3 +39,19 @@ Replace the extracted app files after closing PairIt; keep your user data.
 
 Optional application-menu entry: run ./install-desktop.sh from the extracted
 folder. It points at this folder, so keep the folder in a permanent location.
+
+
+Phone microphone
+----------------
+PairIt can send your phone microphone to an explicitly selected virtual sink.
+It never sends microphone audio to physical speakers.
+Create a temporary PulseAudio/PipeWire virtual cable in your user session:
+  pactl load-module module-null-sink sink_name=pairit_phone_mic sink_properties=device.description=PairIt_Phone_Mic
+Choose PairIt_Phone_Mic under Settings → Phone microphone and enable it.
+Choose its monitor input in your calling/recording app, then explicitly start
+Microphone in the phone's PairIt Settings. Computer sharing and phone microphone
+are mutually exclusive. Disconnect/disable microphone to stop the session.
+The command prints a module number; remove the cable with:
+  pactl unload-module NUMBER
+Never unload a module belonging to another app. If your calling app hides monitor
+inputs, configure a virtual microphone source in your audio server first.

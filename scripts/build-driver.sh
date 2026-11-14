@@ -19,7 +19,7 @@ ditto --norsrc --noextattr "$driver" "$root/Library/Audio/Plug-Ins/HAL/AudioRela
 COPYFILE_DISABLE=1 \
 pkgbuild --root "$root" --scripts mac/driver/installer \
   --component-plist mac/driver/components.plist \
-  --identifier dev.bluetoothswitch.audio-output --version 0.2.0 \
+  --identifier dev.bluetoothswitch.audio-output --version 0.3.0 \
   --install-location / "$output_dir/driver-package/component.pkg"
 productbuild --package "$output_dir/driver-package/component.pkg" "$output_dir/Audio Relay Output.pkg"
 echo "Built $driver and $output_dir/Audio Relay Output.pkg"

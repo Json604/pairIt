@@ -9,8 +9,6 @@ struct ReceiverView: View {
     @EnvironmentObject private var ads: BannerAds
     @Environment(\.scenePhase) private var scenePhase
     @State private var sheet: ReceiverSheet?
-    @AppStorage("quickTourCompleted-v1") private var tourCompleted = false
-    @State private var showingTour = false
     @StateObject private var nearby = NearbyDevices()
     @StateObject private var invitations = ListeningInvitations()
     @AppStorage("soundFeedback") private var soundFeedback = true
@@ -25,6 +23,7 @@ struct ReceiverView: View {
     @State private var tab = 0
     @ScaledMetric(relativeTo: .caption) private var navHeight: CGFloat = 56
     @State private var sharingApp = false
+    @State private var showingMicrophone = false
     @State private var nearbyRequest: NearbyPairingRequest?
     @State private var requestingPairing = false
     @State private var comparisonCode = ""
@@ -49,7 +48,6 @@ struct ReceiverView: View {
                     HStack {
                         HStack(spacing: 7) { PairItMark(tint: .white).frame(width: 24, height: 24); Text("PairIt").font(.system(size: 18, weight: .semibold)) }
                         Spacer()
-
                     }
                     ReleaseUpdateNotice(updates: updates)
                     if tab == 2 { settingsPage }
@@ -78,7 +76,7 @@ struct ReceiverView: View {
     private var observedContent: some View {
         pageContent
             .onReceive(invitations.$prompt) { prompt in
-                if prompt != nil && (sheet != nil || showingTour || sharingApp || AudioPresentationGate.isPresenting || tab != 1 || scenePhase != .active) {
+                if prompt != nil && (sheet != nil || sharingApp || AudioPresentationGate.isPresenting || tab != 1 || scenePhase != .active) {
                     DispatchQueue.main.async { invitations.answer(false) }
                 }
             }
@@ -86,7 +84,7 @@ struct ReceiverView: View {
                 if let mac = pairing.mac, !computers.contains(where: { $0.pin == mac.pin }), receiver.phase == .idle {
                     attemptedPin = nil; pairingReady = false
                 }
-                guard autoReconnect, !showingTour, tourCompleted, tab == 0, sheet == nil, nearbyRequest == nil, scenePhase == .active, !ads.openingScreen, !AudioPresentationGate.isPresenting,
+                guard autoReconnect, tab == 0, sheet == nil, nearbyRequest == nil, scenePhase == .active, !ads.openingScreen, !AudioPresentationGate.isPresenting,
                       receiver.phase == .idle, let mac = pairing.mac, attemptedPin != mac.pin,
                       let device = computers.first(where: { $0.pin == mac.pin }) else { return }
                 confirm(mac, host: pairing.hostOverride ?? device.host)
@@ -100,6 +98,7 @@ struct ReceiverView: View {
                 if phase == .error || phase == .headphones { pairingReady = false; cancelExplicitConnection() }
             }
             .onChange(of: tab) { _, value in if value != 0 { cancelExplicitConnection(); cancelNearbyPairing() }; updateInvitations(active: value == 1 && scenePhase == .active) }
+            .sheet(isPresented: $showingMicrophone) { MicrophoneView(receiver: receiver) }
             .sheet(isPresented: $sharingApp) { AppShareSheet() }
             .safeAreaInset(edge: .bottom, spacing: 8) {
                 VStack(spacing: 8) {
@@ -114,14 +113,12 @@ struct ReceiverView: View {
             .onReceive(Timer.publish(every: 900, on: .main, in: .common).autoconnect()) { _ in if scenePhase == .active { updates.check() } }
             .onAppear {
                 invitations.received = acceptInvitation
-                updates.check(); nearby.start(); if !tourCompleted { showingTour = true } else { prepareOpeningAds() }
+                updates.check(); nearby.start(); prepareOpeningAds()
                 #if DEBUG
+                if ProcessInfo.processInfo.arguments.contains("--preview-microphone") { showingMicrophone = true }
                 if ProcessInfo.processInfo.arguments.contains("--preview-settings") { tab = 2 }
                 if ProcessInfo.processInfo.arguments.contains("--preview-together") { tab = 1; updateInvitations(active: true) }
                 #endif
-            }
-            .fullScreenCover(isPresented: $showingTour) {
-                QuickTour { tourCompleted = true; showingTour = false }.interactiveDismissDisabled()
             }
             .onDisappear { invitations.stop(); nearby.stop(); cancelExplicitConnection(); cancelNearbyPairing(); confirmationTask?.cancel() }
             .onChange(of: scenePhase) { _, phase in
@@ -333,6 +330,10 @@ struct ReceiverView: View {
                 .font(.subheadline).multilineTextAlignment(.center)
             Spacer(minLength: 0)
             VStack(spacing: 12) {
+                if !receiver.computerVolumeText.isEmpty {
+                    Text(receiver.computerVolumeText).font(.caption).foregroundStyle(RelayPalette.secondary)
+                        .accessibilityLabel(receiver.computerVolumeText + ". Phone volume is separate.")
+                }
                 if receiver.supportsOutputControl {
                     HStack(spacing: 4) {
                         playbackDestination("This phone", icon: "iphone", computer: false)
@@ -399,10 +400,9 @@ struct ReceiverView: View {
         }.scrollBounceBehavior(.basedOnSize).presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
     }
     private func prepareOpeningAds() {
-        guard tourCompleted, !showingTour else { return }
         ads.pairingVideo.preload(audioIdle: receiver.audioIdleForAdvertisement)
         ads.appOpen.prepare()
-        ads.appOpen.open { !showingTour && tourCompleted && receiver.audioIdleForAdvertisement && sheet == nil && !sharingApp && !invitations.busy && confirmationTask == nil && nearbyRequest == nil }
+        ads.appOpen.open { receiver.audioIdleForAdvertisement && sheet == nil && !showingMicrophone && !sharingApp && !invitations.busy && confirmationTask == nil && nearbyRequest == nil }
     }
     private func playbackDestination(_ title: String, icon: String, computer: Bool) -> some View {
         RelayOutputChoice(title: title, icon: icon, selected: receiver.computerOutput == computer) {
@@ -484,7 +484,9 @@ struct ReceiverView: View {
             }.font(.system(size: 14)).padding(14).foregroundStyle(RelayPalette.ink).tint(.black).frost(26)
             Text("GENERAL").font(.caption).tracking(1.5)
             VStack(spacing: 8) {
-                Button { showingTour = true } label: { HStack { Text("Quick tour"); Spacer(); Image(systemName: "arrow.right") }.frame(minHeight: 40) }.buttonStyle(RelayControlButtonStyle(scales: false))
+                Button { showingMicrophone = true } label: {
+                    HStack { Text("Phone microphone"); Spacer(); Image(systemName: "mic") }.frame(minHeight: 40)
+                }.buttonStyle(RelayControlButtonStyle(scales: false))
                 Divider()
                 Button { sheet = .settings } label: {
                     HStack { Text("Help & setup"); Spacer(); Image(systemName: "arrow.right") }.frame(minHeight: 40)
@@ -580,7 +582,7 @@ struct ReceiverSettings: View {
                         }.font(.subheadline).foregroundStyle(RelayPalette.secondary).padding(22).frost()
                         VStack(alignment: .leading, spacing: 12) {
                             Label("Local by design", systemImage: "lock.shield").font(.headline).foregroundStyle(RelayPalette.ink)
-                            Text("Audio is encrypted directly between your devices. There are no cloud audio servers or PairIt accounts. A Google AdMob banner and an eligible post-pairing advertisement support the app. Google may process IP-derived location, device identifiers, ad interactions and diagnostics for advertising, measurement and fraud prevention. Live ad requests require the available consent choices; this build requests non-personalized ads and does not request tracking permission. PairIt does not use your microphone. Pairing credentials stay in Keychain. Camera access only scans pairing codes; no photos are saved. Update checks fetch a public release list from GitHub, which receives normal web-request information such as your IP address. No audio, pairing credentials or device identifier is attached.")
+                            Text("Audio is encrypted directly between your devices. There are no cloud audio servers or PairIt accounts. A Google AdMob banner and an eligible post-pairing advertisement support the app. Google may process IP-derived location, device identifiers, ad interactions and diagnostics for advertising, measurement and fraud prevention. Live ad requests require the available consent choices; this build requests non-personalized ads and does not request tracking permission. Optional Phone microphone mode asks for permission and sends microphone audio directly to your paired computer only while its screen is open. No recording is saved. Pairing credentials stay in Keychain. Camera access only scans pairing codes; no photos are saved. Update checks fetch a public release list from GitHub, which receives normal web-request information such as your IP address. No audio, pairing credentials or device identifier is attached.")
                                 .font(.footnote).foregroundStyle(RelayPalette.secondary)
                         }.padding(22).frost()
                         VStack(spacing: 0) {

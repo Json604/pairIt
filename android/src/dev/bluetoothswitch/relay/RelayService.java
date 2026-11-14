@@ -16,6 +16,7 @@ import java.util.concurrent.locks.LockSupport;
 
 /** Playback owns AudioTrack; main thread owns user intent and audio focus. */
 public class RelayService extends Service {
+    static volatile String computerVolume = "";
     private static final String TAG = "AudioRelayLab";
     static volatile RelayState state = new RelayState(RelayState.Phase.IDLE, "Your headphones. Both devices.", "Choose an output on this phone, then listen to your computer.");
     static volatile String diagnostics = "No active session.";
@@ -61,9 +62,10 @@ public class RelayService extends Service {
         @Override public void onAvailable(android.net.Network network) {
             if(liveInstance!=RelayService.this)return;
             if (network.equals(localNetwork)) return;
+            boolean networkChanged = localNetwork != null || !networkAvailable;
             localNetwork = network; networkAvailable = true; networkRevision++;
             if(settings.paired())discovery.start(settings.pin());
-            if(running && (requestedMac || parkedIntent==RelayHandoff.Intent.PHONE)) {
+            if(networkChanged && running && (requestedMac || parkedIntent==RelayHandoff.Intent.PHONE)) {
                 recoverNetwork();
                 if(running && reconnectable())locks.reconnectWindow();
             }
@@ -291,7 +293,7 @@ public class RelayService extends Service {
     private void startWhenReleased(int ticket, long deadline) {
         if (ticket != startTicket || userStopped) return;
         // A rapid pause/play must not revive the previous socket/AudioTrack worker.
-        if (!running && worker != null && worker.isAlive()) {
+        if ((!running && worker != null && worker.isAlive()) || !PhoneAudioSession.availableTo(this)) {
             if (SystemClock.uptimeMillis() >= deadline) {
                 publish(RelayState.Phase.ERROR, "Audio is still stopping", "Wait a moment, then choose Computer again.");
                 stopSelf(); return;
@@ -306,13 +308,19 @@ public class RelayService extends Service {
             publish(RelayState.Phase.ERROR, "Connect your computer", "Paste a pairing code from the desktop companion.");
             stopSelf(); return;
         }
-        if (running && requestedMac && focusGranted) return;
+        if (running && requestedMac && focusGranted && worker != null && worker.isAlive()) return;
         if (userStopped) return;
         RelayHandoff current = handoff;
         selectedOutput = settings.output();
         interactiveMode = settings.interactive(); profileReady = false; timingProfileKey = "";
         sessionPin = settings.pin(); sessionOverride = settings.overrideHost();
         AudioDeviceInfo chosenOutput=selectedOutput.find(audio,settings.outputDeviceId());
+        // Device IDs are temporary: a saved headset can receive a new ID after reconnect/reboot.
+        // Only an explicit listen request may select another available device in the saved category.
+        if (chosenOutput == null && selectPhoneOutput) {
+            chosenOutput = selectedOutput.find(audio);
+            if (chosenOutput != null) settings.output(selectedOutput, chosenOutput.getId());
+        }
         if (chosenOutput == null && selectedOutput!=OutputRoute.SPEAKER && settings.autoReconnect()) {waitForExternalOutput();return;}
         if (chosenOutput == null) {
             publish(RelayState.Phase.HEADPHONES, "Output unavailable", "Connect " + selectedOutput.label.toLowerCase(Locale.ROOT) + ", or choose another output in Settings.");
@@ -361,7 +369,7 @@ public class RelayService extends Service {
         mediaSession.setActive(true);
         settings.controlsSource("computer");
         publish(RelayState.Phase.CONNECTING, "Connecting to " + settings.computerName(), "Keep the desktop companion open.");
-        if (!running) {
+        if (!running || worker == null || !worker.isAlive()) {
             running = true; main.removeCallbacks(renewLocks);main.removeCallbacks(connectionWatchdog); main.post(renewLocks);
             worker = new Thread(this::receive, "relay-playback"); worker.start();
             main.post(connectionWatchdog);
@@ -592,11 +600,16 @@ public class RelayService extends Service {
     }
 
     private void playSession(Socket connection) throws Exception {
+        computerVolume = "";
         PcmInbox inbox = new PcmInbox();
         RelayHandoff control = handoff;
         inbox.onHeartbeat = () -> lastTrafficAt=SystemClock.elapsedRealtime();
         inbox.onControlStatus = value -> controlStatus(connection, control, value);
         inbox.onDesktopRequest = value -> desktopPlaybackRequest(connection,control,value);
+        inbox.onComputerVolume = value -> main.post(() -> {
+            if (socket != connection) return;
+            computerVolume = (value & 0x10000) != 0 ? "Computer muted" : "Computer volume · " + Math.round((value & 0x3FF) / 10f) + "%";
+        });
         InputStream input = connection.getInputStream();
         Thread reader = new Thread(() -> inbox.read(input), "relay-network"); reader.start();
         AudioTrack track = null;
@@ -790,7 +803,7 @@ public class RelayService extends Service {
             int sentSync = -1, pings = 0;
             try {
                 OutputStream output = connection.getOutputStream();
-                output.write(("HELLO " + settings.installationId() + "\nSTATS CONTROLS1\n").getBytes(StandardCharsets.US_ASCII)); output.flush();
+                output.write(("HELLO " + settings.installationId() + "\nSTATS CONTROLS1\nSTATS VOLUME1\n").getBytes(StandardCharsets.US_ASCII)); output.flush();
                 while (running && socket == connection) {
                     int sync = profileReady ? settings.profileCompensation(activeProfileKey) : -1;
                     String message = control.nextCommand() + "PING " + System.nanoTime() + "\n";
@@ -804,13 +817,14 @@ public class RelayService extends Service {
     }
     private Notification notification() {
         PendingIntent open = PendingIntent.getActivity(this, 0, new Intent(this, MainActivity.class), PendingIntent.FLAG_IMMUTABLE);
+        NotificationPlayback controls = new NotificationPlayback(state, requestedMac, computerOutputSelected);
         boolean paused = !requestedMac || computerOutputSelected;
-        PendingIntent playback = PendingIntent.getForegroundService(this, 3, new Intent(this, RelayService.class).setAction(paused ? "PLAY" : "MEDIA_PAUSE"), PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        PendingIntent playback = PendingIntent.getForegroundService(this, 3, new Intent(this, RelayService.class).setAction(controls.action), PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         PendingIntent phone = PendingIntent.getForegroundService(this, 1, new Intent(this, RelayService.class).setAction("OUTPUT_COMPUTER"), PendingIntent.FLAG_IMMUTABLE);
         PendingIntent stop = PendingIntent.getService(this, 2, new Intent(this, RelayService.class).setAction("STOP"), PendingIntent.FLAG_IMMUTABLE);
         return PlaybackNotification.build(this, settings.computerName(),
-                computerOutputSelected ? "Playing on computer" : paused ? "Audio paused" : state.phase == RelayState.Phase.PLAYING ? "Playing on phone" : state.title,
-                paused, computerOutputSelected, open, playback, phone, stop);
+                controls.status, controls.label,
+                paused, open, playback, outputControlSupported && socket != null ? phone : null, stop);
     }
     @android.annotation.SuppressLint("UnspecifiedImmutableFlag")
     private void setLegacyMediaReceiver() {
@@ -825,15 +839,15 @@ public class RelayService extends Service {
         if (!saved.paired() || saved.controlsSource().isEmpty()) return;
         NotificationManager manager = context.getSystemService(NotificationManager.class);
         manager.createNotificationChannel(new NotificationChannel("relay", context.getString(R.string.app_name), NotificationManager.IMPORTANCE_LOW));
-        boolean paused = "paused".equals(saved.controlsSource());
+        NotificationPlayback controls = new NotificationPlayback(state, false, false);
         PendingIntent computer = PendingIntent.getForegroundService(context, 11, new Intent(context, RelayService.class).setAction("PLAY"), PendingIntent.FLAG_IMMUTABLE);
         PendingIntent end = PendingIntent.getBroadcast(context, 12, new Intent(context, RelayControlsReceiver.class).setAction("DISCONNECT"), PendingIntent.FLAG_IMMUTABLE);
         PendingIntent open = PendingIntent.getActivity(context, 0, new Intent(context, MainActivity.class), PendingIntent.FLAG_IMMUTABLE);
         manager.notify(1, new Notification.Builder(context, "relay").setSmallIcon(R.drawable.ic_notification)
                 .setContentTitle(saved.computerName())
-                .setContentText(paused ? "Paused" : "Ready to listen")
+                .setContentText(controls.status)
                 .setContentIntent(open).setOnlyAlertOnce(true).setOngoing(true)
-                .addAction(new Notification.Action.Builder(null, paused ? "Resume" : "Start audio", computer).build())
+                .addAction(new Notification.Action.Builder(null, controls.label, computer).build())
                 .addAction(new Notification.Action.Builder(null, "Disconnect", end).build()).build());
     }
     @android.annotation.SuppressLint("NotificationPermission")
@@ -844,7 +858,7 @@ public class RelayService extends Service {
         main.post(() -> {
             if(phase==RelayState.Phase.RECONNECTING||phase==RelayState.Phase.ERROR||phase==RelayState.Phase.HEADPHONES)endListeningFeedback();
             else if(phase==RelayState.Phase.PLAYING&&state.phase==RelayState.Phase.PLAYING){automaticOutputAttempts=0;listeningFeedback.audioStarted();acknowledgeConnection(connections,0);}
-            updateMediaState();if (mediaSession != null && (running || state.phase == RelayState.Phase.PAUSED)) getSystemService(NotificationManager.class).notify(1, notification()); });
+            updateMediaState();if (mediaSession != null && liveInstance == this) getSystemService(NotificationManager.class).notify(1, notification()); });
     }
     private void endListeningFeedback() {
         if(listeningFeedback.disconnected())ConnectionChime.disconnected(this,settings);

@@ -6,7 +6,7 @@ import os, hashlib, json, secrets, socket, ssl, struct, subprocess, tempfile, ti
 ROOT=Path(__file__).resolve().parent.parent
 OUT=ROOT/os.environ.get('PAIRIT_VERIFY_OUTPUT','artifacts/feature-preview/verification');OUT.mkdir(parents=True,exist_ok=True)
 binary=OUT/'feature-gateway-harness'
-sources=['mac/RelayServer.swift','mac/WiFiServer.swift','mac/LocalIdentity.swift','mac/MicrophoneOutput.swift','mac/SyncOutput.swift','scripts/FeatureServerHarness.swift','scripts/FeatureGatewayHarness.swift']
+sources=['apple/ComputerVolume.swift', 'mac/RelayServer.swift','mac/WiFiServer.swift','mac/LocalIdentity.swift','mac/MicrophoneOutput.swift','mac/SyncOutput.swift','scripts/FeatureServerHarness.swift','scripts/FeatureGatewayHarness.swift']
 subprocess.run(['xcrun','swiftc','-O','-swift-version','5','-D','GATEWAY','-framework','CoreAudio','-framework','AVFAudio','-framework','AudioToolbox','-framework','Network','-framework','Security',*[str(ROOT/s) for s in sources],'-o',str(binary)],check=True)
 checks=[]
 def require(value,name):
@@ -130,8 +130,10 @@ with tempfile.TemporaryDirectory(prefix='pairit-synthetic-identity-') as directo
             command('disable');require(closed(s),'Desktop revoke closes active mic and flushes sink')
         command('bad-output');time.sleep(.05)
         with connect(token+' MIC1') as s:require(line(s)==b'ERR OUTPUT\n','Unavailable endpoint never starts mic session')
-        command('enable');time.sleep(.05)
-        with connect(token) as receiver:
+        command('disable');time.sleep(.05)
+        with connect('0'*64+' PRO1 retired-preview') as rejected:
+            require(closed(rejected),'Retired preview suffix cannot bypass pairing authentication')
+        with connect(token+' PRO1 retired-preview') as receiver:
             receiver.sendall(b'ACTIVE 1\nPING 1234567\n')
             seen_pcm=seen_clock=False
             for _ in range(20):
@@ -140,9 +142,9 @@ with tempfile.TemporaryDirectory(prefix='pairit-synthetic-identity-') as directo
                 elif magic==0x31415342:read(receiver,frames*4);seen_pcm|=frames>0
                 else:raise AssertionError('Framing mismatch')
                 if seen_pcm and seen_clock:break
-            require(seen_pcm and seen_clock,'Legacy receiver auth and PCM/clock stream work over TLS')
-            with connect(token+' MIC1') as s:require(line(s)==b'ERR BUSY\n','Mic cannot disrupt active desktop receiver')
-        time.sleep(.3)
+            require(seen_pcm and seen_clock,'Retired preview suffix is ignored; authenticated receiver gets PCM/clock over TLS')
+            with connect(token+' MIC1') as s:require(line(s)==b'ERR DISABLED\n','Disabled mic cannot disrupt active desktop receiver')
+        time.sleep(.3);command('enable');time.sleep(.05)
         with connect(token+' MIC1') as s:
             require(line(s)==b'OK MIC1 48000\n','Mic admitted after last receiver cleanup')
             s.settimeout(4);require(closed(s),'Idle mic input expires and releases sink')

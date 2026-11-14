@@ -180,11 +180,11 @@ Preview 13 includes phone-audio interruption recovery across network changes,
 acknowledged desktop Pause audio / Resume audio controls with bounded loading
 feedback, and matching controls on Android and iOS. Desktop commands are negotiated
 with compatible receivers; older phones continue using their existing controls.
-Android and iOS include the replayable interactive tutorial, shared native UI
-components, and the same nearby-phone orbit layout in the tutorial and Together.
+Android and iOS open directly into Connect. The demo tour and its Settings entry
+have been removed. Shared native UI components and the nearby-phone orbit remain.
 
 Available phones are PairIt devices advertising while Together is open on the
-reachable local network. Tutorial phones are samples, not discovered devices.
+reachable local network.
 Windows/Linux are build- and protocol-tested; physical runtime acceptance and
 physical iPhone testing remain separate from those checks. GitHub preview releases
 do not update Google Play or App Store installations.

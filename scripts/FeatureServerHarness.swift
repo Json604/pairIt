@@ -15,6 +15,7 @@ final class Capture: RelayCaptureSource {
     static var failNextStart = false
     static var audible = false
     static var adjustments: [Double] = []
+    var computerVolume: ComputerVolume? { ComputerVolume(level: 0.25, muted: false) }
     private var nextTime: UInt64 = 0
     private var sequence: UInt32 = 0
     func start() throws {

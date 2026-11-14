@@ -4,6 +4,7 @@ public sealed record SourcePacket(int Rate, int Frames, long FirstFrameNanosecon
 
 public interface ISystemAudioSource : IAsyncDisposable
 {
+    uint? ComputerVolume => null;
     Task StartAsync(Action<SourcePacket> received, Action<string> failed, CancellationToken cancellation);
 }
 

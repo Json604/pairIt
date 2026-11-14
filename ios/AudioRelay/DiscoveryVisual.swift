@@ -16,7 +16,7 @@ struct DiscoveryVisual: View {
         let origin = CGPoint(x: size.width * center.x, y: size.height * center.y)
         let limit: CGFloat = hypot(size.width, size.height)
         guard limit > 0 else { return }
-        for ring in 1...28 {
+        for ring in 1...max(28, Int(ceil(limit / 25))) {
             let radius: CGFloat = CGFloat(ring) * 25
             let count: Int = max(12, Int(radius / 7))
             let phase: Double = time * 3.5 - Double(radius) / 90

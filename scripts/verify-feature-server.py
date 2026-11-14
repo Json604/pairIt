@@ -8,7 +8,7 @@ OUT = ROOT / os.environ.get('PAIRIT_VERIFY_OUTPUT', 'artifacts/feature-preview/v
 OUT.mkdir(parents=True, exist_ok=True)
 binary = OUT / 'feature-server-harness'
 subprocess.run(['xcrun','swiftc','-O','-swift-version','5','-framework','CoreAudio',
-                str(ROOT/'mac/RelayServer.swift'),str(ROOT/'scripts/FeatureServerHarness.swift'),'-o',str(binary)],check=True)
+                str(ROOT/'apple/ComputerVolume.swift'),str(ROOT/'mac/RelayServer.swift'),str(ROOT/'scripts/FeatureServerHarness.swift'),'-o',str(binary)],check=True)
 with socket.socket() as reserve:
     reserve.bind(('127.0.0.1',0)); port=reserve.getsockname()[1]
 process=subprocess.Popen([str(binary),str(port)],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,bufsize=1)
@@ -30,8 +30,8 @@ def wait_for(predicate,timeout=3):
 class Client:
     def __init__(self,number,read=True):
         self.socket=socket.create_connection(('127.0.0.1',port),timeout=2)
-        self.socket.settimeout(3);self.packets={};self.clocks=0;self.status=0;self.desktop=0;self.error=None;self.running=True
-        self.send('AUTH '+gateway_token+'\nHELLO '+format(number,'032x')+'\nSTATS CONTROLS1\nACTIVE 1\n')
+        self.socket.settimeout(3);self.packets={};self.clocks=0;self.status=0;self.desktop=0;self.volume=None;self.error=None;self.running=True
+        self.send('AUTH '+gateway_token+'\nHELLO '+format(number,'032x')+'\nSTATS CONTROLS1\nSTATS VOLUME1\nACTIVE 1\n')
         if read:
             self.reader=threading.Thread(target=self.run,daemon=True);self.reader.start()
         self.pinger=threading.Thread(target=self.ping,daemon=True);self.pinger.start()
@@ -52,6 +52,7 @@ class Client:
         try:
             while self.running:
                 header=self.read(24);magic,seq,rate,frames,stamp=struct.unpack('<IIIIQ',header)
+                if magic==0x33435342:self.volume=seq;continue
                 if magic==0x32435342:self.desktop=seq;continue
                 if magic==0x31435342:self.clocks+=1;self.status=seq;continue
                 assert magic==0x31415342 and rate in(44100,48000) and frames<=8192
@@ -84,6 +85,7 @@ try:
     require(all(len({c.packets[s] for c in clients})==1 for s in shared),'Identical timestamps and PCM sizes across receivers')
     require(all(c.clocks>=3 and c.error is None for c in clients),'PCM and clock responses stay framed on every connection')
     stats=json.loads(command('stats'))
+    require(all(c.volume==250 for c in clients),'Computer volume metadata reaches all negotiated receivers')
     require(stats['starts']==1,'One shared capture for four receivers')
     require(stats['adjustments']==[610],'Secondary SYNC cannot change primary timing')
     require(wait_for(lambda:all(c.status & 128 for c in clients)),'Computer output controls are advertised')

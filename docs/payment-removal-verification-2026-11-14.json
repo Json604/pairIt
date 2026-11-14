@@ -1,0 +1,43 @@
+{
+  "status": "Payment implementation/runtime removed and automated checks complete; Dodo API-key provider revocation pending user",
+  "published": false,
+  "apps": {
+    "android": "No Pro UI/gates/ad exemptions or Dodo SDK; scoped purchase cleanup; core tests, preview APK, signed release AAB/APK/lint/bundle verification pass; final DEX/manifest scan has no Dodo/Pro classes or checkout scheme",
+    "ios": "Simulator compile and generic device archive passed; archive unsigned (CODE_SIGNING_ALLOWED=NO), no export/upload. Final binary/framework/Info.plist scan has no Dodo/Pro classes or callback scheme.",
+    "mac": "Universal build, secure TLS gateway, four-listener fanout pass; local ad-hoc signed",
+    "windows": "x64 build and full synthetic protocol suite pass",
+    "linux": "x64/ARM64 builds and core checks pass",
+    "shared_ios_transport": "Handoff/desktop playback/reconnect/pairing regressions pass",
+    "purchase_cleanup_tests": "Android fake-store and iOS fake-Security tests pass: only retired purchase data removed, pairing/consent preserved; repeated cleanup safe."
+  },
+  "payment_backend": {
+    "local_source_runtime_secrets": "Removed payments/, env key file, payment SQLite, signing keys, local servers and payment preview artifacts",
+    "vps": "Dedicated container/image/network/volume/deployment/secrets/Caddy hostname/TLS certificate removed; port8787 closed",
+    "shared_services": "Caddy active;3 unrelated running containers retained original IDs and running state",
+    "dns": "Vercel billing.pairit A record removed; unrelated DNS unchanged",
+    "dodo_test": "Product and localized price archived; entitlement soft-deleted;2discounts deleted;6licenses disabled and verified",
+    "pending": "Dodo test API-key revocation at provider. Tools lack API-key revocation; browser host unavailable. Local/server copies deleted; user asked to revoke."
+  },
+  "intentional_remaining_references": [
+    "LegacyPurchaseCleanup deletes only retired purchase data; never pairing or consent",
+    "Desktop ignore-only PRO1 suffix compatibility authenticates original token, grants no premium rights",
+    "Historical audit inventories document removed resources"
+  ],
+  "preserved": [
+    "Four listeners free",
+    "AdMob and UMP consent",
+    "Notification/lock-screen direct playback with no in-app ad step",
+    "Microphone support",
+    "Computer playback/volume controls",
+    "Tour removal",
+    "Dotted design and DMG/startup work",
+    "TLS pairing"
+  ],
+  "limits": [
+    "No Moto connected: fresh build not installed or hardware-tested",
+    "No physical iPhone test; simulator not launched per user request",
+    "Existing Dodo historical payment/customer records retained by provider",
+    "No GitHub/store/site publication",
+    "Physical audio/hardware acceptance remains separate from compilation and synthetic tests"
+  ]
+}

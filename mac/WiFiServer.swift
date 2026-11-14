@@ -94,7 +94,12 @@ final class WiFiServer {
             guard let self, !self.stopped, self.peers.count < 12 else { connection.cancel(); return }
             let id = UUID()
             let peer = WiFiPeer(connection: connection, token: self.config["token"]!, queue: self.queue, upstreamPort: self.upstreamPort, upstreamToken: self.upstreamToken)
-            peer.onAuthenticated = { [weak peer] in peer?.connectUpstream() }
+            peer.onAuthenticated = { [weak self, weak peer] in
+                guard let self, let peer else { return }
+                guard !self.microphoneEnabled else { peer.stop(); return }
+                guard self.peers.values.filter({ $0.admittedReceiver }).count < 4 else { peer.stop(); return }
+                peer.admittedReceiver = true; peer.connectUpstream()
+            }
             peer.onPairingConfirmed = { [weak self] in self?.onPairingConfirmed?() }
             peer.onPairingRequest = { [weak self, weak peer] nonce in
                 guard let self, let peer else { return }
@@ -253,6 +258,7 @@ private final class WiFiPeer {
     let queue: DispatchQueue
     let upstreamPort: UInt16
     let upstreamToken: String
+    var admittedReceiver = false
     var onAuthenticated: (() -> Void)?
     var onPairingConfirmed: (() -> Void)?
     var onClose: (() -> Void)?
@@ -313,7 +319,12 @@ private final class WiFiPeer {
                 let mic = line.suffix(suffix.count) == suffix
                 let pairingSuffix = Data(" PAIR1".utf8)
                 let pairing = line.suffix(pairingSuffix.count) == pairingSuffix
-                let supplied = mic ? line.dropLast(suffix.count) : pairing ? line.dropLast(pairingSuffix.count) : line
+                var supplied = mic ? line.dropLast(suffix.count) : pairing ? line.dropLast(pairingSuffix.count) : line
+                if !mic && !pairing, let text = String(data: line, encoding: .utf8), let range = text.range(of: " PRO1 ") {
+                    supplied = Data(text[..<range.lowerBound].utf8)
+                    // Older preview phones append this retired suffix. It grants no access;
+                    // the original pairing token below must still match exactly.
+                }
                 let expected = Data(self.token.utf8)
                 var difference = UInt8(supplied.count == expected.count ? 0 : 1)
                 if supplied.count == expected.count { for (a, b) in zip(supplied, expected) { difference |= a ^ b } }

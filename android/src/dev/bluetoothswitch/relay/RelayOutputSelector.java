@@ -5,7 +5,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.view.*;
 import android.widget.*;
 
-/** The same bounded output highlight in the live app and the tutorial. */
+/** Bounded output highlight for the listening controls. */
 final class RelayOutputSelector extends FrameLayout {
     final Button phone,computer;
     private final View indicator;

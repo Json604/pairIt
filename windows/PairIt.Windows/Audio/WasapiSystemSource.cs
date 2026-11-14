@@ -11,6 +11,8 @@ internal sealed class WasapiSystemSource(string endpointId) : ISystemAudioSource
     private readonly TaskCompletionSource finished = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private Thread? worker;
     private bool disposed;
+    private int computerVolume = -1;
+    public uint? ComputerVolume => Volatile.Read(ref computerVolume) is var value && value >= 0 ? (uint)value : null;
 
     public async Task StartAsync(Action<SourcePacket> received, Action<string> failed, CancellationToken cancellation)
     {
@@ -39,7 +41,7 @@ internal sealed class WasapiSystemSource(string endpointId) : ISystemAudioSource
             var capture = client.AudioCaptureClient;
             client.Start();
             ready.TrySetResult();
-            try { ReadPackets(capture, format, signal, received); }
+            try { ReadPackets(capture, format, signal, received, device); }
             finally { client.Stop(); client.Reset(); }
         }
         catch (Exception error)
@@ -51,8 +53,9 @@ internal sealed class WasapiSystemSource(string endpointId) : ISystemAudioSource
         finally { finished.TrySetResult(); }
     }
 
-    private void ReadPackets(AudioCaptureClient capture, CaptureFormat format, AutoResetEvent signal, Action<SourcePacket> received)
+    private void ReadPackets(AudioCaptureClient capture, CaptureFormat format, AutoResetEvent signal, Action<SourcePacket> received, MMDevice device)
     {
+        long nextVolumeRead = 0;
         long? expectedPosition = null;
         long previousTimestamp = 0;
         var timestampFailures = 0;
@@ -62,6 +65,14 @@ internal sealed class WasapiSystemSource(string endpointId) : ISystemAudioSource
         {
             // Timeout polling also covers endpoints with unreliable event notifications.
             WaitHandle.WaitAny(signals, 20);
+            if (Environment.TickCount64 >= nextVolumeRead) {
+                try {
+                    var control = device.AudioEndpointVolume;
+                    var value = (int)Math.Round(Math.Clamp(control.MasterVolumeLevelScalar, 0, 1) * 1000) | (control.Mute ? 0x10000 : 0);
+                    Volatile.Write(ref computerVolume, value);
+                } catch (COMException) { Volatile.Write(ref computerVolume, -1); }
+                nextVolumeRead = Environment.TickCount64 + 200;
+            }
             while (!lifetime.IsCancellationRequested && capture.GetNextPacketSize() > 0)
             {
                 var pointer = capture.GetBuffer(out var frames, out var flags, out var position, out var qpc100ns);

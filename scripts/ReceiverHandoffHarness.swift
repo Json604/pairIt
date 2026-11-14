@@ -48,13 +48,14 @@ enum RelayPlaybackMode { case reliable, interactive }
             transport.start()
         }
         if config["desktopControls"] as? Bool == true {
-            var requests = 0
+            var requests = 0, volumes = 0
+            queue.async { transport.onComputerVolume = { volume in if volume.level == 0.25 && volume.muted { volumes += 1 } else { violations += 1 } } }
             queue.async { transport.onDesktopPlayback = { playing in
                 requests += 1
                 if playing { transport.resume() } else { transport.park("PAUSE") }
             } }
             queue.asyncAfter(deadline:.now()+2.5){
-                if requests != 2 || packets == 0 || transport.connections != 1 { violations += 1 }
+                if requests != 2 || volumes == 0 || packets == 0 || transport.connections != 1 { violations += 1 }
                 transport.suspend();print("{\"violations\":\(violations),\"requests\":\(requests)}");done.signal()
             }
             guard done.wait(timeout:.now()+5) == .success else { exit(2) }

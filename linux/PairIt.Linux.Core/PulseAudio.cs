@@ -5,7 +5,7 @@ using PairIt.Core;
 
 namespace PairIt.Linux;
 
-public sealed record AudioOutput(string Name, string Description, string Monitor)
+public sealed record AudioOutput(string Name, string Description, string Monitor, uint? Volume = null, bool Virtual = false)
 {
     public override string ToString() => Description;
 }
@@ -26,7 +26,15 @@ public static partial class PulseAudio
             var id = name.GetString()!; var source = monitor.GetString()!;
             if (!ValidEndpoint(id) || !ValidEndpoint(source)) continue;
             var label = sink.TryGetProperty("description", out var description) && description.ValueKind == JsonValueKind.String ? description.GetString() : id;
-            outputs.Add(new(id, string.IsNullOrWhiteSpace(label) ? id : label, source));
+            uint? volume = null;
+            if (sink.TryGetProperty("volume", out var channels) && channels.ValueKind == JsonValueKind.Object) {
+                var levels = channels.EnumerateObject().Select(channel => channel.Value.TryGetProperty("value", out var scalar) && scalar.TryGetDouble(out var number) ? number / 65536.0 : double.NaN).Where(double.IsFinite).ToArray();
+                if (levels.Length > 0) volume = (uint)Math.Round(Math.Clamp(levels.Average(), 0, 1) * 1000) | (sink.TryGetProperty("mute", out var mute) && mute.ValueKind == JsonValueKind.True ? 0x10000u : 0u);
+            }
+            bool virtualOutput = sink.TryGetProperty("driver", out var driver) && driver.GetString() == "module-null-sink.c";
+            if (sink.TryGetProperty("properties", out var properties) && properties.TryGetProperty("device.class", out var deviceClass))
+                virtualOutput |= deviceClass.GetString() == "abstract";
+            outputs.Add(new(id, string.IsNullOrWhiteSpace(label) ? id : label, source, volume, virtualOutput));
         }
         return outputs;
     }
@@ -72,15 +80,22 @@ public static partial class PulseAudio
 public sealed class LinuxAudioEndpoints : IAudioEndpoints
 {
     public ISystemAudioSource CreateSource(string endpointId) => new PulseSource(endpointId);
-    public Task<IMicrophoneSink> OpenMicrophoneSinkAsync(string endpointId, CancellationToken cancellation) =>
-        throw new NotSupportedException("Linux preview supports computer audio sharing only.");
+    public async Task<IMicrophoneSink> OpenMicrophoneSinkAsync(string endpointId, CancellationToken cancellation)
+    {
+        cancellation.ThrowIfCancellationRequested();
+        if (!(await PulseAudio.ListAsync()).Any(output => output.Name == endpointId && output.Virtual))
+            throw new IOException("Choose an available virtual sink for phone microphone audio.");
+        return new PulseMicrophoneSink(endpointId);
+    }
 }
 
 public sealed class PulseSource(string monitor) : ISystemAudioSource
 {
     private readonly CancellationTokenSource lifetime = new();
     private Process? process;
-    private Task? reader, errors;
+    private Task? reader, errors, volumeObserver;
+    private int computerVolume = -1;
+    public uint? ComputerVolume => Volatile.Read(ref computerVolume) is var value && value >= 0 ? (uint)value : null;
     private int disposed;
     public async Task StartAsync(Action<SourcePacket> received, Action<string> failed, CancellationToken cancellation)
     {
@@ -92,11 +107,22 @@ public sealed class PulseSource(string monitor) : ISystemAudioSource
         // Explicit sink monitors only: never fall back to the default microphone.
         process = PulseAudio.Start("/usr/bin/parec", "--raw", "--format=s16le", "--rate=48000", "--channels=2",
             "--channel-map=front-left,front-right", "--latency-msec=20", "--client-name=PairIt", "--device=" + monitor);
+        volumeObserver = ObserveVolumeAsync();
         errors = process.StandardError.BaseStream.CopyToAsync(Stream.Null, lifetime.Token);
         var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         reader = PumpAsync(process.StandardOutput.BaseStream, received, failed, ready);
         try { await ready.Task.WaitAsync(TimeSpan.FromSeconds(6), cancellation); }
         catch { await DisposeAsync(); throw; }
+    }
+    private async Task ObserveVolumeAsync()
+    {
+        while (!lifetime.IsCancellationRequested) {
+            try {
+                var output = (await PulseAudio.ListAsync()).FirstOrDefault(value => value.Monitor == monitor);
+                Volatile.Write(ref computerVolume, output?.Volume is uint value ? (int)value : -1);
+            } catch (Exception error) when (error is IOException or JsonException or OperationCanceledException) { Volatile.Write(ref computerVolume, -1); }
+            try { await Task.Delay(1000, lifetime.Token); } catch (OperationCanceledException) { return; }
+        }
     }
     private async Task PumpAsync(Stream stream, Action<SourcePacket> received, Action<string> failed, TaskCompletionSource ready)
     {
@@ -123,6 +149,7 @@ public sealed class PulseSource(string monitor) : ISystemAudioSource
         if (Interlocked.Exchange(ref disposed, 1) != 0) return;
         lifetime.Cancel();
         if (process != null) PulseAudio.Stop(process);
+        if (volumeObserver != null) await volumeObserver;
         try { if (reader != null) await reader; } catch (OperationCanceledException) { }
         try { if (errors != null) await errors; } catch (Exception e) when (e is IOException or OperationCanceledException or ObjectDisposedException) { }
         process?.Dispose(); process = null;

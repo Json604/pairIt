@@ -48,7 +48,7 @@ struct RelayOutputChoice: View {
     }
 }
 
-/// Shared measured arc arrangement for the live discovery screen and tutorial.
+/// Measured arc arrangement for the live discovery screen.
 struct RelayPhoneOrbit: Layout {
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let width = proposal.width ?? 320
