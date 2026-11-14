@@ -1,0 +1,9 @@
+{
+  "date": "2026-11-15",
+  "cause": "Apple decoded every shared-feed entry with a required minimumOS string. Android and Linux entries omit that Apple/Windows-specific field, so JSON decoding failed before platform filtering.",
+  "installed_client_fix": "Published empty compatibility minimumOS strings on Android/Linux entries. Actual minimumSDK and architecture/requirements fields remain unchanged.",
+  "public_feed_commit": "e7be6405bce12a4eeb48bceede54822015c5833c",
+  "source_fix": "Apple minimumOS is optional when decoding, required and validated for eligible Apple entries. Error text distinguishes feed, service and connection problems. These source improvements are not in the installed build20; the live feed repair works with build20.",
+  "checks": ["Original installed Mac decoder reproduced keyNotFound at releases[2]", "Installed decoder accepts corrected mixed feed", "Actual Windows decoder and Linux parser accept both original and corrected mixed feed", "Apple mixed-platform parser and URL allowlist regressions passed", "Release validator now enforces legacy compatibility field"],
+  "artifacts": "artifacts/update-feed-fix"
+}

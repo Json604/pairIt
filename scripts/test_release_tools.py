@@ -29,6 +29,16 @@ class FeedChecks(unittest.TestCase):
     def test_accepts_versioned_release(self):
         self.assertEqual(len(self.feed.validate_feed(self.document())), 1)
 
+    def test_keeps_feed_decodable_by_installed_apple_clients(self):
+        document = json.loads((Path(__file__).resolve().parent.parent / 'release/updates.json').read_text())
+        self.feed.validate_feed(json.dumps(document).encode())
+        for entry in document['releases']:
+            if entry['platform'] == 'android':
+                del entry['minimumOS']
+                break
+        with self.assertRaisesRegex(ValueError, 'compatibility'):
+            self.feed.validate_feed(json.dumps(document).encode())
+
     def test_accepts_linux_requirements(self):
         self.feed.validate_feed(self.document(platform="linux", bundleID="dev.bluetoothswitch.linuxrelay", architectures=["x64", "arm64"], requirements="Ubuntu 24.04 or Debian 12; PipeWire/PulseAudio; X11/XWayland"))
 

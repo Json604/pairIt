@@ -8,7 +8,7 @@ import SwiftUI
         let bundleID: String
         let build: Int
         let version: String
-        let minimumOS: String
+        let minimumOS: String?
         let url: String
     }
     private struct Feed: Decodable { let schema: Int; let releases: [Entry] }
@@ -44,28 +44,41 @@ import SwiftUI
                 let (data, response) = try await URLSession.shared.data(for: request)
                 guard let http = response as? HTTPURLResponse, http.statusCode == 200, data.count <= 65536,
                       http.url?.host == endpoint.host else { throw URLError(.badServerResponse) }
-                let feed = try JSONDecoder().decode(Feed.self, from: data)
-                guard feed.schema == 1, feed.releases.count <= 100 else { throw URLError(.cannotParseResponse) }
-                available = feed.releases.filter(eligible).max { $0.build < $1.build }
+                available = try Self.decodeFeed(data).filter(eligible).max { $0.build < $1.build }
                 if let entry = available { UserDefaults.standard.set(try JSONEncoder().encode(entry), forKey: cacheKey) }
                 else { UserDefaults.standard.removeObject(forKey: cacheKey) }
                 status = available == nil ? "No newer release available" : "Update available"
             } catch {
                 // Keep a previously verified update visible through offline launches.
-                status = "Couldn’t check. Try again when online."
+                status = Self.failureMessage(error)
                 lastAttempt = Date().addingTimeInterval(-6 * 3600 + 300)
             }
         }
     }
+    static func decodeFeed(_ data: Data) throws -> [Entry] {
+        guard data.count <= 65536 else { throw URLError(.cannotParseResponse) }
+        let feed = try JSONDecoder().decode(Feed.self, from: data)
+        guard feed.schema == 1, feed.releases.count <= 100 else { throw URLError(.cannotParseResponse) }
+        return feed.releases
+    }
+    static func failureMessage(_ error: Error) -> String {
+        if let network = error as? URLError {
+            if [.notConnectedToInternet, .networkConnectionLost, .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed].contains(network.code) { return "Can’t reach the update service. Check your connection and retry." }
+            if network.code == .timedOut { return "Update check timed out. Try again." }
+        }
+        if error is DecodingError || (error as? URLError)?.code == .cannotParseResponse { return "Update information is invalid. Please try again later." }
+        return "Update service unavailable. Please try again later."
+    }
     private func eligible(_ entry: Entry) -> Bool {
         guard entry.platform == platform, entry.bundleID == Bundle.main.bundleIdentifier,
+              let minimumOS = entry.minimumOS,
               entry.build > (Int(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "") ?? Int.max),
               entry.version.range(of: #"^\d+\.\d+\.\d+([.-][A-Za-z0-9.]+)?$"#, options: .regularExpression) != nil,
-              entry.minimumOS.range(of: #"^\d+\.\d+(\.\d+)?$"#, options: .regularExpression) != nil,
+              minimumOS.range(of: #"^\d+\.\d+(\.\d+)?$"#, options: .regularExpression) != nil,
               Self.trustedURL(entry.url, platform: platform) else { return false }
         let current = ProcessInfo.processInfo.operatingSystemVersion
         let os = "\(current.majorVersion).\(current.minorVersion).\(current.patchVersion)"
-        guard os.compare(entry.minimumOS, options: .numeric) != .orderedAscending else { return false }
+        guard os.compare(minimumOS, options: .numeric) != .orderedAscending else { return false }
         return true
     }
     static func trustedURL(_ value: String, platform: String) -> Bool {

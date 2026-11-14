@@ -43,6 +43,10 @@ def validate_feed(raw):
     keys = set()
     for entry in entries:
         require(isinstance(entry, dict), 'Release must be an object')
+        # Shipped Apple clients decode all entries before filtering by platform.
+        # Non-Apple entries keep an empty compatibility field; their real limits
+        # remain minimumSDK or architectures/requirements.
+        require(isinstance(entry.get('minimumOS'), str), 'Missing legacy Apple decoder compatibility field')
         platform = entry.get('platform')
         require(isinstance(platform, str) and platform in IDENTITIES, 'Unknown platform')
         require(isinstance(entry.get('bundleID'), str) and entry['bundleID'] in IDENTITIES[platform], 'Wrong bundle identity')
