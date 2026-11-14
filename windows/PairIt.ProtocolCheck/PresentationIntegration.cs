@@ -18,9 +18,11 @@ internal static class PresentationIntegration
         await Probe(first, 0, 1, 1);
         var second = await connector.ReceiverAsync();
         try {
+        await second.ProbeAsync(); // Authentication write alone does not confirm server admission.
         await Probe(first, 0, 2, 1); // Legacy peer never receives an unknown frame.
         Require(second.AlignmentReplies == 0 && !second.Closed, "Legacy receiver received alignment extension.");
         await second.SendAsync("STATS ALIGN1 320 -1\n");
+        await second.ProbeAsync(); // Order observations across two independent sockets.
         await Probe(first, 0, 2, 2); // Wait for its routed output clock to settle.
         await second.SendAsync("STATS ALIGN1 320 183\n");
         await second.ProbeAsync(); // Ensure its report has been processed before probing the other socket.
