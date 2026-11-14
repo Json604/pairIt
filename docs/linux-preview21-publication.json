@@ -1,0 +1,28 @@
+{
+  "date": "2026-11-15",
+  "source": "3827fc7ae13a5a796b7d20b2d9bdea6e135868ce",
+  "release": "https://github.com/Json604/pairIt-download/releases/tag/v1.1.0-preview.21",
+  "scope": "Linux binaries only; Mac20/Windows20/Android32/iOS32 unchanged",
+  "ci_run": 43653339405,
+  "ci": "all six jobs passed",
+  "packages": [
+    "amd64.deb",
+    "arm64.deb",
+    "linux-x64.tar.gz",
+    "linux-arm64.tar.gz"
+  ],
+  "checks": [
+    "both local builds and update error/retry regressions passed",
+    "five uploaded asset digests match local SHA256",
+    "installed ARM64 Ubuntu package upgraded20\u219221 and graphical smoke passed",
+    "actual build20 updater in Ubuntu: no-newer before publication, update21 after publication",
+    "website Linux download links verified"
+  ],
+  "site_version": 35,
+  "feed_commit": "aa08c8e243940267670707cf03b616c1e872a3e7",
+  "limitations": [
+    "Original owner build19 network error not reproduced; new errors improve diagnosis, not proof of its cause",
+    "Updates prompt and open download; installation remains manual"
+  ],
+  "evidence": "artifacts/publish-linux-21"
+}
