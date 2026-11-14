@@ -26,6 +26,8 @@ async Task RunCaseAsync(bool tamper)
     var helper = Path.Combine(work, "helper");
     var targetExe = Path.Combine(target, "PairIt");
     Directory.CreateDirectory(work);
+    File.SetUnixFileMode(Path.Combine(data, "PairIt"), UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+    File.SetUnixFileMode(work, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
     CopyTree(baseline, target); CopyTree(baseline, helper);
     File.Copy(nextManifest, Path.Combine(work, "manifest.json"));
     var package = Path.Combine(work, "package.zip"); File.Copy(nextPackage, package);
@@ -34,12 +36,13 @@ async Task RunCaseAsync(bool tamper)
     Process? parent = null; Process? worker = null;
     try {
         parent = Start(targetExe, target, data, "--smoke-test");
-        var job = new { ParentId = parent.Id, ParentStart = parent.StartTime.ToUniversalTime().Ticks, Target = target,
+        var job = new { ParentId = parent.Id, ParentStart = ProcessIdentity(parent), Target = target,
             Platform = "linux", Architecture = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant(), Kind = "zip", CurrentBuild = currentBuild, OfferedBuild = nextBuild };
         var jobFile = Path.Combine(work, "job.json"); File.WriteAllText(jobFile, JsonSerializer.Serialize(job));
         worker = Start(Path.Combine(helper, "PairIt"), helper, data, "--apply-update", jobFile);
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(75));
         await worker.WaitForExitAsync(timeout.Token);
+        Console.WriteLine($"worker exit: {worker.ExitCode}; ready: {File.Exists(Path.Combine(work, "ready"))}");
         if (tamper) {
             if (worker.ExitCode == 0 || File.Exists(Path.Combine(work, "ready"))) throw new Exception("Tampered installer reached installation.");
             if (FileVersionInfo.GetVersionInfo(Path.Combine(target, "PairIt.dll")).FilePrivatePart != currentBuild) throw new Exception("Tampered installer changed current app.");
@@ -53,6 +56,10 @@ async Task RunCaseAsync(bool tamper)
                 await Task.Delay(100);
             }
             if (!restarted) throw new Exception("Updated application was not relaunched.");
+            await Task.Delay(2000);
+            var live = FindTargetProcesses(targetExe);
+            if (live.Count == 0) throw new Exception("Updated application failed during startup.");
+            foreach (var process in live) process.Dispose();
             if (Directory.GetDirectories(root, "PairIt.previous-*").Length != 1) throw new Exception("Recovery copy missing.");
         }
         if (File.ReadAllText(sentinel) != "preserve me") throw new Exception("User data changed.");
@@ -64,6 +71,10 @@ async Task RunCaseAsync(bool tamper)
         parent?.Dispose(); worker?.Dispose();
         Directory.Delete(root, true);
     }
+}
+static long ProcessIdentity(Process process) {
+    var stat = File.ReadAllText($"/proc/{process.Id}/stat");
+    return long.Parse(stat[(stat.LastIndexOf(')') + 1)..].Split(' ', StringSplitOptions.RemoveEmptyEntries)[19]);
 }
 static Process Start(string executable, string directory, string data, params string[] arguments) {
     var start = new ProcessStartInfo(executable) { UseShellExecute = false, WorkingDirectory = directory };

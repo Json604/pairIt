@@ -9,6 +9,9 @@ internal static class InstallerChecks
 {
     public static async Task RunAsync()
     {
+        var stat = "123 (name with ) parentheses) " + string.Join(' ', Enumerable.Range(0, 20).Select(i => i == 0 ? "S" : i == 19 ? "987654321" : "0"));
+        if (DesktopInstaller.ParseLinuxProcessIdentity(stat) != 987654321) throw new Exception("Linux kernel start tick parse failed.");
+        Reject(() => DesktopInstaller.ParseLinuxProcessIdentity("123 (short) S 1"));
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var publicKey = Convert.ToBase64String(key.ExportSubjectPublicKeyInfo());
         var release = new InstallerRelease("linux", "arm64", "zip", 23, "1.1.0-preview.23", "https://github.com/Json604/pairIt-download/releases/download/v1.1.0-preview.23/PairIt-linux-arm64.zip", 3, Convert.ToHexStringLower(SHA256.HashData(new byte[] { 1, 2, 3 })));

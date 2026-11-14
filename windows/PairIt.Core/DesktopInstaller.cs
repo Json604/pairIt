@@ -58,7 +58,7 @@ public static class DesktopInstaller
                 if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(destination, File.GetUnixFileMode(Path.Combine(target, relative)));
             }
             }, cancellation);
-            var job = new Job(Environment.ProcessId, Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks, target, Platform, Architecture, kind, CurrentBuild, offeredBuild);
+            var job = new Job(Environment.ProcessId, ProcessIdentity(Process.GetCurrentProcess()), target, Platform, Architecture, kind, CurrentBuild, offeredBuild);
             var file = Path.Combine(work, "job.json"); await File.WriteAllTextAsync(file, JsonSerializer.Serialize(job), cancellation);
             cancellation.ThrowIfCancellationRequested();
             var start = new ProcessStartInfo(Path.Combine(helper, ExecutableName)) { UseShellExecute = false, WorkingDirectory = helper };
@@ -72,6 +72,24 @@ public static class DesktopInstaller
             try { worker.Kill(); } catch { }
             throw new IOException("Installer did not become ready. Your current app is unchanged.");
         } catch { try { Directory.Delete(work, true); } catch { } throw; }
+    }
+
+    public static long ProcessIdentity(Process process)
+    {
+        if (!OperatingSystem.IsLinux()) return process.StartTime.ToUniversalTime().Ticks;
+        // Linux StartTime converts boot-relative ticks using a newly sampled wall
+        // clock in each process. Compare the kernel start tick itself, not that
+        // slightly different conversion, while still rejecting PID reuse.
+        return ParseLinuxProcessIdentity(File.ReadAllText($"/proc/{process.Id}/stat"));
+    }
+
+    public static long ParseLinuxProcessIdentity(string stat)
+    {
+        var endName = stat.LastIndexOf(')');
+        if (endName < 0) throw new InvalidDataException("Invalid process identity.");
+        var fields = stat[(endName + 1)..].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (fields.Length < 20 || !long.TryParse(fields[19], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var start)) throw new InvalidDataException("Invalid process identity.");
+        return start;
     }
 
     public static bool IsWorker(string[] args) => args.Length == 2 && args[0] == "--apply-update";
@@ -94,7 +112,7 @@ public static class DesktopInstaller
             var package = Path.Combine(work, "package." + job.Kind); InstallerReleases.VerifyFile(package, release);
             using var parent = Process.GetProcessById(job.ParentId);
             var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-            if (parent.StartTime.ToUniversalTime().Ticks != job.ParentStart || !string.Equals(parent.MainModule?.FileName, Path.Combine(target, ExecutableName), comparison)) throw new InvalidDataException("Unexpected parent application.");
+            if (ProcessIdentity(parent) != job.ParentStart || !string.Equals(parent.MainModule?.FileName, Path.Combine(target, ExecutableName), comparison)) throw new InvalidDataException("Unexpected parent application.");
             await File.WriteAllTextAsync(Path.Combine(work, "ready"), "ready");
             using (var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60))) await parent.WaitForExitAsync(timeout.Token);
             parentExited = true;

@@ -14,3 +14,14 @@ User authorized a manually installed bootstrap release, then a second release to
 Private ECDSA signing key: ~/.config/pairit/desktop-update-signing.pem (never commit or log). Mac Sparkle key belongs in login Keychain. Public keys are intentionally distributable. Existing phone builds remain unchanged. Do not launch phone audio simulators or overwrite the owner's installed Mac app during development.
 
 Website labels published as Sites version36 (source67449d5): both homepage and downloads page offer Linux Intel/AMD x64 and ARM64; Mac Universal and Windows Intel/AMD x64 are explicit. Existing release links retained until bootstrap22 is verified.
+
+## Release procedure
+1. Keep the two private signing keys outside the repository: the P-256 PEM above and Sparkle Keychain account `dev.pairit.updates`. Public counterparts in `release/` must remain pinned across updates.
+2. Build the desktop apps with increasing file/bundle build numbers. Build scripts write `pairit-files.json`; Windows/Linux update ZIPs must have a `PairIt/` root (`scripts/package-update-zip.py`). Include complete self-contained runtimes and license files.
+3. Mac: keep the signed driver package, run `scripts/sign-mac-distribution.py APP --identity IDENTITY`, archive/export through Xcode for notarization, staple and verify, then create the ZIP/DMG. `scripts/create-mac-appcast.py ZIP --build N --output APPCAST` signs the ZIP with the PairIt Keychain account.
+4. Create a JSON array of Windows/Linux targets with platform/architecture/kind/build/version/url/file. `scripts/sign-installer-feed.py ENTRIES OUTPUT` computes SHA256/size and signs the manifest. The local file paths are removed from the published output.
+5. Test malformed signatures, mismatched architectures/builds, unsafe archives and cancelled/failed downloads. Run `scripts/installer-worker-check` in isolated Linux with a signed local next-build fixture; never publish that fixture just for automated tests.
+6. Publish binaries/checksums first, verify GitHub asset digests, then publish `release/installers.json`, `release/mac-appcast.xml`, and finally the updated ordinary `release/updates.json` notice feed in the public download repository. Update website links only after assets are public.
+7. Never copy source/private keys into the public download repository. Keep phone versions unchanged for this desktop-only rollout.
+
+Portable replacement retains a previous app folder; rollback covers a failed filesystem replacement or failed launch, not arbitrary crashes after a successful process launch. Linux package-manager failures use the system package manager's recovery; pairing/settings stay separate. Physical Windows installation and desktop Linux authorization still require acceptance testing.
