@@ -1,0 +1,24 @@
+{
+  "date": "2026-11-15",
+  "source_implementation": "d04cce5",
+  "source_ci": "1fd2d29acb48a9dbb32a72b4aba04d9ea51302b0",
+  "ci_run": 43648943935,
+  "ci_result": "all six jobs passed",
+  "release": "https://github.com/Json604/pairIt-download/releases/tag/v1.1.0-preview.20",
+  "public_feed_commit": "b5371d4e436e1d402225aa9536144da6e2857313",
+  "site_version": 34,
+  "site": "https://pairit.kartikey.xyz",
+  "asset_checks": "all 10 GitHub asset digests match local SHA256",
+  "mac": "build20 universal; Developer ID signed, notarized, stapled; extracted ZIP accepted by Gatekeeper; DMG app verified",
+  "desktop": "Windows/Linux build20",
+  "android": "build32 signed AAB and production APK validated; AAB ready for owner Play Console upload; no Play upload performed",
+  "ios": "1.1.0(32) uploaded successfully to App Store Connect; review/rollout not submitted",
+  "reporting": "HTTPS live; test issue1 created once on retry and closed; token absent from source and app artifacts",
+  "evidence_directory": "artifacts/publish-20",
+  "limitations": [
+    "Physical acoustic latency/alignment acceptance still pending",
+    "New report form UI not runtime-tested on physical phones",
+    "App Store/Play review and availability are separate from upload",
+    "Hosted privacy disclosure updated; store privacy declarations remain owner review"
+  ]
+}
