@@ -75,3 +75,10 @@ The command prints a module number; remove the cable with:
   pactl unload-module NUMBER
 Never unload a module belonging to another app. If your calling app hides monitor
 inputs, configure a virtual microphone source in your audio server first.
+
+Desktop tray
+------------
+PairIt provides Open PairIt, Settings and Quit in the desktop tray. Keep the
+window minimized to continue sharing. Closing the window quits and restores
+local audio. The normal taskbar window remains available on desktops without
+a tray host; GNOME requires AppIndicator/StatusNotifier support for tray icons.

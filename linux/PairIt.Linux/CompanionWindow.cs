@@ -16,8 +16,8 @@ namespace PairIt.Linux;
 
 internal sealed class CompanionWindow : Window
 {
-    private readonly ComboBox outputs = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
-    private readonly ComboBox addresses = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
+    private readonly ComboBox outputs = new() { Foreground = Brush.Parse("#171717"), Background = Brush.Parse("#EEEEEE"), HorizontalAlignment = HorizontalAlignment.Stretch };
+    private readonly ComboBox addresses = new() { Foreground = Brush.Parse("#171717"), Background = Brush.Parse("#EEEEEE"), HorizontalAlignment = HorizontalAlignment.Stretch };
     private readonly TextBlock status = Label("Getting ready…");
     private readonly Button phone = new() { Content = "Phone headphones" }, computer = new() { Content = "Computer speakers" };
     private readonly Button playback=new(){Content="Resume audio",Height=40};
@@ -30,6 +30,8 @@ internal sealed class CompanionWindow : Window
     private FileStream? instance;
     private bool busy, closing, closed;
     private Window? pairingWindow, settingsWindow;
+    private DesktopTray? tray;
+    private bool expandedForPlayback;
     private readonly StackPanel outputArea = new() { Spacing = 7 };
     private readonly Button disconnect = new() { Content = "Disconnect" };
     private readonly Button updateNotice = new() { IsVisible = false, HorizontalAlignment = HorizontalAlignment.Stretch,
@@ -39,7 +41,7 @@ internal sealed class CompanionWindow : Window
 
     public CompanionWindow(bool startServices = true)
     {
-        Title = "PairIt - AudioRelay"; Width = 320; Height = 350; MinWidth = 280; MinHeight = 220;
+        Title = "PairIt - AudioRelay"; Width = 340; Height = 230; MinWidth = 300; MinHeight = 220;
         CanResize = true; WindowStartupLocation = WindowStartupLocation.CenterScreen; RequestedThemeVariant = ThemeVariant.Light;
         Background = Brush.Parse("#FAFAFA"); Foreground = Brush.Parse("#171717");
         var panel = new StackPanel { Margin = new Thickness(14, 10, 14, 12), Spacing = 10 };
@@ -48,8 +50,8 @@ internal sealed class CompanionWindow : Window
         settings.Click += (_, _) => ShowSettings(); DockPanel.SetDock(settings, Dock.Right); header.Children.Add(settings);
         var brand = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 7, VerticalAlignment = VerticalAlignment.Center };
         try { using var stream = Avalonia.Platform.AssetLoader.Open(new Uri("avares://PairIt/PairIt.ico")); brand.Children.Add(new Image { Source = new Bitmap(stream), Width = 22, Height = 22 }); } catch (IOException) { }
-        brand.Children.Add(new TextBlock { Text = "PairIt", FontSize = 17, FontWeight = FontWeight.SemiBold, VerticalAlignment = VerticalAlignment.Center }); header.Children.Add(brand); panel.Children.Add(header);
-        panel.Children.Add(new TextBlock { Text = Environment.MachineName, FontSize = 15, FontWeight = FontWeight.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis });
+        brand.Children.Add(new TextBlock { Foreground = Brush.Parse("#171717"), Text = "PairIt", FontSize = 17, FontWeight = FontWeight.SemiBold, VerticalAlignment = VerticalAlignment.Center }); header.Children.Add(brand); panel.Children.Add(header);
+        panel.Children.Add(new TextBlock { Foreground = Brush.Parse("#171717"), Text = Environment.MachineName, FontSize = 15, FontWeight = FontWeight.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis });
         status.FontSize = 12; status.Text = "No phones connected"; status.MinHeight = 38; panel.Children.Add(status);
         outputArea.Children.Add(new TextBlock { Text = "Audio output", FontSize = 10, Foreground = Brush.Parse("#666666") });
         phone.Content = "Phone"; computer.Content = "Computer";
@@ -61,11 +63,11 @@ internal sealed class CompanionWindow : Window
             if(playbackBusy||sessions==null)return;
             bool playing=sessions.Status.ActiveReceivers==0||sessions.Status.ComputerOutput;playbackBusy=true;playback.IsEnabled=false;
             var loading=new StackPanel{Orientation=Orientation.Horizontal,Spacing=8,HorizontalAlignment=HorizontalAlignment.Center};
-            loading.Children.Add(new PlaybackSpinner());loading.Children.Add(new TextBlock{Text=playing?"Resuming…":"Pausing…"});playback.Content=loading;
+            loading.Children.Add(new PlaybackSpinner());loading.Children.Add(new TextBlock{Foreground=Brushes.White,Text=playing?"Resuming…":"Pausing…"});playback.Content=loading;
             try{await sessions.RequestPlaybackAsync(playing);}catch(Exception error){status.Text=error.Message;}
             finally{playbackBusy=false;UpdateButtons();}
         };
-        playback.Background=Brush.Parse("#111111");playback.Foreground=Brushes.White;playback.HorizontalAlignment=HorizontalAlignment.Stretch;
+        playback.CornerRadius=new CornerRadius(12);playback.HorizontalContentAlignment=HorizontalAlignment.Center;playback.Background=Brush.Parse("#111111");playback.Foreground=Brushes.White;playback.HorizontalAlignment=HorizontalAlignment.Stretch;
         show.Content = "Pair a phone";
         var actions = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), Height = 36 };
         Grid.SetColumn(disconnect, 1); actions.Children.Add(show); actions.Children.Add(disconnect); panel.Children.Add(actions);
@@ -90,7 +92,12 @@ internal sealed class CompanionWindow : Window
         phone.Click += async (_, _) => await ChangeAsync(() => sessions!.SetComputerOutputAsync(false));
         computer.Click += async (_, _) => await ChangeAsync(() => sessions!.SetComputerOutputAsync(true));
         show.Click += async (_, _) => { try { await PairAsync(); } catch { status.Text = "Could not show pairing code."; } };
-        Opened += (_, _) => FitToScreen(this);
+        Opened += (_, _) => {
+            FitToScreen(this);
+            if (startServices && !Program.SmokeTest) {
+                try { tray = new DesktopTray(this); } catch (Exception) { /* The taskbar remains available without tray support. */ }
+            }
+        };
         if (startServices) Opened += async (_, _) => { await StartAsync(); await releaseUpdates!.CheckAsync(); };
         Closing += async (_, e) => {
             if (closed) return;
@@ -98,7 +105,7 @@ internal sealed class CompanionWindow : Window
             if (closing) return;
             closing = true; updateTimer?.Stop(); releaseUpdates?.Dispose(); UpdateButtons();
             try { discovery?.Dispose(); if (server != null) await server.DisposeAsync(); }
-            finally { identity?.Dispose(); instance?.Dispose(); closed = true; Close(); }
+            finally { tray?.Dispose(); identity?.Dispose(); instance?.Dispose(); closed = true; Close(); }
         };
         UpdateButtons();
     }
@@ -107,7 +114,7 @@ internal sealed class CompanionWindow : Window
         if (closing) return;
         updateNotice.IsVisible = releaseUpdates?.Available != null;
         if (releaseUpdates?.Available is { } update)
-            updateNotice.Content = new TextBlock { Text = $"Update available · {update.Version} ↗", TextWrapping = TextWrapping.Wrap };
+            updateNotice.Content = new TextBlock { Foreground = Brush.Parse("#171717"), Text = $"Update available · {update.Version} ↗", TextWrapping = TextWrapping.Wrap };
     }
     private static ScrollViewer ScrollContent(Control content) => new() {
         Content = content, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
@@ -117,7 +124,7 @@ internal sealed class CompanionWindow : Window
     {
         var dialog = new Window {
             Title = title, Width = width, Height = height, MinWidth = 280, MinHeight = 220,
-            CanResize = true, Background = Brushes.White, Foreground = Brush.Parse("#171717"),
+            CanResize = true, ShowInTaskbar = false, Background = Brushes.White, Foreground = Brush.Parse("#171717"),
             RequestedThemeVariant = ThemeVariant.Light, WindowStartupLocation = WindowStartupLocation.CenterOwner
         };
         dialog.Opened += (_, _) => FitToScreen(dialog);
@@ -132,6 +139,7 @@ internal sealed class CompanionWindow : Window
         var height = Math.Max(140, screen.WorkingArea.Height / window.RenderScaling - 64);
         window.MinWidth = Math.Min(window.MinWidth, width);
         window.MinHeight = Math.Min(window.MinHeight, height);
+        window.MaxHeight = height;
         window.Width = Math.Min(window.Width, width);
         window.Height = Math.Min(window.Height, height);
         // CenterOwner can calculate a position using the pre-clamped dialog size.
@@ -139,11 +147,13 @@ internal sealed class CompanionWindow : Window
         var area = screen.WorkingArea;
         var right = Math.Max(area.X, area.Right - (int)Math.Ceiling(window.Width * window.RenderScaling));
         var bottom = Math.Max(area.Y, area.Bottom - (int)Math.Ceiling(window.Height * window.RenderScaling));
-        window.Position = new PixelPoint(Math.Clamp(window.Position.X, area.X, right),
-            Math.Clamp(window.Position.Y, area.Y, bottom));
+        var safeLeft = Math.Min(right, area.X + (int)(8 * window.RenderScaling));
+        var safeTop = Math.Min(bottom, area.Y + (int)(24 * window.RenderScaling));
+        window.Position = new PixelPoint(Math.Clamp(window.Position.X, safeLeft, right),
+            Math.Clamp(window.Position.Y, safeTop, bottom));
     }
-    private static TextBlock Label(string text) => new() { Text = text, TextWrapping = TextWrapping.Wrap, FontSize = 14 };
-    private static TextBlock Heading(string text) => new() { Text = text, FontSize = 12, FontWeight = FontWeight.SemiBold };
+    private static TextBlock Label(string text) => new() { Foreground = Brush.Parse("#171717"), Text = text, TextWrapping = TextWrapping.Wrap, FontSize = 14 };
+    private static TextBlock Heading(string text) => new() { Foreground = Brush.Parse("#171717"), Text = text, FontSize = 12, FontWeight = FontWeight.SemiBold };
     private async Task StartAsync()
     {
         try
@@ -207,6 +217,7 @@ internal sealed class CompanionWindow : Window
     {
         var running = sessions?.CurrentSettings.SharingEnabled == true;
         var ready = sessions?.Status.Receivers > 0;
+        ExpandForPlayback(ready);
         playback.IsVisible=ready;playback.IsEnabled=ready&&!playbackBusy&&!closing;
         if(!playbackBusy)playback.Content=sessions?.Status.ActiveReceivers>0&&sessions?.Status.ComputerOutput!=true?"Pause audio":"Resume audio";
         outputArea.IsVisible = ready; disconnect.IsVisible = ready || running || sessions?.CurrentSettings.MicrophoneEnabled == true;
@@ -219,6 +230,13 @@ internal sealed class CompanionWindow : Window
         computer.Background = onComputer ? Brush.Parse("#111111") : Brush.Parse("#EEEEEE");
         computer.Foreground = onComputer ? Brushes.White : Brushes.Black;
         show.IsEnabled = !busy && !closing && server != null;
+    }
+    internal void ExpandForPlayback(bool connected)
+    {
+        if (connected == expandedForPlayback) return;
+        expandedForPlayback = connected;
+        Height = Math.Min(MaxHeight, connected ? 350 : 230);
+        FitToScreen(this);
     }
     private async Task PairAsync()
     {
@@ -239,8 +257,8 @@ internal sealed class CompanionWindow : Window
     }
     internal Window CreatePairingWindow(Func<string, string> codeForHost, IEnumerable<string> hosts, int selectedIndex)
     {
-        var dialog = CreateDialog("Pair a phone", 320, 430);
-        var choices = new ComboBox { ItemsSource = hosts, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var dialog = CreateDialog("Pair a phone", 360, 460);
+        var choices = new ComboBox { Foreground = Brush.Parse("#171717"), Background = Brush.Parse("#EEEEEE"), ItemsSource = hosts, HorizontalAlignment = HorizontalAlignment.Stretch };
         var picture = new Image { Width = 220, Height = 220 };
         Bitmap? bitmap = null;
         choices.SelectionChanged += (_, _) => {
@@ -248,15 +266,15 @@ internal sealed class CompanionWindow : Window
             using var data = QRCodeGenerator.GenerateQrCode(codeForHost(host), QRCodeGenerator.ECCLevel.M);
             using var renderer = new PngByteQRCode(data); bitmap?.Dispose(); bitmap = new Bitmap(new MemoryStream(renderer.GetGraphic(6))); picture.Source = bitmap;
         };
-        var copyCode = new Button { Content = "Copy pairing code", HorizontalAlignment = HorizontalAlignment.Stretch, Background = Brush.Parse("#111111"), Foreground = Brushes.White, CornerRadius = new CornerRadius(12) };
+        var copyCode = new Button { Content = "Copy pairing code", MinHeight = 40, HorizontalContentAlignment = HorizontalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Stretch, Background = Brush.Parse("#111111"), Foreground = Brushes.White, CornerRadius = new CornerRadius(12) };
         copyCode.Click += async (_, _) => { try { if (choices.SelectedItem is string host && Clipboard != null) await Clipboard.SetTextAsync(codeForHost(host)); } catch { copyCode.Content = "Clipboard unavailable"; } };
-        dialog.Content = ScrollContent(new StackPanel { Margin = new Thickness(14), Spacing = 8, Children = { choices, picture, copyCode, new TextBlock { Text = "Keep this code private.", FontSize = 10 }, PhoneDownloads() } });
+        dialog.Content = ScrollContent(new StackPanel { Margin = new Thickness(18), Spacing = 12, Children = { Label("Open PairIt on your phone and scan this code."), choices, picture, copyCode, new TextBlock { Foreground = Brush.Parse("#171717"), Text = "Keep this code private.", FontSize = 10 }, PhoneDownloads() } });
         choices.SelectedIndex = selectedIndex;
         dialog.Closed += (_, _) => bitmap?.Dispose();
         return dialog;
     }
     private void HideCode() { pairingWindow?.Close(); }
-    private void ShowSettings()
+    internal void ShowSettings()
     {
         if (settingsWindow != null) { settingsWindow.Activate(); return; }
         settingsWindow = CreateSettingsWindow();
@@ -265,16 +283,16 @@ internal sealed class CompanionWindow : Window
     }
     internal Window CreateSettingsWindow()
     {
-        var dialog = CreateDialog("Settings", 360, 560);
-        var choices = new ComboBox { ItemsSource = outputs.ItemsSource, SelectedItem = outputs.SelectedItem, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var dialog = CreateDialog("Settings", 380, 450);
+        var choices = new ComboBox { Foreground = Brush.Parse("#171717"), Background = Brush.Parse("#EEEEEE"), ItemsSource = outputs.ItemsSource, SelectedItem = outputs.SelectedItem, HorizontalAlignment = HorizontalAlignment.Stretch };
         choices.SelectionChanged += (_, _) => { outputs.SelectedItem = choices.SelectedItem; };
-        var apply = new Button { Content = "Apply source" };
+        var apply = new Button { Foreground = Brushes.Black, Background = Brush.Parse("#EEEEEE"), Content = "Apply source" };
         apply.Click += async (_, _) => { if (choices.SelectedItem is AudioOutput selected && sessions != null) await ChangeAsync(() => sessions.ConfigureAsync(sessions.CurrentSettings with { SourceEndpointId = selected.Monitor })); };
-        var reload = new Button { Content = "Refresh outputs" }; reload.Click += async (_, _) => { await RefreshAsync(); choices.ItemsSource = outputs.ItemsSource; choices.SelectedItem = outputs.SelectedItem; };
-        var update = new Button { Content = "Check for updates" };
-        var downloadUpdate = new Button { Content = "Download update ↗", IsVisible = releaseUpdates?.Available != null };
+        var reload = new Button { Foreground = Brushes.Black, Background = Brush.Parse("#EEEEEE"), Content = "Refresh outputs" }; reload.Click += async (_, _) => { await RefreshAsync(); choices.ItemsSource = outputs.ItemsSource; choices.SelectedItem = outputs.SelectedItem; };
+        var update = new Button { Foreground = Brushes.Black, Background = Brush.Parse("#EEEEEE"), Content = "Check for updates" };
+        var downloadUpdate = new Button { Foreground = Brushes.Black, Background = Brush.Parse("#EEEEEE"), Content = "Download update ↗", IsVisible = releaseUpdates?.Available != null };
         downloadUpdate.Click += (_, _) => { if (releaseUpdates?.Available is { } available) OpenUrl(available.Url); };
-        var updateStatus = new TextBlock { Text = releaseUpdates?.Status ?? "", FontSize = 11, TextWrapping = TextWrapping.Wrap };
+        var updateStatus = new TextBlock { Foreground = Brush.Parse("#171717"), Text = releaseUpdates?.Status ?? "", FontSize = 11, TextWrapping = TextWrapping.Wrap };
         update.Click += async (_, _) => {
             if (releaseUpdates == null) return;
             update.IsEnabled = false; update.Content = "Checking…";
@@ -286,8 +304,8 @@ internal sealed class CompanionWindow : Window
             }
         };
         var virtualOutputs = (outputs.ItemsSource as IEnumerable<AudioOutput> ?? []).Where(o => o.Virtual).ToArray();
-        var micOutputs = new ComboBox { ItemsSource = virtualOutputs, SelectedIndex = virtualOutputs.Length > 0 ? 0 : -1, HorizontalAlignment = HorizontalAlignment.Stretch };
-        var mic = new Button { Content = sessions?.CurrentSettings.MicrophoneEnabled == true ? "Turn off phone microphone" : "Use phone microphone" };
+        var micOutputs = new ComboBox { Foreground = Brush.Parse("#171717"), Background = Brush.Parse("#EEEEEE"), ItemsSource = virtualOutputs, SelectedIndex = virtualOutputs.Length > 0 ? 0 : -1, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var mic = new Button { Foreground = Brushes.Black, Background = Brush.Parse("#EEEEEE"), Content = sessions?.CurrentSettings.MicrophoneEnabled == true ? "Turn off phone microphone" : "Use phone microphone" };
         mic.Click += async (_, _) => {
             if (sessions == null) return;
             if (sessions.CurrentSettings.MicrophoneEnabled) {
@@ -299,7 +317,7 @@ internal sealed class CompanionWindow : Window
             mic.Content = sessions.CurrentSettings.MicrophoneEnabled ? "Turn off phone microphone" : "Use phone microphone";
         };
         mic.IsEnabled = virtualOutputs.Length > 0 || sessions?.CurrentSettings.MicrophoneEnabled == true;
-        dialog.Content = ScrollContent(new StackPanel { Margin = new Thickness(14), Spacing = 8, Children = { Label("Audio source"), choices, new WrapPanel { Children = { apply, reload } }, Label("Phone sends this output to your phone. Computer restores playback to this computer."), Heading("Phone microphone"), micOutputs, mic, new TextBlock { Text = "Choose a virtual sink, then its monitor as the microphone in your calling app. Start capture explicitly on your phone. See START-HERE.txt for setup.", TextWrapping = TextWrapping.Wrap, FontSize = 11 }, update, updateStatus, downloadUpdate, PhoneDownloads() } });
+        dialog.Content = ScrollContent(new StackPanel { Margin = new Thickness(14), Spacing = 8, Children = { Label("Audio source"), choices, new WrapPanel { Children = { apply, reload } }, Label("Phone sends this output to your phone. Computer restores playback to this computer."), Heading("Phone microphone"), micOutputs, mic, new TextBlock { Foreground = Brush.Parse("#171717"), Text = "Choose a virtual sink, then its monitor as the microphone in your calling app. Start capture explicitly on your phone. See START-HERE.txt for setup.", TextWrapping = TextWrapping.Wrap, FontSize = 11 }, update, updateStatus, downloadUpdate, PhoneDownloads() } });
         return dialog;
     }
     private Control PhoneDownloads()
@@ -310,8 +328,8 @@ internal sealed class CompanionWindow : Window
                 Data = Geometry.Parse(android ? "M3,11 A6,6 0 0 1 15,11 Z M5,6 L3,3 M13,6 L15,3 M6,8 L6,9 M12,8 L12,9" : "M5,2 L13,2 L13,16 L5,16 Z M8,13 L10,13"),
                 Stroke = Brushes.Black, StrokeThickness = 1.5, Width = 18, Height = 18
             };
-            var button = new Button { Content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6,
-                Children = { icon, new TextBlock { Text = android ? "Android ↗" : "iPhone ↗", FontSize = 12, VerticalAlignment = VerticalAlignment.Center } } },
+            var button = new Button { Foreground = Brush.Parse("#171717"), Background = Brush.Parse("#EEEEEE"), Content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6,
+                Children = { icon, new TextBlock { Foreground = Brush.Parse("#171717"), Text = android ? "Android ↗" : "iPhone ↗", FontSize = 12, VerticalAlignment = VerticalAlignment.Center } } },
                 MinWidth = 118, Margin = new Thickness(0, 0, 6, 6), MinHeight = 36, CornerRadius = new CornerRadius(9) };
             var anchor = android ? "android" : "iphone";
             button.Click += (_, _) => OpenUrl("https://pairit.kartikey.xyz/downloads.html#" + anchor);
