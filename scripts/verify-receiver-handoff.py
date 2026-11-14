@@ -88,42 +88,48 @@ with tempfile.TemporaryDirectory(prefix='pairit-receiver-check-') as folder:
             try:
                 for attempt in range(1 if desktop_controls else 2):
                     raw,_=listener.accept();raw.settimeout(6)
-                    with context.wrap_socket(raw,server_side=True) as peer:
-                        auth=b''
-                        while not auth.endswith(b'\n'):auth+=peer.recv(1)
-                        assert auth==(token+'\n').encode()
-                        buffered=b'';status=129 | (64 if computer_output else 0);sequence=0
-                        while True:
-                            readable,_,_=select.select([peer],[],[],.01)
-                            if readable or peer.pending():
-                                chunk=peer.recv(65536)
-                                if not chunk:break
-                                buffered+=chunk
-                                while b'\n' in buffered:
-                                    line,buffered=buffered.split(b'\n',1);words=line.decode().split(' ')
-                                    if words[0]=='PING':
-                                        peer.sendall(struct.pack('<IIQQ',0x31435342,status,int(words[1]),time.monotonic_ns()))
-                                        if desktop_controls: peer.sendall(struct.pack('<IIQQ',0x33435342,0x10000|250,0,0))
-                                        if desktop_controls and status>>8 in (1,2):
-                                            request=(status&0xffffff00)|2|(16 if status>>8==2 else 0)
-                                            peer.sendall(struct.pack('<IIQQ',0x32435342,request,0,0))
-                                    elif words[0]=='OUTPUT':
-                                        commands.append(words)
-                                        if lost_ack and attempt==0:
-                                            peer.shutdown(socket.SHUT_RDWR)
-                                            break
-                                        computer_output=words[1]=='COMPUTER'
-                                        status=(status | 64) if computer_output else (status & ~64)
-                                    elif words[0] in ('PARK','RESUME','RELEASE'):
-                                        if phone_reconnect:
-                                            commands.append([attempt,*words])
-                                            if words[0]=='PARK' and attempt==0:
-                                                peer.shutdown(socket.SHUT_RDWR);break
-                                        status=(status & 192)|1|(int(words[1])<<8)|(4 if words[0]=='PARK' else 32 if words[0]=='RELEASE' else 0)
-                                        if phone_reconnect and attempt==1 and words[0]=='PARK':status|=16
-                            try:peer.sendall(struct.pack('<IIIIQ',0x31415342,sequence,48000,256,time.monotonic_ns())+bytes(1024))
-                            except (BrokenPipeError,ConnectionResetError,ssl.SSLEOFError):break
-                            sequence+=1
+                    try:
+                        with context.wrap_socket(raw,server_side=True) as peer:
+                            auth=b''
+                            while not auth.endswith(b'\n'):auth+=peer.recv(1)
+                            assert auth==(token+'\n').encode()
+                            buffered=b'';status=129 | (64 if computer_output else 0);sequence=0
+                            while True:
+                                readable,_,_=select.select([peer],[],[],.01)
+                                if readable or peer.pending():
+                                    chunk=peer.recv(65536)
+                                    if not chunk:break
+                                    buffered+=chunk
+                                    while b'\n' in buffered:
+                                        line,buffered=buffered.split(b'\n',1);words=line.decode().split(' ')
+                                        if words[0]=='PING':
+                                            peer.sendall(struct.pack('<IIQQ',0x31435342,status,int(words[1]),time.monotonic_ns()))
+                                            if desktop_controls: peer.sendall(struct.pack('<IIQQ',0x33435342,0x10000|250,0,0))
+                                            if desktop_controls and status>>8 in (1,2):
+                                                request=(status&0xffffff00)|2|(16 if status>>8==2 else 0)
+                                                peer.sendall(struct.pack('<IIQQ',0x32435342,request,0,0))
+                                        elif words[0]=='OUTPUT':
+                                            commands.append(words)
+                                            if lost_ack and attempt==0:
+                                                peer.shutdown(socket.SHUT_RDWR)
+                                                break
+                                            computer_output=words[1]=='COMPUTER'
+                                            status=(status | 64) if computer_output else (status & ~64)
+                                        elif words[0] in ('PARK','RESUME','RELEASE'):
+                                            if phone_reconnect:
+                                                commands.append([attempt,*words])
+                                                if words[0]=='PARK' and attempt==0:
+                                                    peer.shutdown(socket.SHUT_RDWR);break
+                                            status=(status & 192)|1|(int(words[1])<<8)|(4 if words[0]=='PARK' else 32 if words[0]=='RELEASE' else 0)
+                                            if phone_reconnect and attempt==1 and words[0]=='PARK':status|=16
+                                try:peer.sendall(struct.pack('<IIIIQ',0x31415342,sequence,48000,256,time.monotonic_ns())+bytes(1024))
+                                except (BrokenPipeError,ConnectionResetError,ssl.SSLEOFError):break
+                                sequence+=1
+                    except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError):
+                        # The receiver intentionally closes/reconnects. Keep accepting
+                        # the next session; command and harness assertions below still
+                        # require the complete expected handoff on both connections.
+                        continue
             except BaseException as error:errors.append(type(error).__name__+': '+str(error))
             finally:listener.close()
         thread=threading.Thread(target=resume_output);thread.start()
