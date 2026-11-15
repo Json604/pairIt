@@ -198,7 +198,10 @@ public class MainActivity extends Activity {
                 .setMessage(device.name+" is connected to "+(device.connectedNames.isEmpty()?"another phone":device.connectedNames)+". Want to join their group? Ask that person to open Listen Together and send you an invitation. Keep PairIt open on this phone.")
                 .setPositiveButton("Listen Together",(d,w)->selectTab(1)).setNegativeButton("Not now",null).show();return;}
             if(settings.paired()&&device.pin.equals(settings.pin()))connectVerifiedCode(PairingCode.saved(settings,settings.connectionHost(device.host)),false);
-            else requestNearbyPairing(device);
+            else if(settings.savedComputer(device.pin)!=null){
+                PairingCode saved=settings.savedComputer(device.pin);
+                connectVerifiedCode(PairingCode.stored(device.host,saved.pin,saved.token,saved.name,saved.platform),true);
+            } else requestNearbyPairing(device);
         });
     }
     private void requestNearbyPairing(NearbyDevices.Device device){
@@ -280,7 +283,7 @@ public class MainActivity extends Activity {
         LinearLayout connectionCard=column();connectionCard.setPadding(dp(16),dp(2),dp(16),dp(2));connectionCard.setBackground(shape(0xfff6f6f8,27,Color.TRANSPARENT));
         connectionCard.addView(preference("Auto-reconnect","Previously paired computers on this Wi-Fi.",settings.autoReconnect(),on->settings.autoReconnect(on)));
         connectionCard.addView(preference("Sound feedback","A short sound when connected.",settings.soundFeedback(),on->settings.soundFeedback(on)));
-        connectionCard.addView(settingRow("Paired computers",settings.paired()?settings.computerName():"None",this::connectionDialog));devicesArea.addView(connectionCard,new LinearLayout.LayoutParams(-1,-2));space(devicesArea,18);
+        connectionCard.addView(settingRow("Paired computers",settings.savedComputers().size()+" saved",this::connectionDialog));devicesArea.addView(connectionCard,new LinearLayout.LayoutParams(-1,-2));space(devicesArea,18);
         TextView general=text("GENERAL",10,0xffcccccc,false);general.setLetterSpacing(.12f);devicesArea.addView(general);space(devicesArea,9);
         LinearLayout generalCard=column();generalCard.setPadding(dp(16),dp(2),dp(16),dp(2));generalCard.setBackground(shape(0xfff6f6f8,27,Color.TRANSPARENT));
         generalCard.addView(settingRow("Phone microphone","Use on your computer",()->{stopAudioForSettings();startActivity(new Intent(this,MicrophoneActivity.class));}));
@@ -335,7 +338,7 @@ public class MainActivity extends Activity {
     private void render() {
         if(primary==null)return;RelayState state=RelayService.state;updateAdVisibility();
         if(inFlight!=null){
-            boolean completed="OUTPUT_COMPUTER".equals(inFlight)?RelayService.computerOutputSelected:"PLAY".equals(inFlight)?state.phase==RelayState.Phase.PLAYING:state!=requestedFrom&&!RelayService.awaitingPlaybackAcknowledgment();
+            boolean completed="STOP".equals(inFlight)?state.phase==RelayState.Phase.IDLE:"OUTPUT_COMPUTER".equals(inFlight)?RelayService.computerOutputSelected:"PLAY".equals(inFlight)?state.phase==RelayState.Phase.PLAYING:state!=requestedFrom&&!RelayService.awaitingPlaybackAcknowledgment();
             if(completed||state.phase==RelayState.Phase.ERROR||state.phase==RelayState.Phase.HEADPHONES||SystemClock.uptimeMillis()-requestedAt>4000)inFlight=null;
         }
         boolean failed=state.phase==RelayState.Phase.ERROR||state.phase==RelayState.Phase.HEADPHONES;
@@ -498,6 +501,19 @@ public class MainActivity extends Activity {
         return (estimate < 0 ? "Learning timing" : "Auto " + estimate + " ms") + "\nCorrection " + String.format(java.util.Locale.US, "%+d ms", settings.profileCorrection(routeKey));
     }
     private void connectionDialog() {
+        LinearLayout body=column();
+        for(PairingCode saved:settings.savedComputers()){
+            Button item=button(saved.name+(saved.pin.equals(settings.pin())?" · Selected":""),()->{
+                if(compactPanel!=null)compactPanel.dismiss();
+                if(settings.groupGuest()){showFeedback(togetherHostProblem());return;}
+                selectTab(0);selectComputer(new NearbyDevices.Device(saved));
+            });style(item,false);body.addView(item);space(body,8);
+        }
+        if(settings.savedComputers().isEmpty())body.addView(text("No saved computers",14,MUTED,false));
+        body.addView(button("Pairing & connection options",()->{if(compactPanel!=null)compactPanel.dismiss();connectionOptions();}));
+        openPanel("Paired computers",body);
+    }
+    private void connectionOptions() {
         new GlassDialogBuilder(this).setTitle("Connection & pairing")
                 .setItems(new String[]{settings.paired()?"Pair another computer":"Pair computer", "Computer address", "Wi-Fi & USB setup", "Forget this computer"}, (dialog, which) -> {
                     if (which == 0) pair();
@@ -589,7 +605,21 @@ public class MainActivity extends Activity {
         LinearLayout body=column();android.media.AudioManager audio=getSystemService(android.media.AudioManager.class);volume.setProgress(audio.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)*100/Math.max(1,audio.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)));body.addView(text("Phone volume",14,INK,true));moveInto(body,volume);volume.setVisibility(View.VISIBLE);volume.setEnabled(!RelayService.computerOutputSelected);space(body,12);moveInto(body,refreshAudio);refreshAudio.setVisibility(View.VISIBLE);refreshAudio.setMinHeight(dp(48));openPanel("Audio",body);
     }
     private void morePanel(){
-        LinearLayout body=column();Button pair=button("Pair another computer",()->{if(compactPanel!=null)compactPanel.dismiss();scanPairingCode("");});style(pair,false);pair.setMinHeight(dp(48));body.addView(pair);space(body,8);Button stop=button("Disconnect",()->{if(compactPanel!=null)compactPanel.dismiss();disconnect();});style(stop,true);stop.setMinHeight(dp(48));body.addView(stop);openPanel("Connection",body);
+        LinearLayout body=column();Button pair=button("Pair another computer",()->{if(compactPanel!=null)compactPanel.dismiss();scanPairingCode("");});style(pair,false);pair.setMinHeight(dp(48));body.addView(pair);space(body,8);Button stop=button("Disconnect",()->{});style(stop,true);stop.setMinHeight(dp(48));
+        FrameLayout frame=new FrameLayout(this);frame.addView(stop,new FrameLayout.LayoutParams(-1,-2));
+        ActivitySpinner spinner=new ActivitySpinner(this);spinner.setVisibility(View.GONE);
+        FrameLayout.LayoutParams position=new FrameLayout.LayoutParams(dp(20),dp(20),Gravity.START|Gravity.CENTER_VERTICAL);position.setMarginStart(dp(16));frame.addView(spinner,position);body.addView(frame);
+        stop.setOnClickListener(v->{
+            if(inFlight!=null)return;
+            disconnect();stop.setEnabled(false);stop.setText("Disconnecting…");spinner.setVisibility(View.VISIBLE);
+            final long started=SystemClock.uptimeMillis();final AlertDialog panel=compactPanel;
+            body.post(new Runnable(){public void run(){
+                if(!body.isAttachedToWindow())return;
+                if(RelayService.state.phase==RelayState.Phase.IDLE){if(panel!=null)panel.dismiss();return;}
+                if(SystemClock.uptimeMillis()-started>5000){spinner.setVisibility(View.GONE);stop.setEnabled(true);stop.setText("Try disconnect again");return;}
+                body.postDelayed(this,100);
+            }});
+        });openPanel("Connection",body);
     }
     private void outputDialog() {
         android.media.AudioManager manager=getSystemService(android.media.AudioManager.class);
@@ -637,7 +667,7 @@ public class MainActivity extends Activity {
     private void forgetMac() {
         if(!settings.paired()){showFeedback("There’s no paired computer to forget.");return;}
         new GlassDialogBuilder(this).setTitle("Forget this computer?")
-            .setMessage("This stops playback and removes this phone’s pairing and saved headphone timing. You can pair again with a code from your computer.")
+            .setMessage("This stops playback and forgets this computer. Your other saved computers stay available. You can pair again with a code from your computer.")
             .setPositiveButton("Forget computer",(dialog,which)->{
                 ++pairingFlow;
                 if (pairingConfirmation != null) { pairingConfirmation.cancel(); pairingConfirmation = null; }

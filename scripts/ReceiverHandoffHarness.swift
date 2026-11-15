@@ -147,9 +147,11 @@ enum RelayPlaybackMode { case reliable, interactive }
             queue.asyncAfter(deadline: .now() + 3) { transport.requestOutput(computer: false) }
             queue.asyncAfter(deadline: .now() + 3.15) { if packets != atPark { violations += 1 } }
         }
-        queue.asyncAfter(deadline: .now() + 3.2) { transport.stop() }
+        var stopCompletions = 0
+        queue.asyncAfter(deadline: .now() + 3.2) { transport.stop { stopCompletions += 1 } }
         queue.asyncAfter(deadline: .now() + 5.4) {
             transport.suspend()
+            if stopCompletions != 1 { violations += 1 }
             if modern && parkAcks < 2 { violations += 1 }
             if transport.connections != 1 { violations += 1 }
             if outputEvents < 2 { violations += 1 } // A newly prepared listener gets the current output on resume.

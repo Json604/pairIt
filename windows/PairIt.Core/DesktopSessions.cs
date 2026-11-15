@@ -18,6 +18,9 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
     private ISystemAudioSource? source;
     private MicrophoneLease? microphone;
     private uint sequence;
+    // A temporary capture failure must not erase the user’s sharing intent.
+    private const long CaptureRetryDelay = 2_000_000_000;
+    private long captureRetryAfter;
     private AudioOnset audioOnset = new();
     private string message = "Select a computer audio source to begin.";
     private bool disposed, mediaHandoffSuppressed, computerOutput;
@@ -114,6 +117,7 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
                 throw new InvalidOperationException("Choose computer sharing or phone microphone, one at a time.");
             await EndSessionsAsync().ConfigureAwait(false);
             settings = value;
+            captureRetryAfter = 0;
             SetMessage(value.MicrophoneEnabled ? "Ready for an explicit microphone start on your phone." :
                 value.SharingEnabled ? "Ready for up to four paired receivers." : "Sharing stopped. Pairing remains available.");
         }
@@ -141,6 +145,7 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
         try
         {
             if (disposed || microphone != null || !settings.SharingEnabled || string.IsNullOrEmpty(settings.SourceEndpointId)) return false;
+            if (MonotonicClock.Nanoseconds < captureRetryAfter) return false;
             lock (state)
             {
                 if (receivers.Count >= Protocol.MaximumReceivers) { peer.GroupFull = true; return false; }
@@ -151,7 +156,7 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
             catch (Exception error)
             {
                 await EndSessionsAsync().ConfigureAwait(false);
-                settings = settings with { SharingEnabled = false };
+                captureRetryAfter = MonotonicClock.Nanoseconds + CaptureRetryDelay;
                 SetMessage(error is NotSupportedException ? error.Message : "Could not start the selected audio source. Check its format and availability.");
                 return false;
             }
@@ -191,7 +196,7 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
             catch (Exception error)
             {
                 await EndSessionsAsync().ConfigureAwait(false);
-                settings = settings with { SharingEnabled = false };
+                captureRetryAfter = MonotonicClock.Nanoseconds + CaptureRetryDelay;
                 SetMessage(error is NotSupportedException ? error.Message : "Could not restart the selected audio source. Check its format and availability.");
                 return;
             }
@@ -267,7 +272,7 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
             catch (Exception error)
             {
                 await EndSessionsAsync().ConfigureAwait(false);
-                settings = settings with { SharingEnabled = false };
+                captureRetryAfter = MonotonicClock.Nanoseconds + CaptureRetryDelay;
                 SetMessage(error is NotSupportedException ? error.Message : "Could not restart the selected audio source. Check its format and availability.");
                 return;
             }
@@ -419,7 +424,7 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
             if (source != expected) return;
             // A source fault is not an invitation to capture another endpoint.
             await EndSessionsAsync().ConfigureAwait(false);
-            settings = settings with { SharingEnabled = false };
+            captureRetryAfter = MonotonicClock.Nanoseconds + CaptureRetryDelay;
             SetMessage(reason);
         }
         finally { lifecycle.Release(); }

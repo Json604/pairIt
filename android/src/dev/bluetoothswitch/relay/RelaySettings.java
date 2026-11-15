@@ -6,7 +6,16 @@ import java.util.UUID;
 
 final class RelaySettings {
     private final SharedPreferences prefs;
-    RelaySettings(Context context) { prefs = context.getSharedPreferences("relay", Context.MODE_PRIVATE); }
+    private final PairingArchive archive;
+    RelaySettings(Context context) {
+        prefs = context.getSharedPreferences("relay", Context.MODE_PRIVATE); archive = new PairingArchive(prefs);
+        if (paired() && archive.get(pin()) == null) {
+            try { SharedPreferences.Editor edit=prefs.edit();archive.save(PairingCode.saved(this,host()),edit);edit.apply(); }
+            catch(IllegalArgumentException ignored) { }
+        }
+    }
+    java.util.List<PairingCode> savedComputers() { return archive.all(); }
+    PairingCode savedComputer(String pin) { return archive.get(pin); }
     boolean soundFeedback() { return prefs.getBoolean("sound_feedback",true); }
     void soundFeedback(boolean value) { prefs.edit().putBoolean("sound_feedback",value).apply(); }
     boolean autoReconnect() { return prefs.getBoolean("auto_reconnect", true); }
@@ -23,7 +32,7 @@ final class RelaySettings {
     // Both Wi-Fi and USB networking use the same pinned connection. Old ADB mode is retired.
     boolean wifi() { return true; }
     String overrideHost() { return prefs.getString("host_override", ""); }
-    void host(String host) { prefs.edit().putString("host_override", host.trim()).apply(); }
+    void host(String host) { prefs.edit().putString("host_override", host.trim()).putString("host_override:"+pin(),host.trim()).apply(); }
     private static final class Candidate {final String pin,host;Candidate(String pin,String host){this.pin=pin;this.host=host;}}
     private static volatile Candidate candidate;
     void discovered(String host,String pin){if(pin.equals(pin())&&validHost(host))candidate=new Candidate(pin,host);}
@@ -98,9 +107,12 @@ final class RelaySettings {
     boolean groupGuest() { return !pin().isEmpty() && pin().equals(prefs.getString("group_guest_pin", "")); }
     void groupGuest(boolean guest) { prefs.edit().putString("group_guest_pin", guest ? pin() : "").apply(); }
     void pair(PairingCode code) {
-        prefs.edit().remove("group_guest_pin").putString("host", code.host).putString("pin", code.pin).putString("token", code.token)
+        SharedPreferences.Editor edit=prefs.edit();
+        if(!pin().isEmpty())edit.putString("host_override:"+pin(),overrideHost());
+        archive.save(code,edit);
+        edit.remove("group_guest_pin").putString("host", code.host).putString("pin", code.pin).putString("token", code.token)
                 .putString("computer_name", code.name)
-                .remove("output_recovery_pin").putString("computer_platform", code.platform).remove("host_override").putBoolean("wifi", true).apply();
+                .remove("output_recovery_pin").putString("computer_platform", code.platform).putString("host_override",(code.pin.equals(pin())?overrideHost():prefs.getString("host_override:"+code.pin,""))).putBoolean("wifi", true).apply();
     }
     static boolean validHost(String host) {
         if (host == null || host.isEmpty() || host.length() > 253) return false;
@@ -108,5 +120,9 @@ final class RelaySettings {
                 && host.matches("[a-fA-F0-9:]+(%[a-zA-Z0-9_.-]+)?");
         return host.matches("[a-zA-Z0-9._-]+");
     }
-    void forget() { String id = installationId(); prefs.edit().clear().putString("installation_id", id).apply(); }
+    void forget() {
+        String old=pin();SharedPreferences.Editor edit=prefs.edit();archive.remove(old,edit);
+        for(String key:new String[]{"host","pin","token","computer_name","computer_platform","host_override","group_guest_pin","output_recovery_pin"})edit.remove(key);
+        edit.remove("host_override:"+old);edit.apply();candidate=null;
+    }
 }

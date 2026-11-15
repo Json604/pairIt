@@ -160,18 +160,30 @@ internal static class Integration
         await sessions.ConfigureAsync(new(SourceEndpointId: "synthetic", SharingEnabled: true));
         await using (var failedSource = await connector.ReceiverAsync())
             await UntilAsync(() => failedSource.Closed, "source startup failure closes peer");
-        Require(!sessions.CurrentSettings.SharingEnabled && sessions.Status.Message.Contains("synthetic format", StringComparison.Ordinal),
-            "Startup failure must disable sharing and retain the actionable error.");
+        Require(sessions.CurrentSettings.SharingEnabled && sessions.Status.Message.Contains("synthetic format", StringComparison.Ordinal),
+            "Startup failure must retain sharing intent and actionable error.");
         var failedAttempts = audio.SourceAttempts;
         await using (var retry = await connector.ReceiverAsync())
             await UntilAsync(() => retry.Closed, "automatic retry blocked after source failure");
         Require(audio.SourceAttempts == failedAttempts, "Automatic reconnect reopened a failed source.");
         audio.FailSourceStartup = false;
-        await sessions.ConfigureAsync(new(SourceEndpointId: "synthetic", SharingEnabled: true));
+        await Task.Delay(2100);
         await using (var restarted = await connector.ReceiverAsync())
             await UntilAsync(() => sessions.Status.Capturing, "explicit restart after source failure");
         await UntilAsync(() => !sessions.Status.Capturing && sessions.Status.Receivers == 0, "restart cleanup");
-        Console.WriteLine("PASS: source startup failure disables automatic retries; explicit desktop restart recovers.");
+        for (var cycle = 0; cycle < 3; cycle++) {
+            await using var live = await connector.ReceiverAsync();
+            await UntilAsync(() => sessions.Status.Capturing, "capture for runtime failure cycle");
+            audio.SourceFailure!("Synthetic endpoint temporarily unavailable.");
+            await UntilAsync(() => live.Closed && !sessions.Status.Capturing, "runtime failure releases source and peer");
+            Require(sessions.CurrentSettings.SharingEnabled, "Runtime failure erased sharing intent.");
+            await Task.Delay(2100);
+        }
+        await using (var recovered = await connector.ReceiverAsync())
+            await UntilAsync(() => sessions.Status.Capturing, "recovery after repeated runtime failures");
+        await UntilAsync(() => sessions.Status.Receivers == 0 && !sessions.Status.Capturing, "runtime retry cleanup");
+        Require(audio.MaximumSources == 1, "Retry overlapped capture lifetimes.");
+        Console.WriteLine("PASS: startup and repeated runtime failures recover without app restart, preserve sharing and never overlap captures.");
 
         await sessions.ConfigureAsync(new(SourceEndpointId: "synthetic", SharingEnabled: true));
         await using (var stopping = await connector.ReceiverAsync())
@@ -435,6 +447,7 @@ internal sealed class SyntheticEndpoints : IAudioEndpoints
     private int activeSources;
     public int SourceStarts, SourceStops, MaximumSources, SourceAttempts;
     public bool FailSourceStartup;
+    public Action<string>? SourceFailure;
     public bool KeepCaptureWhilePaused { get; init; }
     public SyntheticSink? LastSink;
     public ISystemAudioSource CreateSource(string endpointId) => new SyntheticSource(this);
@@ -461,6 +474,7 @@ internal sealed class SyntheticEndpoints : IAudioEndpoints
             started = true;
             owner.current = this;
             Received = received;
+            owner.SourceFailure = failed;
             owner.SourceStarts++;
             owner.MaximumSources = Math.Max(owner.MaximumSources, ++owner.activeSources);
             return Task.CompletedTask;

@@ -1,0 +1,9 @@
+# Reconnect and saved computers — Preview 28 / phone build 35
+
+- Windows/Linux no longer erase SharingEnabled after startup, resume or runtime capture failure. Tear down the failed capture and peers, retain the chosen source and sharing intent, and permit reconnect after a two-second backoff. Explicit Stop still disables sharing. Mac has a separate recovery path and is unchanged.
+- Android/iOS retain multiple paired computers in existing private preferences/Keychain storage, migrate the previously saved computer, select saved credentials and forget only the chosen computer. Already overwritten historical credentials cannot be recovered; pair those computers once again.
+- Disconnect in the phone connection panel shows the existing/native spinner until service teardown (Android) or release acknowledgment/bounded transport closure (iOS). No fake success delay.
+
+Validation: shared synthetic TLS suite covers startup failure, repeated runtime failures, failed resume recovery, no overlapping captures, and explicit Stop. Android archive unit check covers atomic writes, deduplication and independent removal; iOS isolated Keychain check covers legacy migration, switching, reload and independent removal. Actual iOS transport harness checks exactly one disconnect completion with both acknowledged and withheld-release cases. Android compilation/lint, iOS device compilation/archive and Linux/Windows cross-builds are required before distribution.
+
+Live owned PipeWire check: private routing/restoration, silent startup, later audio without restart, 250 packets at 10ms spacing, one recovery after a 350ms stall; arrival median10.56ms/p9511.47ms. These are automated/environment checks, not physical Ubuntu/Windows or phone UI acceptance. Owner must retest repeated connect/disconnect with no player running, followed by starting audio. Do not claim all possible connection failures are eliminated.

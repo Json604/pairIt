@@ -64,6 +64,7 @@ jobs:
       - name: Build Preview and run lint
         run: |
           python3 scripts/verify-listening-invitations.py
+          python3 android/tests/verify-pairing-archive.py
           python3 android/tests/verify-core.py
           PAIRIT_ANDROID_UI_PREVIEW=1 bash scripts/build-android.sh
           cd android
@@ -84,6 +85,8 @@ jobs:
           python3 scripts/verify-feature-server.py
           python3 scripts/verify-feature-gateway.py
           python3 scripts/verify-receiver-handoff.py
+          xcrun swiftc ios/AudioRelay/PairingStore.swift ios/tests/PairingArchiveCheck.swift -o artifacts/pairing-archive-check
+          artifacts/pairing-archive-check
           xcrun swiftc ios/AudioRelay/ConnectionOutput.swift scripts/ConnectionOutputCheck.swift -o artifacts/connection-output-check
           artifacts/connection-output-check
           xcrun swiftc ios/AudioRelay/PresentationTiming.swift scripts/PresentationTimingCheck.swift -o artifacts/presentation-timing-check

@@ -15,6 +15,8 @@ struct ReceiverView: View {
     @AppStorage("trustedAutoReconnect") private var autoReconnect = true
     @AppStorage("groupGuestPin") private var groupGuestPin = ""
     private var isGroupGuest: Bool { !groupGuestPin.isEmpty && groupGuestPin == pairing.mac?.pin }
+    @State private var computerToForget: PairedMac?
+    @State private var disconnecting = false
     @State private var checkingComputer = false
     @State private var occupiedComputer: String?
     @State private var attemptedPin: String?
@@ -90,7 +92,7 @@ struct ReceiverView: View {
                 if let mac = pairing.mac, !computers.contains(where: { $0.pin == mac.pin }), receiver.phase == .idle {
                     attemptedPin = nil; pairingReady = false
                 }
-                guard autoReconnect, tab == 0, sheet == nil, nearbyRequest == nil, scenePhase == .active, !ads.openingScreen, !AudioPresentationGate.isPresenting,
+                guard !disconnecting, autoReconnect, tab == 0, sheet == nil, nearbyRequest == nil, scenePhase == .active, !ads.openingScreen, !AudioPresentationGate.isPresenting,
                       receiver.phase == .idle, let mac = pairing.mac, attemptedPin != mac.pin,
                       let device = computers.first(where: { $0.pin == mac.pin }) else { return }
                 confirm(mac, host: pairing.hostOverride ?? device.host)
@@ -139,6 +141,14 @@ struct ReceiverView: View {
 
     var body: some View {
         lifecycleContent
+            .confirmationDialog("Forget this computer?", isPresented: Binding(get: { computerToForget != nil }, set: { if !$0 { computerToForget = nil } }), titleVisibility: .visible) {
+                Button("Forget computer", role: .destructive) {
+                    guard let computer = computerToForget else { return }
+                    if computer.pin == pairing.mac?.pin { receiver.disconnect(); pairingReady = false }
+                    do { try pairing.forget(pin: computer.pin) } catch { connectionNotice = error.localizedDescription }
+                    computerToForget = nil
+                }
+            } message: { Text("You’ll need to pair again to reconnect. Your other saved computers stay available.") }
             .alert("Already connected", isPresented: Binding(get: { occupiedComputer != nil }, set: { if !$0 { occupiedComputer = nil } })) {
                 Button("Listen Together") { tab = 1; occupiedComputer = nil }
                 Button("Not now", role: .cancel) { occupiedComputer = nil }
@@ -194,7 +204,7 @@ struct ReceiverView: View {
         nearbyRequest?.cancel(); nearbyRequest = nil; requestingPairing = false
     }
     private func selectComputer(_ device: NearbyDevices.Device) {
-        guard !checkingComputer, let pin = device.pin, let host = device.host else { return }
+        guard !disconnecting, !checkingComputer, let pin = device.pin, let host = device.host else { return }
         if isGroupGuest && pin != pairing.mac?.pin { connectionNotice = togetherHostProblem; return }
         if receiver.phase.macSelected && pin == pairing.mac?.pin { return }
         checkingComputer = true; connectionNotice = "Checking computer…"
@@ -204,8 +214,21 @@ struct ReceiverView: View {
             guard scenePhase == .active, tab == 0 else { return }
             connectionNotice = ""
             if status.count > 0 { occupiedComputer = device.name + " is connected to " + (status.names.isEmpty ? "another phone" : status.names); return }
-            if let mac = pairing.mac, pin == mac.pin { connectExplicitly(mac, host: pairing.hostOverride ?? host) }
+            if let mac = pairing.savedComputer(pin: pin) { selectSavedComputer(mac, host: host) }
             else { requestNearbyPairing(device, named: status.count >= 0) }
+        }
+    }
+    private func selectSavedComputer(_ mac: PairedMac, host: String? = nil) {
+        guard !disconnecting else { return }
+        if isGroupGuest { connectionNotice = togetherHostProblem; return }
+        if receiver.phase.macSelected && mac.pin == pairing.mac?.pin { tab = 0; return }
+        cancelExplicitConnection(); disconnecting = true
+        receiver.disconnect {
+            disconnecting = false
+            do {
+                try pairing.save(mac); pairingReady = false; tab = 0
+                connectExplicitly(mac, host: pairing.hostOverride ?? host ?? mac.host)
+            } catch { connectionNotice = error.localizedDescription }
         }
     }
     private func requestNearbyPairing(_ device: NearbyDevices.Device, named: Bool = false) {
@@ -456,7 +479,13 @@ struct ReceiverView: View {
                 Text("Connection").font(.title3.bold())
                 Button("Pair another computer") { incomingCode = ""; sheet = .pair }
                     .frame(maxWidth: .infinity, minHeight: 48)
-                Button("Disconnect") { pairingReady = false; receiver.disconnect(); sheet = nil }.buttonStyle(RelayPrimaryButtonStyle())
+                Button {
+                    guard !disconnecting else { return }
+                    disconnecting = true; pairingReady = false
+                    receiver.disconnect { disconnecting = false; sheet = nil }
+                } label: {
+                    HStack { if disconnecting { ProgressView().tint(.white) }; Text(disconnecting ? "Disconnecting…" : "Disconnect") }.frame(maxWidth: .infinity)
+                }.buttonStyle(RelayPrimaryButtonStyle()).disabled(disconnecting)
             }.padding(24)
         }.scrollBounceBehavior(.basedOnSize).presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
     }
@@ -541,12 +570,25 @@ struct ReceiverView: View {
             Text("Settings").font(.system(size: 25, weight: .semibold))
             Text("CONNECTION").font(.caption).tracking(1.5)
             VStack(spacing: 8) {
+                Text("Paired computers").font(.headline).frame(maxWidth: .infinity, alignment: .leading)
+                if pairing.computers.isEmpty { Text("No saved computers").foregroundStyle(RelayPalette.secondary) }
+                ForEach(pairing.computers, id: \.pin) { computer in
+                    HStack {
+                        Button { selectSavedComputer(computer) } label: {
+                            HStack { Text(computer.displayName); Spacer(); if computer.pin == pairing.mac?.pin { Text("Selected").font(.caption) } }
+                        }.disabled(disconnecting).buttonStyle(RelayControlButtonStyle(scales: false))
+                        Button {
+                            computerToForget = computer
+                        } label: { Image(systemName: "minus.circle").frame(width: 44, height: 44) }.disabled(disconnecting).accessibilityLabel("Forget " + computer.displayName)
+                    }.frame(minHeight: 44)
+                }
+                Divider()
                 Toggle("Auto-reconnect", isOn: $autoReconnect)
                 Divider()
                 Toggle("Sound feedback", isOn: $soundFeedback)
                 Divider()
                 Button { incomingCode = ""; sheet = .pair } label: {
-                    HStack { Text("Paired computer"); Spacer(); Image(systemName: "arrow.right") }.frame(minHeight: 40)
+                    HStack { Text("Pair another computer"); Spacer(); Image(systemName: "plus") }.frame(minHeight: 40)
                 }.buttonStyle(RelayControlButtonStyle(scales: false))
             }.font(.system(size: 14)).padding(14).foregroundStyle(RelayPalette.ink).tint(.black).frost(26)
             Text("GENERAL").font(.caption).tracking(1.5)

@@ -122,7 +122,7 @@ struct PairingView: View {
                     }
                 }
                 .confirmationDialog("Forget this computer?", isPresented: $confirmForget, titleVisibility: .visible) {
-                    Button("Forget computer", role: .destructive) { receiver.disconnect(); pairing.forget(); dismiss() }
+                    Button("Forget computer", role: .destructive) { receiver.disconnect(); do { try pairing.forget(); dismiss() } catch { self.error = error.localizedDescription } }
                 } message: { Text("You can pair again using the code in the desktop app.") }
         }.tint(RelayPalette.deep).foregroundStyle(RelayPalette.ink)
     }

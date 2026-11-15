@@ -489,14 +489,14 @@ final class RelayReceiver: ObservableObject {
     func usePhone() {
         parkListening("PAUSE", phase: .phone, title: "Phone audio")
     }
-    func disconnect() {
+    func disconnect(completion: (() -> Void)? = nil) {
         UserDefaults.standard.removeObject(forKey: "groupGuestPin")
         groupTimingStatus = "";
         hasRemoteSession = false
         computerVolumeText = ""
         cancelOutputRecovery(); interruptedByPhoneAudio = false
         DispatchQueue.main.async { ConnectionAcknowledgment.shared.disconnected(output: self.output) }
-        stopPlayback()
+        stopPlayback(completion: completion)
         publish(.idle, "Ready when you are", "Choose an output, then listen to your computer.")
     }
     private func parkListening(_ reason: String, phase: ReceiverPhase, title: String) {
@@ -541,7 +541,7 @@ final class RelayReceiver: ObservableObject {
             UIApplication.shared.endBackgroundTask(holdBackgroundTask); holdBackgroundTask = .invalid
         }
     }
-    private func stopPlayback(keepTransport: Bool = false) {
+    private func stopPlayback(keepTransport: Bool = false, completion: (() -> Void)? = nil) {
         groupTimingStatus = "";
         playIntent = false; intentGeneration += 1
         if !keepTransport { connectionGeneration += 1 }
@@ -550,7 +550,11 @@ final class RelayReceiver: ObservableObject {
         queue.sync {
             desired = false; localPlaybackReady = false; generation += 1
             if keepTransport { transport?.park("OUTPUT") }
-            else { transport?.stop(); transport = nil }
+            else {
+                let finished = { if let completion { DispatchQueue.main.async(execute: completion) } }
+                if let transport { transport.stop(completion: finished) } else { finished() }
+                transport = nil
+            }
             reportTimer?.cancel(); reportTimer = nil; playback.stop()
         }
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)

@@ -148,7 +148,9 @@ final class RelayTransport {
         if hostOverride == nil { self.browser = browser; browser.start(queue: queue) }
         connect()
     }
-    func stop() {
+    private var stopCompletion: (() -> Void)?
+    func stop(completion: (() -> Void)? = nil) {
+        stopCompletion = completion
         requestedComputerOutput = nil; outputRequestPing = nil
         guard connection != nil else { suspend(); return }
         setIntent("RELEASE")
@@ -165,6 +167,7 @@ final class RelayTransport {
         timer?.cancel(); timer = nil; browser?.cancel(); browser = nil
         pathMonitor?.cancel(); pathMonitor = nil
         let old = connection; connection = nil; old?.cancel(); bytes.removeAll()
+        let completed = stopCompletion; stopCompletion = nil; completed?()
     }
     func park(_ reason: String) { setIntent(reason) }
     func resume() {

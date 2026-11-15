@@ -45,7 +45,12 @@ enum PairingError: LocalizedError {
 
 final class PairingStore: ObservableObject {
     @Published private(set) var mac: PairedMac?
-    private let service = "dev.bluetoothswitch.iosrelay.pairing"
+    @Published private(set) var computers: [PairedMac] = []
+    private let service: String
+    private struct Archive: Codable { var computers: [PairedMac]; var selectedPin: String? }
+    private var query: [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: "mac"]
+    }
     var hostOverride: String? {
         guard let mac else { return nil }
         let value = UserDefaults.standard.string(forKey: "hostOverride:" + mac.pin) ?? ""
@@ -58,17 +63,26 @@ final class PairingStore: ObservableObject {
         UserDefaults.standard.set(host, forKey: "hostOverride:" + mac.pin)
         objectWillChange.send()
     }
-    init() {
-        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
-            kSecAttrAccount as String: "mac", kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne]
+    init(service: String = "dev.bluetoothswitch.iosrelay.pairing") {
+        self.service = service
+        var read = query
+        read[kSecReturnData as String] = true; read[kSecMatchLimit as String] = kSecMatchLimitOne
         var item: CFTypeRef?
-        if SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess, let data = item as? Data {
-            mac = try? JSONDecoder().decode(PairedMac.self, from: data)
+        guard SecItemCopyMatching(read as CFDictionary, &item) == errSecSuccess, let data = item as? Data else { return }
+        if let archive = try? JSONDecoder().decode(Archive.self, from: data) {
+            computers = archive.computers
+            mac = computers.first { $0.pin == archive.selectedPin }
+        } else if let legacy = try? JSONDecoder().decode(PairedMac.self, from: data) {
+            computers = [legacy]; mac = legacy
         }
     }
+    func savedComputer(pin: String) -> PairedMac? { computers.first { $0.pin == pin } }
     func save(_ value: PairedMac) throws {
-        let data = try JSONEncoder().encode(value)
-        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: "mac"]
+        var saved = computers.filter { $0.pin != value.pin }; saved.append(value)
+        try persist(saved, selectedPin: value.pin)
+    }
+    private func persist(_ saved: [PairedMac], selectedPin: String?) throws {
+        let data = try JSONEncoder().encode(Archive(computers: saved, selectedPin: selectedPin))
         var status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
         if status == errSecItemNotFound {
             var addition = query
@@ -77,13 +91,14 @@ final class PairingStore: ObservableObject {
             status = SecItemAdd(addition as CFDictionary, nil)
         }
         guard status == errSecSuccess else { throw PairingError.storage(status) }
-        mac = value
+        computers = saved; mac = saved.first { $0.pin == selectedPin }
     }
-    func forget() {
-        if let mac { UserDefaults.standard.removeObject(forKey: "hostOverride:" + mac.pin) }
-        SecItemDelete([kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: "mac"] as CFDictionary)
-        mac = nil
+    func forget(pin: String? = nil) throws {
+        guard let pin = pin ?? mac?.pin else { return }
+        try persist(computers.filter { $0.pin != pin }, selectedPin: mac?.pin == pin ? nil : mac?.pin)
+        UserDefaults.standard.removeObject(forKey: "hostOverride:" + pin)
     }
+
 }
 
 struct RouteTiming {

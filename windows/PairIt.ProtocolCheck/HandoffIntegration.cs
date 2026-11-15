@@ -261,7 +261,11 @@ internal static class HandoffIntegration
         audio.FailSourceStartup = true;
         await restarted.SendAsync("RESUME 2\n");
         await UntilAsync(() => restarted.Closed, "resume source failure closes held peer");
-        Require(!sessions.CurrentSettings.SharingEnabled, "Failed resume left sharing enabled.");
+        Require(sessions.CurrentSettings.SharingEnabled, "Failed resume disabled future retries.");
+        audio.FailSourceStartup = false;
+        await Task.Delay(2100);
+        await using var recovered = await connector.ReceiverAsync();
+        await UntilAsync(() => sessions.Status.Capturing, "retry after failed resume");
     }
 
     private static async Task ExpectAsync(Receiver peer, uint token, uint stateFlags)
