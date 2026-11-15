@@ -1,0 +1,22 @@
+{
+  "release": "https://github.com/Json604/pairIt-download/releases/tag/v1.1.0-preview.26",
+  "source": "7b5e0e0c763fb8c8db668fda6fa3d47dd4a42e06",
+  "desktop_build": 26,
+  "mobile_build": 34,
+  "scope": "Desktop-only build-number increment for25 automatic update prompt/install/relaunch acceptance. No audio/phone code changes.",
+  "owner_baseline": "Owner confirmed Mac/Linux25 installed and phone34 submitted to both stores.",
+  "ci": {
+    "run": 43665497572,
+    "all_six_jobs": "passed"
+  },
+  "mac": "DeveloperID signed, notarized/stapled; codesign deep/strict validation passed",
+  "artifacts": "artifacts/publish-26",
+  "status": "published;10 asset SHA256 digests verified",
+  "test": "Fully quit/reopen25 while online; expect prompt without manual Check; Update app; confirm26 and saved pairing. Windows physical test remains open.",
+  "public_feed_commit": "08d3c0d",
+  "website": {
+    "version": 44,
+    "source": "7347deda488dba38f16503aa5ce16e32a8d18f05",
+    "status": "deployed; home and downloads links verified"
+  }
+}

@@ -11,3 +11,5 @@ Preview24 + phone33 published; all12 assets verified; all6 CI jobs passed. iOS33
 
 ## Release sequence
 Published25 with all six CI jobs passed, mobile34, signed installers and Apple-notarized Mac app; site42 and public feeds31e58c3 live. iOS34 uploaded, Android34 signed AAB prepared for owner. Owner must install25 before publishing test26, otherwise older clients may skip25 and invalidate the prompt test. Do not overwrite installed owner apps, use computer UI, or launch iOS audio simulator. Windows physical updater remains unverified; Mac/Linux owner confirmed previous in-app install/relaunch.
+
+Owner confirmed Mac/Linux25 and phone34 submissions. Desktop26 published as requested; all6CI43665497572 passed, notarized Mac,10asset digests verified, public feed08d3c0d, website44. Await owner automatic-prompt/install and acoustic testing. See desktop26-publication.json.
