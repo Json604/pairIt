@@ -12,10 +12,9 @@ Create `data` owned by10001 with mode700; run `docker compose up -d --build`.
 Expose only loopback8788; Caddy terminates HTTPS at reports.pairit.kartikey.xyz,
 limits request size, and overwrites X-Real-IP with the TCP client address.
 
-Abuse bounds: max24KB JSON, strict schema,3newreports/hour/IP,5/day/IP,50/day
-across the service. IP addresses are HMAC-hashed in SQLite; raw report bodies
+Abuse bounds: max24KB JSON, strict schema,5 new reports per rolling24hours per random app-installation identifier. Pending submissions reserve a slot; rejected requests release it. Existing older clients without the identifier retain3/hour/IP and5/day/IP limits. New clients have a50/day/IP backstop and50/day service limit. POST /v1/reports/quota returns remaining and retryAfter for live countdowns. IP addresses are HMAC-hashed in SQLite; raw report bodies
 and raw addresses are not logged/stored. SQLite retains idempotency metadata
-(id, digest, hashed IP, time, status, public issue URL). Published report text
+(id, digest, hashed IP, keyed installation hash, time, status, public issue URL). Installation identifiers are not published. Clearing app data/reinstalling can reset the identity; this is not hardware identification or attestation. Published report text
 is stored publicly by GitHub. Anonymous reporting is not strong user identity;
 these bounds limit spam, but determined distributed abuse may exhaust the quota.
 

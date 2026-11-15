@@ -2,6 +2,7 @@
 import hashlib, hmac, json, os, re, sqlite3, threading, time, uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from contextlib import contextmanager
 from urllib import request, error
 
 REPOSITORY = 'Json604/pairIt-download'
@@ -41,8 +42,13 @@ class GitHub:
    if len(issues)<100:break
   return None
 
+def installation_id(value):
+ if not isinstance(value,str) or str(uuid.UUID(value))!=value or uuid.UUID(value).version!=4:raise ValueError()
+ return value
+
 def validate(data):
- if not isinstance(data,dict) or set(data)!={'id','title','description','platform','context'}:raise ValueError()
+ if not isinstance(data,dict) or set(data) not in ({'id','title','description','platform','context'}, {'id','title','description','platform','context','installationId'}):raise ValueError()
+ if 'installationId' in data:installation_id(data['installationId'])
  report_id=str(uuid.UUID(data['id']))
  if report_id!=data['id'] or uuid.UUID(report_id).version!=4:raise ValueError()
  for key,minimum,maximum in [('title',3,100),('description',10,4000)]:
@@ -68,10 +74,30 @@ class Reports:
  def __init__(self,path,github,salt):
   self.path=str(path);self.github=github;self.salt=salt;self.lock=threading.Lock()
   with self.db() as db:db.execute('CREATE TABLE IF NOT EXISTS reports (id TEXT PRIMARY KEY, digest TEXT NOT NULL, ip TEXT NOT NULL, created REAL NOT NULL, status TEXT NOT NULL, url TEXT, checked REAL NOT NULL DEFAULT 0)')
- def db(self):return sqlite3.connect(self.path,timeout=5)
+  with self.db() as db:
+   if 'installation' not in {row[1] for row in db.execute('PRAGMA table_info(reports)')}:db.execute("ALTER TABLE reports ADD COLUMN installation TEXT")
+   db.execute('CREATE INDEX IF NOT EXISTS reports_installation_created ON reports(installation,created)')
+ def identity(self,value):return hmac.new(self.salt,('installation:'+installation_id(value)).encode(),hashlib.sha256).hexdigest()
+ def quota_value(self,db,identity,now):
+  times=[r[0] for r in db.execute("SELECT created FROM reports WHERE installation=? AND created>? AND status!='rejected' ORDER BY created DESC",(identity,now-86400))]
+  retry=max(0,int(times[4]+86400-now+0.999)) if len(times)>=5 else 0
+  return {'remaining':max(0,5-len(times)),'retryAfter':retry,'limit':5}
+ def quota(self,data):
+  try:
+   if not isinstance(data,dict) or set(data)!={'installationId'}:raise ValueError()
+   identity=self.identity(data['installationId'])
+  except (ValueError,TypeError,AttributeError):return 400,{'error':'invalid'}
+  with self.db() as db:return 200,self.quota_value(db,identity,time.time())
+ @contextmanager
+ def db(self):
+  connection=sqlite3.connect(self.path,timeout=5)
+  try:
+   with connection:yield connection
+  finally:connection.close()
  def submit(self,data,ip):
   try:report_id=validate(data)
   except (ValueError,TypeError,KeyError,AttributeError):return 400,{'error':'invalid','message':'Check the title and description, then try again.'}
+  identity=self.identity(data['installationId']) if 'installationId' in data else None
   digest=hashlib.sha256(json.dumps(data,sort_keys=True,separators=(',',':')).encode()).hexdigest()
   ip_hash=hmac.new(self.salt,ip.encode(),hashlib.sha256).hexdigest();now=time.time()
   with self.lock:
@@ -79,22 +105,31 @@ class Reports:
     row=db.execute('SELECT digest,status,url,checked FROM reports WHERE id=?',(report_id,)).fetchone()
     if row:
      if not hmac.compare_digest(row[0],digest):return 409,{'error':'changed','message':'This report changed. Start a new report.'}
-     if row[1]=='complete':return 200,{'url':row[2]}
+     if row[1]=='complete':return 200,{'url':row[2],**(self.quota_value(db,identity,now) if identity else {})}
      # Serialize reconciliation and limit upstream read calls per uncertain report.
      if row[3]>now-30:return 202,{'pending':True,'message':'Still confirming with GitHub. Try again in 30 seconds; this will not create a duplicate.'}
+     if row[1]=='rejected' and identity:
+      quota=self.quota_value(db,identity,now)
+      if quota['remaining']==0:return 429,{'error':'device_limit','message':'Five reports sent in the last 24 hours. Your draft is kept.',**quota}
+      db.execute('UPDATE reports SET created=? WHERE id=?',(now,report_id))
      db.execute('UPDATE reports SET checked=?,status=? WHERE id=?',(now,'pending',report_id));existing=row[1]!='rejected'
     else:
      hour=db.execute('SELECT COUNT(*) FROM reports WHERE ip=? AND created>?',(ip_hash,now-3600)).fetchone()[0]
      day=db.execute('SELECT COUNT(*) FROM reports WHERE ip=? AND created>?',(ip_hash,now-86400)).fetchone()[0]
      total=db.execute('SELECT COUNT(*) FROM reports WHERE created>?',(now-86400,)).fetchone()[0]
-     if hour>=3 or day>=5 or total>=int(os.environ.get('REPORTS_DAILY_LIMIT','50')):return 429,{'error':'rate_limited','message':'The reporting limit has been reached. Please try later; your draft is kept.'}
-     db.execute('INSERT INTO reports(id,digest,ip,created,status,checked) VALUES(?,?,?,?,?,?)',(report_id,digest,ip_hash,now,'pending',now));existing=False
+     if identity:
+      quota=self.quota_value(db,identity,now)
+      if quota['remaining']==0:return 429,{'error':'device_limit','message':'Five reports sent in the last 24 hours. Your draft is kept.',**quota}
+     if (not identity and (hour>=3 or day>=5)) or (identity and day>=50) or total>=int(os.environ.get('REPORTS_DAILY_LIMIT','50')):
+      return 429,{'error':'service_limit','message':'Reporting is temporarily busy. Your draft is kept. Please try again later.','retryAfter':3600}
+     db.execute('INSERT INTO reports(id,digest,ip,created,status,checked,installation) VALUES(?,?,?,?,?,?,?)',(report_id,digest,ip_hash,now,'pending',now,identity));existing=False
   try:
    url=self.github.find(report_id) if existing else self.github.create(*format_issue(data))
    if not url:return 202,{'pending':True,'message':'Still confirming with GitHub. Try again in 30 seconds; this will not create a duplicate.'}
    url=issue_url(url)
    with self.db() as db:db.execute('UPDATE reports SET status=?,url=? WHERE id=?',('complete',url,report_id))
-   return (200 if existing else 201),{'url':url}
+   with self.db() as db:quota=self.quota_value(db,identity,time.time()) if identity else {}
+   return (200 if existing else 201),{'url':url,**quota}
   except Rejected:
    if not existing:
     with self.db() as db:db.execute('UPDATE reports SET status=? WHERE id=?',('rejected',report_id))
@@ -124,7 +159,7 @@ class Handler(BaseHTTPRequestHandler):
   data=json.dumps(value).encode();self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(data)));self.send_header('Cache-Control','no-store');self.send_header('X-Content-Type-Options','nosniff');self.send_header('Connection','close');self.end_headers();self.wfile.write(data)
  def do_GET(self):self.respond(200 if self.path=='/health' else 404,{'ok':True} if self.path=='/health' else {'error':'not_found'})
  def do_POST(self):
-  if self.path!='/v1/reports':self.respond(404,{'error':'not_found'});return
+  if self.path not in ('/v1/reports','/v1/reports/quota'):self.respond(404,{'error':'not_found'});return
   if self.headers.get('Content-Type','').split(';')[0]!='application/json':self.respond(415,{'error':'content_type'});return
   try:
    length=int(self.headers.get('Content-Length','0'))
@@ -135,7 +170,7 @@ class Handler(BaseHTTPRequestHandler):
   except (ValueError,OSError):self.respond(400,{'error':'invalid'});return
   # Caddy overwrites X-Real-IP; port is reachable only on host loopback.
   ip=self.headers.get('X-Real-IP',self.client_address[0])
-  try:status,body=self.server.reports.submit(data,ip)
+  try:status,body=self.server.reports.quota(data) if self.path=='/v1/reports/quota' else self.server.reports.submit(data,ip)
   except Exception:status,body=503,{'error':'unavailable','message':'Reporting is temporarily unavailable. Your draft is kept.'}
   self.respond(status,body)
 

@@ -47,6 +47,45 @@ class Reports(unittest.TestCase):
   for key,value in [('id','bad'),('title',''),('description',''),('platform','arbitrary'),('title','x'*101),('description','x'*4001)]:
    p=self.payload();p[key]=value;self.assertEqual(self.app.submit(p,'127.0.0.1')[0],400)
 
+class DeviceQuota(Reports):
+ def test_five_per_installation_across_networks(self):
+  identity=str(uuid.uuid4())
+  for n in range(5):
+   p=self.payload();p['installationId']=identity
+   code,result=self.app.submit(p,str(n));self.assertEqual(code,201);self.assertEqual(result['remaining'],4-n)
+  p=self.payload();p['installationId']=identity
+  code,result=self.app.submit(p,'other-network');self.assertEqual(code,429);self.assertEqual(result['error'],'device_limit');self.assertGreater(result['retryAfter'],86390)
+  other=self.payload();other['installationId']=str(uuid.uuid4());self.assertEqual(self.app.submit(other,'other-network')[0],201)
+  self.assertEqual(self.app.quota({'installationId':identity})[1]['remaining'],0)
+  self.assertNotIn(identity,str(self.github.created))
+  with self.app.db() as db:self.assertNotIn(identity,str(db.execute('SELECT * FROM reports').fetchall()))
+ def test_quota_expiry_and_idempotency(self):
+  identity=str(uuid.uuid4());p=self.payload();p['installationId']=identity
+  self.app.submit(p,'local');self.app.submit(p,'local')
+  self.assertEqual(self.app.quota({'installationId':identity})[1]['remaining'],4)
+  with self.app.db() as db:db.execute('UPDATE reports SET created=created-86401')
+  self.assertEqual(self.app.quota({'installationId':identity})[1]['remaining'],5)
+ def test_next_slot_uses_oldest_report_expiry(self):
+  from unittest.mock import patch
+  identity=str(uuid.uuid4())
+  for n in range(5):
+   p=self.payload();p['installationId']=identity
+   with patch.object(server.time,'time',return_value=100000+n*60):self.app.submit(p,'local')
+  with patch.object(server.time,'time',return_value=100300):
+   quota=self.app.quota({'installationId':identity})[1];self.assertEqual(quota['retryAfter'],86100)
+  with patch.object(server.time,'time',return_value=186400):self.assertEqual(self.app.quota({'installationId':identity})[1]['remaining'],1)
+ def test_rejected_retry_cannot_bypass_full_quota(self):
+  identity=str(uuid.uuid4());p=self.payload();p['installationId']=identity;original=self.github.create
+  def reject(*args):raise server.Rejected()
+  self.github.create=reject;self.app.submit(p,'local');self.github.create=original
+  for n in range(5):
+   q=self.payload();q['installationId']=identity;self.assertEqual(self.app.submit(q,'local')[0],201)
+  with self.app.db() as db:db.execute('UPDATE reports SET checked=0')
+  self.assertEqual(self.app.submit(p,'local')[0],429)
+ def test_invalid_identity(self):
+  p=self.payload();p['installationId']='hardware-serial';self.assertEqual(self.app.submit(p,'local')[0],400)
+  self.assertEqual(self.app.quota({'installationId':'bad'})[0],400)
+
 class HTTPReports(unittest.TestCase):
  def setUp(self):
   import threading

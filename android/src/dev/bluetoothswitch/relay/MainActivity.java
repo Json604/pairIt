@@ -520,25 +520,30 @@ public class MainActivity extends Activity {
         View decor=window.getDecorView();decor.setTranslationY(dp(24));decor.setAlpha(0);decor.animate().translationY(0).alpha(1).setDuration(GlassUI.duration(this,220)).setInterpolator(new android.view.animation.PathInterpolator(.22f,1,.36f,1)).start();
     }
     private void reportProblem() {
-        ProblemReports reports=new ProblemReports(this);LinearLayout body=column();
+        ProblemReports reports=new ProblemReports(this);final boolean[] checkingQuota={true};LinearLayout body=column();
         body.addView(text("Reports are public on GitHub. Do not include personal information, passwords or pairing codes.",14,MUTED,false));space(body,12);
-        EditText subject=new EditText(this);subject.setHint("Short summary");subject.setSingleLine(true);subject.setTextColor(INK);subject.setHintTextColor(MUTED);subject.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(100)});subject.setText(reports.saved("title"));body.addView(subject);
+
         EditText description=new EditText(this);description.setHint("What happened? What did you expect? Include steps to reproduce.");description.setTextColor(INK);description.setHintTextColor(MUTED);description.setMinLines(4);description.setGravity(Gravity.TOP);description.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);description.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(4000)});description.setText(reports.saved("description"));body.addView(description);
         android.widget.CheckBox details=new android.widget.CheckBox(this);details.setText("Include app version and Android version");details.setTextColor(INK);details.setChecked(true);body.addView(details);
+        TextView quotaText=text("",13,MUTED,false);body.addView(quotaText);
         TextView status=text("",13,MUTED,false);status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);body.addView(status);space(body,10);
         Button submit=button("Submit public report",()->{});style(submit,true);FrameLayout sendFrame=new FrameLayout(this);sendFrame.addView(submit,new FrameLayout.LayoutParams(-1,dp(52)));ActivitySpinner spinner=new ActivitySpinner(this);spinner.setVisibility(View.GONE);FrameLayout.LayoutParams indicator=new FrameLayout.LayoutParams(dp(20),dp(20),Gravity.START|Gravity.CENTER_VERTICAL);indicator.setMarginStart(dp(16));sendFrame.addView(spinner,indicator);body.addView(sendFrame);
-        android.text.TextWatcher watcher=new android.text.TextWatcher(){public void beforeTextChanged(CharSequence s,int a,int c,int f){}public void onTextChanged(CharSequence s,int a,int b,int c){reports.save(subject.getText().toString(),description.getText().toString());}public void afterTextChanged(android.text.Editable e){}};subject.addTextChangedListener(watcher);description.addTextChangedListener(watcher);
+        android.text.TextWatcher watcher=new android.text.TextWatcher(){public void beforeTextChanged(CharSequence s,int a,int c,int f){}public void onTextChanged(CharSequence s,int a,int b,int c){reports.save("",description.getText().toString());}public void afterTextChanged(android.text.Editable e){}};description.addTextChangedListener(watcher);
         submit.setOnClickListener(v->{
-            String title=subject.getText().toString().trim(),text=description.getText().toString().trim();
-            if(title.length()<3||text.length()<10){status.setText("Add a summary and at least 10 characters describing the problem.");return;}
+            String text=description.getText().toString().trim();String title=text.replaceAll("\\s+"," ");if(title.length()>100)title=title.substring(0,100);
+            if(checkingQuota[0]||reports.waitSeconds()>0)return;
+            if(text.length()<10){status.setText("Describe the problem in at least 10 characters.");return;}
             try {
-                final String payload=reports.payload(title,text,details.isChecked());submit.setEnabled(false);submit.setText("Sending…");spinner.setVisibility(View.VISIBLE);subject.setEnabled(false);description.setEnabled(false);details.setEnabled(false);status.setText("Submitting your public report…");
+                final String payload=reports.payload(title,text,details.isChecked());submit.setEnabled(false);submit.setText("Sending…");spinner.setVisibility(View.VISIBLE);description.setEnabled(false);details.setEnabled(false);status.setText("Submitting your public report…");
                 new Thread(()->{org.json.JSONObject response;try{response=ProblemReports.send(payload);}catch(Exception error){response=new org.json.JSONObject();}final org.json.JSONObject result=response;
-                    runOnUiThread(()->{if(isDestroyed())return;spinner.setVisibility(View.GONE);submit.setEnabled(true);String url=result.optString("url");if(ProblemReports.validURL(url)){status.setText("Report sent. Thank you for helping improve PairIt.");submit.setText("View issue ↗");submit.setOnClickListener(button->startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(url))));reports.save("","");}else{status.setText(result.optString("message","Could not confirm submission. Your draft is kept. Retry safely."));submit.setText("Retry submission");subject.setEnabled(true);description.setEnabled(true);details.setEnabled(true);}});
+                    runOnUiThread(()->{if(isDestroyed())return;reports.updateQuota(result);spinner.setVisibility(View.GONE);submit.setEnabled(reports.waitSeconds()==0);String url=result.optString("url");if(ProblemReports.validURL(url)){status.setText("Report sent. Thank you for helping improve PairIt.");submit.setEnabled(true);submit.setTag("sent");submit.setText("View issue ↗");submit.setOnClickListener(button->startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(url))));reports.completed();}else{status.setText(result.optString("message","Could not confirm submission. Your draft is kept. Retry safely."));submit.setText("Retry submission");description.setEnabled(true);details.setEnabled(true);}});
                 },"PairIt-report").start();
             }catch(Exception error){status.setText("Could not prepare this report. Your draft is kept.");}
         });
+        final Runnable timer=new Runnable(){public void run(){long seconds=reports.waitSeconds();quotaText.setText(seconds>0?String.format(java.util.Locale.ROOT,"Daily limit reached · Send another report in %02d:%02d:%02d",seconds/3600,(seconds/60)%60,seconds%60):"Up to 5 reports per phone installation in 24 hours.");if(submit.getTag()==null && spinner.getVisibility()!=View.VISIBLE)submit.setEnabled(!checkingQuota[0]&&seconds==0);if(body.isAttachedToWindow())body.postDelayed(this,1000);}};
+        body.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener(){public void onViewAttachedToWindow(View v){timer.run();}public void onViewDetachedFromWindow(View v){body.removeCallbacks(timer);}});
         openPanel("Report a problem",body);
+        new Thread(()->{try{org.json.JSONObject quota=reports.quota();runOnUiThread(()->{if(!isDestroyed()){checkingQuota[0]=false;reports.updateQuota(quota);body.removeCallbacks(timer);timer.run();}});}catch(Exception ignored){runOnUiThread(()->{checkingQuota[0]=false;body.removeCallbacks(timer);timer.run();});}},"PairIt-report-quota").start();
     }
 
     private void openPanel(String title,LinearLayout body){

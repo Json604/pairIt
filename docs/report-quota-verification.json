@@ -1,0 +1,22 @@
+{
+  "date": "2026-11-15",
+  "changes": [
+    "Android/iOS one text field; title generated from description",
+    "Private random installation identifier, stored server-side only as HMAC",
+    "Five submissions per rolling24hours; pending reserves slot and rejected releases it; retries idempotent",
+    "Private quota lookup and persisted one-second countdown refreshed on opening",
+    "Old clients retain compatible schema; IP/global abuse bounds separate"
+  ],
+  "verification": [
+    "27 backend tests pass: limit, expiry, retry, IP changes, isolation, identity privacy, validation",
+    "Android Preview build passed",
+    "iOS simulator build passed; not launched",
+    "Backend deployed; health and live quota endpoint verified without posting GitHub issue"
+  ],
+  "release_status": "Server live. Mobile source changes compiled locally; no new mobile store/download release uploaded. Shipped mobile build32 unchanged.",
+  "limitations": [
+    "App data clear/reinstall may reset identity; not hardware attestation",
+    "Physical phone UI/timer acceptance not performed"
+  ],
+  "evidence": "artifacts/report-quota"
+}
