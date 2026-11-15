@@ -8,7 +8,7 @@ OUT = ROOT / 'artifacts/simple-listening/verification'
 OUT.mkdir(parents=True, exist_ok=True)
 binary = OUT / 'receiver-handoff-harness'
 subprocess.run(['xcrun', 'swiftc', '-O', '-swift-version', '5', '-framework', 'AVFAudio', '-framework', 'Network', '-framework', 'Security',
-    *[str(ROOT / p) for p in ('apple/ComputerVolume.swift', 'ios/AudioRelay/RelayTransport.swift', 'ios/AudioRelay/RelaySecurity.swift', 'ios/AudioRelay/PairingStore.swift', 'ios/AudioRelay/PairingConfirmation.swift', 'scripts/ReceiverHandoffHarness.swift')], '-o', str(binary)], check=True)
+    *[str(ROOT / p) for p in ('apple/ComputerVolume.swift', 'ios/AudioRelay/RelayTransport.swift', 'ios/AudioRelay/NearbyDevices.swift', 'ios/AudioRelay/RelaySecurity.swift', 'ios/AudioRelay/PairingStore.swift', 'ios/AudioRelay/PairingConfirmation.swift', 'scripts/ReceiverHandoffHarness.swift')], '-o', str(binary)], check=True)
 reports = []
 with tempfile.TemporaryDirectory(prefix='pairit-receiver-check-') as folder:
     folder = Path(folder)
