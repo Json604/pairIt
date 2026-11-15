@@ -1,0 +1,30 @@
+{
+  "source": "7c1863f3b5c0e7cb812b156078eb0cf261f66a43",
+  "release": "https://github.com/Json604/pairIt-download/releases/tag/v1.1.0-preview.28",
+  "versions": {
+    "linux": 28,
+    "windows": 28,
+    "mac_unchanged": 26,
+    "android": 35,
+    "ios": 35
+  },
+  "ci": {
+    "run": 43670467965,
+    "all_six_jobs": "passed"
+  },
+  "assets": "10 published; every GitHub SHA256 digest and size verified against local package",
+  "public_feed_commit": "42096b9",
+  "ios": "Build35 uploaded successfully to App Store Connect; owner handles review submission",
+  "android": "Signed validated AAB artifacts/publish-28/google-play/PairIt-1.1.0.aab; owner uploads/submits to Play",
+  "website": {
+    "version": 46,
+    "source": "9aa31a70ab1057e1281968c4c1f0ba5f5fcb0cd4",
+    "deployment": "appgdep_6af921ca4af081919279b23f0d349014",
+    "pages": [
+      "/",
+      "/downloads"
+    ]
+  },
+  "verification": "See reconnect28-mobile35.md; shared protocol suite also passed in Linux container. No simulator audio, installed-app replacement or physical-phone test performed.",
+  "retest": "Repeat connect/disconnect on affected Ubuntu and Windows while silent, then start audio. Check both phones show all newly paired computers and disconnect progress. Previously overwritten credentials need pairing once again."
+}
