@@ -35,7 +35,6 @@ relay-identity.*
 
 # Local rollout/account history; not product source.
 /HANDOFF.md
-/AGENTS.md
 /release/apple/GOOGLE-SDK-PRIVACY-QUESTION.txt
 
 # Local research, acceptance evidence and generated store assets (preserved on disk).

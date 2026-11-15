@@ -36,7 +36,8 @@ The owner chose to retain existing source history and publish the source reposit
 Current operational inventories have been sanitized; Git history has not been rewritten.
 Older operational details and commit-author metadata remain discoverable in previous
 commits. Public support contacts and legally required third-party attribution are retained.
-The ignored local AGENTS.md contains the working handoff and does not enter public source.
+AGENTS.md is now a tracked contributor guide. Personal handoff notes and machine-specific
+configuration are excluded from that public guide.
 
 ## Verification and limits
 
