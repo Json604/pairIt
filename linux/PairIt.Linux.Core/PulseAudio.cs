@@ -110,8 +110,35 @@ public sealed class PulseSource(string monitor) : ISystemAudioSource
         volumeObserver = ObserveVolumeAsync();
         var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         reader = PumpAsync(process!.StandardOutput.BaseStream, received, failed, ready);
-        try { await ready.Task.WaitAsync(TimeSpan.FromSeconds(6), cancellation); }
+        try { await WaitForCaptureAsync(ready.Task, cancellation); }
         catch { await DisposeAsync(); throw; }
+    }
+    private async Task WaitForCaptureAsync(Task firstPacket, CancellationToken cancellation)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellation, lifetime.Token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(2));
+        var commands = new PulseCommands();
+        while (true) {
+            deadline.Token.ThrowIfCancellationRequested();
+            if (firstPacket.IsCompleted) { await firstPacket; return; }
+            var capture = process!;
+            if (capture.HasExited) throw new IOException("Selected audio output stopped responding.");
+            // An idle/suspended monitor need not emit PCM. Registration of this
+            // exact recording client is sufficient; another recorder is not.
+            var json = await commands.RunAsync(deadline.Token, "--format=json", "list", "source-outputs");
+            using var outputs = JsonDocument.Parse(json);
+            var pid = capture.Id.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            foreach (var output in outputs.RootElement.EnumerateArray()) {
+                if (output.TryGetProperty("properties", out var properties) &&
+                    properties.TryGetProperty("application.process.id", out var id) &&
+                    id.ValueKind == JsonValueKind.String && id.GetString() == pid) {
+                    if (capture.HasExited) throw new IOException("Selected audio output stopped responding.");
+                    if (firstPacket.IsFaulted) await firstPacket;
+                    return;
+                }
+            }
+            await Task.Delay(50, deadline.Token);
+        }
     }
     private void StartCaptureProcess()
     {

@@ -8,6 +8,7 @@ if (args.Contains("--route-crash-helper")) {
     Console.WriteLine(crashRoute.SinkName); Console.Out.Flush();
     await Task.Delay(Timeout.Infinite); return;
 }
+await SilentCaptureChecks.RunAsync();
 CaptureTimingChecks.Run();
 await RoutingChecks.RunAsync();
 if (args.Contains("--routing")) await LiveRoutingChecks.RunAsync();
