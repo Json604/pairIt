@@ -14,7 +14,7 @@ Headphone play/pause pauses or resumes this phone’s live relay while keeping C
 
 ## Listen together
 
-Open Together to discover nearby PairIt phones. Tap a phone to open the system share sheet, or use Share app for people who have not installed PairIt. Each listener still pairs their phone with the computer using its private pairing code.
+Connect the host phone to a computer, then open Together to discover nearby phones with PairIt open in the foreground. Guests can stay on Connect or Settings. Tap a phone to invite it, compare the displayed code, and accept on both phones. A guest verifies and joins the host’s computer without scanning a separate pairing code. Use Share app for people who have not installed PairIt. Keep PairIt in the foreground while accepting an invitation.
 
 The most compatible setup uses one phone per listener. Connect each person’s Bluetooth headphones to their own phone, keep all devices on the same Wi-Fi, pair each phone with the same computer, and start audio on all of them. Up to four phones can listen. Each has its own volume and can pause independently. A slow or disconnected receiver has its own bounded connection.
 

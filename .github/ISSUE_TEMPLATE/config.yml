@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: App bug or feature request
+    url: https://github.com/Json604/pairIt-download/issues
+    about: Keep app reports together with existing in-app reports.
+  - name: Security vulnerability (private email)
+    url: mailto:kartikey060105@gmail.com
+    about: Do not post vulnerabilities or credentials in public issues.

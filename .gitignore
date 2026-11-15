@@ -70,3 +70,11 @@ relay-identity.*
 # Isolated desktop installer test harness output.
 /scripts/installer-worker-check/bin/
 /scripts/installer-worker-check/obj/
+
+# App Store Connect / SSH keys and standalone certificate exports.
+*.p8
+*.pem
+id_rsa
+id_ed25519
+id_ecdsa
+id_dsa

@@ -12,3 +12,7 @@ updates:
     directory: /windows
     schedule:
       interval: weekly
+  - package-ecosystem: nuget
+    directory: /linux
+    schedule:
+      interval: weekly

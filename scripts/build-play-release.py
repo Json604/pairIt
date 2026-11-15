@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a signed, reproducible internal candidate; private keys never enter this repo."""
+"""Build a signed, validated internal candidate; private keys never enter this repo."""
 import argparse, hashlib, importlib.util, json, os, secrets, shutil, subprocess, tempfile, urllib.request, zipfile
 from pathlib import Path
 from release_tools import verified_download

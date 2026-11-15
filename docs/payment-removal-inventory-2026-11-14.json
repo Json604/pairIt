@@ -1,6 +1,6 @@
 {
-  "purpose": "Read-only audit inventory for returning PairIt to free with ads. No payment resources removed.",
-  "publication": "All release publication remains on hold. Default payment config disabled/test; VPS test service remains running.",
+  "purpose": "Historical source migration inventory: PairIt returned to free listening with ads.",
+  "publication": "Historical planning snapshot; payment removal is complete. See current README and release notes for published behavior.",
   "target_behavior": [
     "Free app with existing AdMob ads subject to consent and normal eligibility",
     "Four simultaneous listeners for everyone; no paid host requirement",
@@ -61,33 +61,6 @@
     "preserve": "Pairing credentials/pins, installation IDs, Android relay preferences, iOS pairing Keychain, Google consent settings.",
     "warning": "Disabled checkout does not stop valid saved Pro grants suppressing ads; remove exemptions, not just flag."
   },
-  "dodo_test_resources": {
-    "product": "pdt_0Nrsc6JYw4jIlIU8mlktK",
-    "price": "USD6.99 base; INR349 country override; tax inclusive",
-    "localized_price": "lcp_0Nrsc6KPolzWoSlIIhzhu",
-    "entitlement": "ent_0Nrsc6IP9ySOagsY1kPvV; license_key, active, one activation",
-    "discounts": [
-      "dsc_0NrsgK6XHpf2b99aLSHKp:20%",
-      "dsc_0NrsgK4A04oaGrMt8dEAa:100%"
-    ],
-    "history": "6 delivered license grants; 3 currently activated instances. Related test checkout/payment/customer records exist; do not delete shared customers or unrelated products.",
-    "eventual_cleanup": "Archive/disable PairIt product, entitlement and discounts; revoke PairIt-only credentials; provider historical records may remain.",
-    "live": "No live PairIt configuration created in recorded work; merchant verification request was user initiated. Do not delete whole Dodo account."
-  },
-  "local_runtime_and_artifacts": [
-    ".env.payments.local (credential; contents not printed)",
-    "payments/data/activations.sqlite, -shm, -wal",
-    "artifacts/pro-payments/: signing-private.pem, purchase/grant/session JSON, configs, deploy archives, logs, screenshots, APK and iOS builds",
-    "artifacts/pro-radial-preview/index.html and payment-specific artifacts/pro-* files",
-    "Local Node payment server PID13968,127.0.0.1:8787 (recheck PID/cwd before eventual stop)",
-    "Local Python preview server PID85422,127.0.0.1:8876 (recheck PID/cwd before eventual stop)",
-    "artifacts/release-16 bundles/archives/AAB/APK/DMG contain payment sources; rebuild after removal",
-    "Installed preview apps may retain grants; update/migrate without wiping pairing",
-    "artifacts/release-audit/source-scan includes payment source copies",
-    "Generated iOS build directories contain Dodo SDK caches",
-    "/tmp/pairit-payments.log",
-    "/tmp/implement-pro-radial.py"
-  ],
   "preserve_unrelated_work": [
     "AdMob/UMP and existing ad placements",
     "Android notification fixes and iOS remote playback fixes/tests",
@@ -98,12 +71,6 @@
     "Ordinary dotted radial and full-screen coverage",
     "Pairing TLS authentication and microphone exclusivity",
     "Build-number increments unless intentionally changed"
-  ],
-  "rollout_notes": [
-    "Do not reset all modified files to Git HEAD.",
-    "Update phones and desktops together: older paid test phones send PRO1; decide whether ignore-only compatibility parsing is needed.",
-    "Free builds first, then retire backend/DNS/keys so installed test versions are not stranded unexpectedly.",
-    "No push, release or store upload authorized by this inventory request."
   ],
   "acceptance_checks": [
     "No checkout SDK, callback scheme, paywall or billing request",
@@ -135,36 +102,5 @@
       "PROMO-CODES.md"
     ],
     "webhooks": "No webhook handler in deployed service; API reads perform verification. Do not assume any account webhook exists without checking."
-  },
-  "vps_verified": {
-    "host": "159.89.169.228 (droplet)",
-    "deployment": "/opt/pairit-payments/ including source, public copy, secrets, deploy-auto.tar.gz",
-    "container": "pairit-payments-activation-1: running healthy test_mode; unless-stopped",
-    "image": "pairit-payments-activation:latest",
-    "port": "127.0.0.1:8787 ->8787/tcp",
-    "network": "pairit-payments_default",
-    "volume": "pairit-payments_purchases mounted /app/data; backing /var/lib/docker/volumes/pairit-payments_purchases/_data contains activations.sqlite/-wal/-shm",
-    "secrets": [
-      "/opt/pairit-payments/secrets/dodo-api-key",
-      "/opt/pairit-payments/secrets/signing-private.pem"
-    ],
-    "dns": "billing.pairit.kartikey.xyz A159.89.169.228; Vercel record ID not inspected",
-    "proxy": "/etc/caddy/Caddyfile lines47-52: dedicated billing hostname ->127.0.0.1:8787",
-    "certificate_cache": "/var/lib/caddy/.local/share/caddy/certificates/acme-v02.api.letsencrypt.org-directory/billing.pairit.kartikey.xyz/",
-    "deployment_difference": "Backend hashes match local src; deployed pro.html differs from local current copy",
-    "preserve": [
-      "Shared VPS",
-      "Caddy service and unrelated host blocks",
-      "Global ACME account/certificate store",
-      "Docker engine and other projects/volumes/images",
-      "Firewall/SSH setup"
-    ],
-    "cleanup_rule": "Target only owned payment resources; no blanket Docker prune."
-  },
-  "verification_limits": [
-    "Source inventories reflect current working tree; many files combine payment and unrelated edits.",
-    "Dodo read-only inventory used the existing test resources; no live resources changed or removed.",
-    "Vercel DNS record ID and full Dodo historical checkout/customer inventory not enumerated.",
-    "Installed device storage and remote backups were not fully enumerated; cleanup must verify them."
-  ]
+  }
 }

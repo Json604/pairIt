@@ -11,12 +11,8 @@
     "purchase_cleanup_tests": "Android fake-store and iOS fake-Security tests pass: only retired purchase data removed, pairing/consent preserved; repeated cleanup safe."
   },
   "payment_backend": {
-    "local_source_runtime_secrets": "Removed payments/, env key file, payment SQLite, signing keys, local servers and payment preview artifacts",
-    "vps": "Dedicated container/image/network/volume/deployment/secrets/Caddy hostname/TLS certificate removed; port8787 closed",
-    "shared_services": "Caddy active;3 unrelated running containers retained original IDs and running state",
-    "dns": "Vercel billing.pairit A record removed; unrelated DNS unchanged",
-    "dodo_test": "Product and localized price archived; entitlement soft-deleted;2discounts deleted;6licenses disabled and verified",
-    "pending": "Dodo test API-key revocation at provider. Tools lack API-key revocation; browser host unavailable. Local/server copies deleted; user asked to revoke."
+    "status": "Retired billing service, local credential copies and billing DNS removed; unrelated services preserved.",
+    "provider_records": "Provider-side historical records are separate from application source and are not reproduced here."
   },
   "intentional_remaining_references": [
     "LegacyPurchaseCleanup deletes only retired purchase data; never pairing or consent",
@@ -36,7 +32,6 @@
   "limits": [
     "No Moto connected: fresh build not installed or hardware-tested",
     "No physical iPhone test; simulator not launched per user request",
-    "Existing Dodo historical payment/customer records retained by provider",
     "No GitHub/store/site publication",
     "Physical audio/hardware acceptance remains separate from compilation and synthetic tests"
   ]

@@ -4,12 +4,12 @@ The native app submits only after the user taps Submit report and sees that the
 report is public. No GitHub account is required. The server creates an issue in
 `Json604/pairIt-download`; no repository or API URL comes from the client.
 
-Deploy this directory separately at `/opt/pairit-reports` on the shared VPS.
+Deploy this directory separately in a dedicated service directory on your server.
 Create a mode600 `.env` with a fine-grained `GITHUB_REPORTS_TOKEN` restricted to
 that repository (Issues: write) and random `REPORTS_IP_SALT`. Never put the token
 in app code, app configuration, command arguments, logs or source control.
 Create `data` owned by10001 with mode700; run `docker compose up -d --build`.
-Expose only loopback8788; Caddy terminates HTTPS at reports.pairit.kartikey.xyz,
+Expose only loopback8788; configure Caddy for your reporting hostname,
 limits request size, and overwrites X-Real-IP with the TCP client address.
 
 Abuse bounds: max24KB JSON, strict schema,5 new reports per rolling24hours per random app-installation identifier. Pending submissions reserve a slot; rejected requests release it. Existing older clients without the identifier retain3/hour/IP and5/day/IP limits. New clients have a50/day/IP backstop and50/day service limit. POST /v1/reports/quota returns remaining and retryAfter for live countdowns. IP addresses are HMAC-hashed in SQLite; raw report bodies
