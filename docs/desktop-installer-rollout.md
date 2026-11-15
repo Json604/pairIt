@@ -3,11 +3,11 @@
 User authorized a manually installed bootstrap release, then a second release to test Download & Install. Do not publish the second release until the owner confirms installing the first.
 
 - [x] Website: Linux Intel/AMD x64 and ARM64 equally visible; Mac Universal; Windows x64.
-- [ ] Mac: pinned Sparkle, EdDSA update signatures plus Developer ID/notarization; user-initiated installation.
-- [ ] Windows/Linux: pinned public key verifies signed installer metadata, SHA256 and size before extraction/execution; exact platform/architecture selection; no private signing key shipped.
-- [ ] Installer: graceful exit, preserve external pairing/settings, recover failed replacement, no silent elevation. Linux .deb uses system authorization; portable folder must be writable and isolated.
-- [ ] Progress, cancel, error and restart UI; malformed/tampered metadata, wrong architecture and failed installation tests.
-- [ ] Baseline release22: signed/notarized Mac; complete Windows x64 ZIP; Linux amd64/arm64 packages and archives; website/feed published only after verification.
+- [x] Mac: pinned Sparkle, EdDSA update signatures plus Developer ID/notarization; user-initiated installation.
+- [x] Windows/Linux: pinned public key verifies signed installer metadata, SHA256 and size before extraction/execution; exact platform/architecture selection; no private signing key shipped.
+- [x] Installer: graceful exit, preserve external pairing/settings, recover failed replacement, no silent elevation. Linux .deb uses system authorization; portable folder must be writable and isolated.
+- [x] Progress, cancel, error and restart UI; malformed/tampered metadata, wrong architecture and failed installation tests.
+- [x] Baseline release22: signed/notarized Mac; complete Windows x64 ZIP; Linux amd64/arm64 packages and archives; website/feed published only after verification.
 - [ ] Owner installs baseline22.
 - [ ] Publish test release23, then verify20/21→22 manual and22→23 in-app flows with owner.
 
@@ -25,3 +25,5 @@ Website labels published as Sites version36 (source67449d5): both homepage and d
 7. Never copy source/private keys into the public download repository. Keep phone versions unchanged for this desktop-only rollout.
 
 Portable replacement retains a previous app folder; rollback covers a failed filesystem replacement or failed launch, not arbitrary crashes after a successful process launch. Linux package-manager failures use the system package manager's recovery; pairing/settings stay separate. Physical Windows installation and desktop Linux authorization still require acceptance testing.
+
+Verification: final source d2c26d7, final CI43655960981; evidence in artifacts/updater-bootstrap. Linux real-worker tamper rejection and valid22→local23 install/relaunch passed with a separate profile; Linux package21→22 and graphical startup passed. Mac22 notarized/stapled and EdDSA verified. The local23 fixture predates the Linux handoff fix and MUST NOT be published; rebuild23 from final source after owner confirmation.

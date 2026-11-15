@@ -1,0 +1,25 @@
+{
+  "date": "2026-11-15",
+  "source": "d2c26d7f734b3ac5498d4a00c31e20fbaaad74fd",
+  "release": "https://github.com/Json604/pairIt-download/releases/tag/v1.1.0-preview.22",
+  "scope": "Desktop22 only; phones32 unchanged",
+  "ci_run": 43655960981,
+  "ci": "all six jobs passed",
+  "site_version": 37,
+  "feed_commit": "54a7561",
+  "checks": [
+    "Windows x64 and Linux x64/ARM64 builds and protocol/security regressions passed",
+    "Mac universal build Developer ID signed, notarized and stapled; EdDSA ZIP signature verified",
+    "Real Linux worker rejects tampered ZIP before ready; signed local newer build installed/relaunched with profile preserved and previous app retained",
+    "Ubuntu ARM64 deb21 to22 and installed graphical startup passed",
+    "10 public release asset SHA256 digests match final local files",
+    "All three public feeds match verified release bytes after CDN propagation; live custom-domain site labels and22 downloads verified"
+  ],
+  "limits": [
+    "Actual Windows installation/relaunch and Linux graphical polkit authorization remain owner acceptance",
+    "Mac in-app installation awaits second release; no owner installed app overwritten or simulator audio launched",
+    "Portable recovery covers filesystem/launch errors, not crashes after successful launch",
+    "Local test23 fixture predates stable Linux identity fix; NEVER publish it. Rebuild23 after owner confirms22 installed."
+  ],
+  "evidence": "artifacts/updater-bootstrap"
+}
