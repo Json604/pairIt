@@ -1,0 +1,24 @@
+{
+  "date": "2026-11-15",
+  "source": "2353f1d3f679193d2c8d52562bf0b2d3d5306661",
+  "release": "https://github.com/Json604/pairIt-download/releases/tag/v1.1.0-preview.23",
+  "desktop_build": 23,
+  "phones_build": 32,
+  "ci_run": 43658946827,
+  "ci": "all six jobs passed",
+  "feed_commit": "9fbd5c1",
+  "site_version": 39,
+  "checks": [
+    "Fresh builds from final stable Linux handoff source; no old local test artifact reused",
+    "Mac universal signed, notarized, stapled and EdDSA archive verification passed",
+    "Windows and both Linux architecture builds/regressions passed",
+    "Real Linux worker22 to actual release23 ZIP: tamper rejection, valid install/relaunch, preserved profile and recovery directory passed",
+    "Ubuntu ARM64 package22 to23 and installed graphical startup passed",
+    "All ten uploaded asset SHA256 digests match local packages"
+  ],
+  "limits": [
+    "Owner physical Mac/Linux in-app update acceptance pending",
+    "Windows real installation and Linux graphical authorization prompt acceptance pending"
+  ],
+  "evidence": "artifacts/publish-desktop-23"
+}
