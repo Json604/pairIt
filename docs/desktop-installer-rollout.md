@@ -8,7 +8,7 @@ User authorized a manually installed bootstrap release, then a second release to
 - [x] Installer: graceful exit, preserve external pairing/settings, recover failed replacement, no silent elevation. Linux .deb uses system authorization; portable folder must be writable and isolated.
 - [x] Progress, cancel, error and restart UI; malformed/tampered metadata, wrong architecture and failed installation tests.
 - [x] Baseline release22: signed/notarized Mac; complete Windows x64 ZIP; Linux amd64/arm64 packages and archives; website/feed published only after verification.
-- [ ] Owner installs baseline22.
+- [x] Owner confirms baseline22 installed on Mac and Linux; authorized23 for all desktops.
 - [ ] Publish test release23, then verify20/21→22 manual and22→23 in-app flows with owner.
 
 Private ECDSA signing key: ~/.config/pairit/desktop-update-signing.pem (never commit or log). Mac Sparkle key belongs in login Keychain. Public keys are intentionally distributable. Existing phone builds remain unchanged. Do not launch phone audio simulators or overwrite the owner's installed Mac app during development.
