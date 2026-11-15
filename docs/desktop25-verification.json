@@ -1,0 +1,32 @@
+{
+  "source": "ec260340f24307f967fb1b2f9145461450f61b2c",
+  "desktop": 25,
+  "mobile": 34,
+  "android_core": "passed",
+  "swift_timing": "passed",
+  "adaptive_estimator": "64-sample stable prefill40ms; fallback on3recoveries, timeout and high outputlead passed",
+  "receiver_handoff": "passed",
+  "invitations": "passed Java/Swift interoperability",
+  "shared_protocol": "passed including update prompt timing/dedup checks",
+  "linux_live_capture": "PipeWire:250packets,10ms sample spacing,1reset after350ms consumerstall;arrival median10.61ms,p9511.46ms",
+  "physical_acceptance": "Not measured. Owner must retest Ubuntu vs Mac and both phone outputs; Windows physical capture/update remains unverified.",
+  "ios_upload": "App Store Connect upload succeeded; review not submitted",
+  "android_aab": "artifacts/publish-25/google-play/PairIt-1.1.0.aab; owner uploads/submits",
+  "pending": [
+    "Owner installs25 before test26 publication",
+    "Physical latency/output/group acceptance"
+  ],
+  "ci": {
+    "run": 43664636260,
+    "all_six_jobs": "passed"
+  },
+  "mac": "DeveloperID notarized/stapled; final codesign validation passed",
+  "publication": {
+    "release": "https://github.com/Json604/pairIt-download/releases/tag/v1.1.0-preview.25",
+    "public_feed_commit": "31e58c3",
+    "assets": "12 SHA256 digests verified",
+    "site_version": 42,
+    "site_source": "a19f112f0d63b3abe7d5758c375100ab879c5c9d",
+    "site_status": "deployed; home/download links verified"
+  }
+}
