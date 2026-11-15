@@ -40,6 +40,11 @@ internal static class Integration
         await using var server = new RelayServer(certificate, token, sessions);
         server.Start(IPAddress.Loopback, 0);
         var connector = new Connector(server.Port, certificate, token);
+        using (var occupancy = await connector.ConnectAsync()) {
+            await occupancy.WriteLineAsync("STATUS1");
+            Require((await occupancy.ReadLineAsync()).StartsWith("OK STATUS1 0 "), "Occupancy before authentication must not start capture.");
+            Require(sessions.Status.Receivers == 0 && !sessions.Status.Capturing, "Occupancy is read-only.");
+        }
         var wrongRequest = new CertificateRequest("CN=Different synthetic identity", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         using var wrongCertificate = wrongRequest.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
         var pinRejected = false;
@@ -75,6 +80,16 @@ internal static class Integration
             Require(excess.Rejection == 1, "Fifth authenticated receiver needs a group-full explanation.");
         }
         Require(sessions.Status.Receivers == 4, "Fifth peer evicted a healthy receiver.");
+        await listeners[0].SendAsync("NAME1 " + Convert.ToBase64String(Encoding.UTF8.GetBytes("Moto G85")) + "\n");
+        await UntilAsync(() => sessions.Status.PhoneNames.Contains("Moto G85"), "authenticated device name");
+        await listeners[0].SendAsync("NAME1 " + Convert.ToBase64String(Encoding.UTF8.GetBytes("Injected\nlabel")) + "\nPING 424242\n");
+        await UntilAsync(() => listeners[0].Clocks.Contains(424242), "invalid name processed");
+        Require(!sessions.Status.PhoneNames.Contains("Injected"), "Control characters in names must be rejected.");
+        using (var occupancy = await connector.ConnectAsync()) {
+            await occupancy.WriteLineAsync("STATUS1");
+            var status = (await occupancy.ReadLineAsync()).Split(' ',4);
+            Require(status[2] == "4" && Encoding.UTF8.GetString(Convert.FromBase64String(status[3])).Contains("Moto G85"), "Occupied computer reports real phone labels.");
+        }
         await using (var invalid = await connector.ReceiverAsync(new string('0', 64))) {
             await UntilAsync(() => invalid.Closed, "wrong authentication rejected");
             Require(invalid.Rejection == 0, "Unauthenticated peer must not receive group status.");

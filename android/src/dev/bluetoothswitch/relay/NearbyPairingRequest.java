@@ -15,17 +15,19 @@ final class NearbyPairingRequest {
     private final Handler main=new Handler(Looper.getMainLooper());
     private final AtomicBoolean done=new AtomicBoolean();
     private final AtomicReference<Socket> socket=new AtomicReference<>();
-    private final String nonce;
+    private final String nonce, encodedName;
     final String comparison;
-    NearbyPairingRequest(String pin) throws Exception {
+    NearbyPairingRequest(String pin) throws Exception { this(pin, ""); }
+    NearbyPairingRequest(String pin,String encodedName) throws Exception {
+        this.encodedName=encodedName;
         byte[] random=new byte[32];new SecureRandom().nextBytes(random);nonce=hex(random);
-        String digest=hex(MessageDigest.getInstance("SHA-256").digest((pin+nonce).getBytes(StandardCharsets.US_ASCII))).substring(0,16).toUpperCase(java.util.Locale.ROOT);
+        String digest=hex(MessageDigest.getInstance("SHA-256").digest((pin+nonce+encodedName).getBytes(StandardCharsets.US_ASCII))).substring(0,16).toUpperCase(java.util.Locale.ROOT);
         comparison=digest.replaceAll("(.{4})(?!$)","$1 ");
     }
     void start(NearbyDevices.Device device,Consumer<PairingCode> completion){
         Thread worker=new Thread(()->{
             PairingCode result=null;
-            try(Socket connection=RelayConnection.openPinned(device.host,5002,device.pin,"REQUEST1 "+nonce,opened->{socket.set(opened);if(done.get())close();})){
+            try(Socket connection=RelayConnection.openPinned(device.host,5002,device.pin,"REQUEST1 "+nonce+(encodedName.isEmpty()?"":" "+encodedName),opened->{socket.set(opened);if(done.get())close();})){
                 String response=RelayConnection.readLine(connection,96,45000);
                 if(response.startsWith("OK REQUEST1 "))result=PairingCode.approved(device,response.substring(12));
             }catch(Exception ignored){}

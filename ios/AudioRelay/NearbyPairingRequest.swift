@@ -9,6 +9,7 @@ final class NearbyPairingRequest {
     let comparison: String
     private let pin: String
     private let nonce: String
+    private let encodedName: String
     private let queue = DispatchQueue(label: "pairit.nearby.pairing")
     private var connection: NWConnection?
     private var timeout: DispatchSourceTimer?
@@ -16,7 +17,8 @@ final class NearbyPairingRequest {
     private var cancelled = false
     private var reply = Data()
 
-    init(pin: String) throws {
+    init(pin: String, encodedName: String = "") throws {
+        self.encodedName = encodedName
         guard pin.utf8.count == 64, pin.allSatisfy({ "0123456789abcdef".contains($0) }) else {
             throw NSError(domain: "PairIt", code: 1)
         }
@@ -26,7 +28,7 @@ final class NearbyPairingRequest {
             throw NSError(domain: "PairIt", code: 2)
         }
         nonce = bytes.map { String(format: "%02x", $0) }.joined()
-        let digest = SHA256.hash(data: Data((pin + nonce).utf8)).map { String(format: "%02X", $0) }.joined()
+        let digest = SHA256.hash(data: Data((pin + nonce + encodedName).utf8)).map { String(format: "%02X", $0) }.joined()
         comparison = stride(from: 0, to: 16, by: 4).map { String(digest.dropFirst($0).prefix(4)) }.joined(separator: " ")
     }
     static func approvedToken(_ reply: Data) -> String? {
@@ -49,7 +51,7 @@ final class NearbyPairingRequest {
                 guard let self, let current, self.connection === current else { return }
                 switch state {
                 case .ready:
-                    current.send(content: Data(("REQUEST1 " + self.nonce + "\n").utf8), completion: .contentProcessed { [weak self] error in
+                    current.send(content: Data(("REQUEST1 " + self.nonce + (self.encodedName.isEmpty ? "" : " " + self.encodedName) + "\n").utf8), completion: .contentProcessed { [weak self] error in
                         guard let self else { return }
                         if error != nil { self.finish(nil) } else { self.receive() }
                     })

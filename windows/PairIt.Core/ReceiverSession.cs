@@ -25,6 +25,7 @@ internal sealed class ReceiverSession(TcpClient socket, SslStream stream) : IDis
     public uint IntentToken { get; set; }
     public ReceiverIntent LastIntent { get; set; }
     public ParkReason ParkReason { get; set; }
+    public string DisplayName { get; set; } = "Phone";
     public string? InstallationId { get; set; }
     public double? SyncMilliseconds { get; set; }
     public bool PresentationAlignment { get; set; }

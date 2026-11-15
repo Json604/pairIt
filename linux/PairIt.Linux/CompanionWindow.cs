@@ -196,7 +196,7 @@ internal sealed class CompanionWindow : Window
         addresses.SelectedItem = available.Contains(previous) ? previous : available.FirstOrDefault();
     }
     private string ConnectionStatus(DesktopStatus value) => value.MicrophoneActive ? "Phone microphone active" : sessions?.CurrentSettings.MicrophoneEnabled == true ? "Ready for phone microphone" : value.Receivers > 0
-        ? (value.Receivers == 1 ? "Your phone" : $"{value.Receivers} phones") + "\n" +
+        ? value.PhoneNames + "\n" +
           (value.ActiveReceivers > 0 && !value.ComputerOutput ? "Listening" : value.ComputerOutput ? "Computer output" : "Paused")
         : "No phones connected";
     private async Task RefreshAsync()

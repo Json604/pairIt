@@ -41,6 +41,7 @@ func runGateway() throws {
                             upstreamToken: source.gatewayToken,
                             identityProvider: { LocalIdentity(directory: directory, config: config) },
                             makeMicrophone: { SyntheticMicrophone() })
+    gateway.phoneNames = { source.phoneNames }
     gateway.reserveMicrophone = { source.reserveMicrophone() }
     gateway.releaseMicrophone = { source.releaseMicrophone() }
     let pairingLock = NSLock()

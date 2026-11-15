@@ -1,0 +1,34 @@
+{
+  "status": "local candidate; not published",
+  "changes": [
+    "foreground discovery and invitations on all tabs",
+    "guest membership and explicit leave",
+    "occupied computer guidance with phone labels",
+    "busy pairing hint",
+    "live per-route sync controls with bounded Windows/Linux local audio correction",
+    "OS device names in mobile presence and desktop labels; named Mac approval transcript"
+  ],
+  "verification": {
+    "android": "Preview debug assemble + lint passed",
+    "ios": "simulator compile passed; never launched",
+    "mac": "universal compile and ad-hoc signing passed; not installed/not notarized candidate",
+    "windows": "cross-compile passed",
+    "linux": "compile passed",
+    "presentation_timing": "Java and Swift checks passed",
+    "invitations": "Java/Swift crypto and bidirectional TCP interoperability passed",
+    "mac_gateway": "synthetic pinned TLS, legacy/named requests, occupancy/name query, concurrent requests, fanout and microphone isolation passed",
+    "shared_protocol": "Windows/Linux synthetic TLS integration, names, malformed-name rejection, occupancy, fanout, controls and lifecycle passed"
+  },
+  "limits": [
+    "physical two-phone UI and acoustic validation still required",
+    "iOS16+ OS name is generic without Apple entitlement",
+    "new occupancy/name support requires updated desktop; older companions fall back",
+    "local correction reanchors audio and may briefly buffer; lower prefill can stutter",
+    "hosted privacy needs matching update when publishing"
+  ],
+  "logs": "artifacts/mobile-group-*.log",
+  "published_versions_unchanged": {
+    "desktop": 23,
+    "mobile": 32
+  }
+}

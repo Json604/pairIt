@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Actual Mac TLS gateway with temporary identity + synthetic source/sink only."""
 from pathlib import Path
-import os, hashlib, json, secrets, socket, ssl, struct, subprocess, tempfile, time
+import os, base64, hashlib, json, secrets, socket, ssl, struct, subprocess, tempfile, time
 
 ROOT=Path(__file__).resolve().parent.parent
 OUT=ROOT/os.environ.get('PAIRIT_VERIFY_OUTPUT','artifacts/feature-preview/verification');OUT.mkdir(parents=True,exist_ok=True)
@@ -70,6 +70,8 @@ with tempfile.TemporaryDirectory(prefix='pairit-synthetic-identity-') as directo
             raw.sendall(('AUTH '+token+'\n').encode())
             require(closed(raw),'A phone pairing token is not a loopback gateway capability')
         require(stats()['sourceStarts']==0,'Unauthenticated loopback callers never start capture')
+        with connect('STATUS1') as s:
+            require(line(s).startswith(b'OK STATUS1 0 '),'Occupancy query reports idle without starting audio')
         with connect('0'*64) as s:require(closed(s),'Wrong credentials rejected before source/sink start')
         with connect(token+' MIC2') as s:require(closed(s),'Unsupported role rejected without starting source')
         require(stats()['sourceStarts']==0,'Rejected authentication never starts capture')
@@ -101,9 +103,10 @@ with tempfile.TemporaryDirectory(prefix='pairit-synthetic-identity-') as directo
         require(stats()['sourceStarts']==0,'Nearby requests do not start audio capture')
         time.sleep(10.1)
         nonce=secrets.token_hex(32)
-        with connect('REQUEST1 '+nonce) as s:
-            expected=hashlib.sha256((pin+nonce).encode()).hexdigest()[:16].upper()
-            expected=' '.join(expected[i:i+4] for i in range(0,16,4))
+        encoded_name=base64.b64encode('Moto G85'.encode()).decode()
+        with connect('REQUEST1 '+nonce+' '+encoded_name) as s:
+            expected=hashlib.sha256((pin+nonce+encoded_name).encode()).hexdigest()[:16].upper()
+            expected='Phone: Moto G85\n\n'+' '.join(expected[i:i+4] for i in range(0,16,4))
             require(wait_for(lambda: stats()['requestCode']==expected),'New request obtains a fresh comparison code')
             command('approve')
             require(line(s)==('OK REQUEST1 '+token+'\n').encode(),'Explicit desktop approval returns credentials over pinned TLS')
@@ -134,7 +137,12 @@ with tempfile.TemporaryDirectory(prefix='pairit-synthetic-identity-') as directo
         with connect('0'*64+' PRO1 retired-preview') as rejected:
             require(closed(rejected),'Retired preview suffix cannot bypass pairing authentication')
         with connect(token+' PRO1 retired-preview') as receiver:
-            receiver.sendall(b'ACTIVE 1\nPING 1234567\n')
+            receiver.sendall(b'NAME1 '+base64.b64encode(b'Moto G85')+b'\nACTIVE 1\nPING 1234567\n')
+            def named_occupancy():
+                with connect('STATUS1') as probe:
+                    parts=line(probe).strip().split(b' ',3)
+                    return len(parts)==4 and parts[2]==b'1' and base64.b64decode(parts[3])==b'Moto G85'
+            require(wait_for(named_occupancy),'Mac occupancy identifies authenticated phone without starting another receiver')
             seen_pcm=seen_clock=False
             for _ in range(20):
                 h=read(receiver,24);magic,sequence,rate,frames,stamp=struct.unpack('<IIIIQ',h)

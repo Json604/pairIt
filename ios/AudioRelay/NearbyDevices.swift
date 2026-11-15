@@ -1,8 +1,22 @@
 import Foundation
 import Combine
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// Discovery is display metadata only. Pairing still requires a private QR code and pinned TLS.
 final class NearbyDevices: NSObject, ObservableObject, NetServiceBrowserDelegate, NetServiceDelegate {
+    static var localName: String {
+        #if canImport(UIKit)
+        let raw = UIDevice.current.name
+        #else
+        let raw = "iPhone"
+        #endif
+        var clean = String(raw.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) && $0.properties.generalCategory != .format }.map(String.init).joined().prefix(64)).trimmingCharacters(in: .whitespacesAndNewlines)
+        while clean.utf8.count > 256 { clean.removeLast() }
+        return clean.isEmpty ? "iPhone" : clean
+    }
+    static var encodedName: String { Data(localName.utf8).base64EncodedString() }
     struct Device: Identifiable {
         let id: String
         let name: String
@@ -34,7 +48,7 @@ final class NearbyDevices: NSObject, ObservableObject, NetServiceBrowserDelegate
         guard advertisement == nil else { return }
         sessionName = UUID().uuidString
         let service = NetService(domain: "local.", type: "_pairit-phone._tcp.", name: sessionName, port: Int32(invitationPort > 0 ? invitationPort : 9))
-        service.setTXTRecord(NetService.data(fromTXTRecord: ["invite": Data((invitationPort > 0 ? "1" : "0").utf8), "id": Data(presenceID.utf8), "role": Data("phone".utf8), "v": Data("1".utf8), "platform": Data("ios".utf8), "name": Data("iPhone".utf8)]))
+        service.setTXTRecord(NetService.data(fromTXTRecord: ["invite": Data((invitationPort > 0 ? "1" : "0").utf8), "id": Data(presenceID.utf8), "role": Data("phone".utf8), "v": Data("1".utf8), "platform": Data("ios".utf8), "name": Data(Self.localName.utf8)]))
         advertisement = service; service.publish()
     }
     func stop() {

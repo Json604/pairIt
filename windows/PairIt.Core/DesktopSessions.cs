@@ -27,7 +27,7 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
 
     public DesktopStatus Status
     {
-        get { lock (state) return new(receivers.Count, receivers.Values.Count(peer => peer.Active), source != null, microphone != null, message, computerOutput); }
+        get { lock (state) return new(receivers.Count, receivers.Values.Count(peer => peer.Active), source != null, microphone != null, message, computerOutput, string.Join(", ",receivers.Values.Select(p=>p.DisplayName))); }
     }
 
     internal void AcknowledgePairing()
@@ -297,6 +297,16 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
         return false;
     }
 
+    internal void SetDisplayName(ReceiverSession peer, string encoded)
+    {
+        if(encoded.Length > 344)return;
+        try {
+            var name = new System.Text.UTF8Encoding(false,true).GetString(Convert.FromBase64String(encoded));
+            if(name.Length is < 1 or > 64 || name.Any(c => char.IsControl(c) || char.GetUnicodeCategory(c) == System.Globalization.UnicodeCategory.Format))return;
+            lock(state) peer.DisplayName = name;
+            Publish();
+        } catch(Exception e) when(e is FormatException or System.Text.DecoderFallbackException) { }
+    }
     internal void SetHello(ReceiverSession peer, string installation)
     {
         lock (state)

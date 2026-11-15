@@ -1,6 +1,10 @@
 package dev.bluetoothswitch.relay;
 public final class PresentationTimingCheck {
  public static void main(String[] args) {
+  check(PresentationTiming.correctedDelay(20,0)==20,"reset preserves learned interactive prefill");
+  check(PresentationTiming.correctedDelay(320,-10)==330,"early sound delayed ten ms");
+  check(PresentationTiming.correctedDelay(320,10)==310,"late sound advanced ten ms");
+  check(PresentationTiming.correctedDelay(320,500)==40,"bounded network prefill");
   check(PresentationTiming.renderDelay(320, -1, 0)==320,"solo unchanged before measurement");
   check(PresentationTiming.renderDelay(320, 180, 0)==320,"solo unchanged after measurement");
   check(PresentationTiming.renderDelay(320, 20, 500)+20==500,"speaker group presentation");

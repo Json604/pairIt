@@ -27,13 +27,18 @@ final class RelayPlayback {
     private var recoveryTimes: [Double] = []
     private var cushion = 0.320, prime = 0.120
     private var minimumCushionMs = 320, outputDelayMs: Int?, presentationTargetMs = 0
+    private var localCorrection = 0
+    func setLocalCorrection(_ value: Int) { localCorrection = max(-500,min(500,value)); applyPresentationTarget() }
+    private var correctedRenderDelay: Int {
+        PresentationTiming.correctedDelay(PresentationTiming.renderDelay(minimum: minimumCushionMs, output: outputDelayMs, target: presentationTargetMs), correction: localCorrection)
+    }
     var onOutputTiming: ((Int, Int?) -> Void)?
     func setPresentationTarget(_ value: Int) {
         guard (0...2000).contains(value) else { return }
         presentationTargetMs = value; applyPresentationTarget()
     }
     private func applyPresentationTarget() {
-        let delay = PresentationTiming.renderDelay(minimum: minimumCushionMs, output: outputDelayMs, target: presentationTargetMs)
+        let delay = correctedRenderDelay
         guard abs(cushion - Double(delay) / 1000) > 0.0005 else { return }
         cushion = Double(delay) / 1000
         // Preserve TLS, output selection and route calibration. Only re-anchor
@@ -121,7 +126,7 @@ final class RelayPlayback {
     private func resetLearning() {
         learning.removeAll(keepingCapacity: true); learningStarted = nil; learned = false
         mode = reliableFallback ? .reliable : requestedMode
-        minimumCushionMs = 320; cushion = Double(PresentationTiming.renderDelay(minimum: minimumCushionMs, output: outputDelayMs, target: presentationTargetMs)) / 1000; prime = 0.120
+        minimumCushionMs = 320; cushion = Double(correctedRenderDelay) / 1000; prime = 0.120
         onOutputTiming?(minimumCushionMs, outputDelayMs)
     }
     private func learn(_ packet: RelayPacket) {
@@ -137,14 +142,14 @@ final class RelayPlayback {
         let packetDuration = learning.map(\.duration).max()!
         cushion = min(0.320, max(lead, ceil((jitter + packetDuration * 2 + lead) * 1000) / 1000))
         minimumCushionMs = Int((cushion * 1000).rounded())
-        cushion = Double(PresentationTiming.renderDelay(minimum: minimumCushionMs, output: outputDelayMs, target: presentationTargetMs)) / 1000
+        cushion = Double(correctedRenderDelay) / 1000
         onOutputTiming?(minimumCushionMs, outputDelayMs)
         prime = lead
         learned = true; learning.removeAll(keepingCapacity: true)
         onModeChange?(.interactive, "Interactive preview · \(Int((cushion * 1000).rounded())) ms network prefill")
     }
     private func fallback(_ reason: String) {
-        reliableFallback = true; mode = .reliable; minimumCushionMs = 320; cushion = Double(PresentationTiming.renderDelay(minimum: minimumCushionMs, output: outputDelayMs, target: presentationTargetMs)) / 1000; prime = 0.120
+        reliableFallback = true; mode = .reliable; minimumCushionMs = 320; cushion = Double(correctedRenderDelay) / 1000; prime = 0.120
         onOutputTiming?(minimumCushionMs, outputDelayMs)
         learning.removeAll(); learned = true
         onModeChange?(.reliable, reason)
@@ -167,7 +172,7 @@ final class RelayPlayback {
             lastDrift = now
             if referencePhase == nil { referencePhase = phase }
             let aligned = presentationTargetMs > 0 && outputDelayMs != nil
-            let error = aligned ? phase + player.outputPresentationLatency - Double(presentationTargetMs) / 1000 : phase - referencePhase!
+            let error = aligned ? phase + player.outputPresentationLatency - Double(presentationTargetMs + correctedRenderDelay - PresentationTiming.renderDelay(minimum: minimumCushionMs, output: outputDelayMs, target: presentationTargetMs)) / 1000 : phase - referencePhase!
             filteredError = filteredError * 0.8 + error * 0.2
             let correction = aligned ? PresentationTiming.rateCorrection(errorMs: filteredError * 1000)
                 : (abs(filteredError) < 0.004 ? 0 : max(-0.001, min(0.001, filteredError / 20)))

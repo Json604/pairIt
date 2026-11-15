@@ -43,6 +43,10 @@ final class RelayServer {
     private var lastReceiverCount = -1
     private var lastReceiverDetail = ""
     var onStatus: ((String) -> Void)?
+    var phoneNames: String {
+        lock.lock(); defer { lock.unlock() }; return peers.values.filter { $0.authenticated && !$0.closed && !$0.released }.map { $0.displayName }.sorted().joined(separator: ", ")
+    }
+    var onPhoneNames: ((String) -> Void)?
     var onReceivers: ((Int, Int, String) -> Void)?
     var onOutputChanged: ((Bool) -> Void)?
 
@@ -181,6 +185,10 @@ final class RelayServer {
             if peer.intentToken == 0 { peer.active = true }
         } else if line.hasPrefix("SYNC "), let value = Double(line.dropFirst(5)), value.isFinite, (0...2000).contains(value) {
             peer.compensation = value
+        } else if line.hasPrefix("NAME1 ") {
+            let encoded = String(line.dropFirst(6))
+            if encoded.utf8.count <= 344, let data = Data(base64Encoded: encoded), let name = String(data: data, encoding: .utf8),
+               !name.isEmpty, name.count <= 64, !name.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) || $0.properties.generalCategory == .format }) { peer.displayName = name }
         } else if line.hasPrefix("HELLO ") {
             let identity = String(line.dropFirst(6))
             if identity.range(of: "^[a-f0-9]{32}$", options: .regularExpression) != nil {
@@ -365,6 +373,8 @@ final class RelayServer {
         if changed { DispatchQueue.main.async { [weak self] in self?.onStatus?(text) } }
     }
     private func publishReceivers(_ count: Int, _ parked: Int, _ detail: String) {
+        lock.lock(); let names = peers.values.filter { !$0.released }.map { $0.displayName }.sorted().joined(separator: ", "); lock.unlock()
+        DispatchQueue.main.async { [weak self] in self?.onPhoneNames?(names) }
         guard count != lastReceiverCount || detail != lastReceiverDetail else { return }
         lastReceiverCount = count; lastReceiverDetail = detail
         DispatchQueue.main.async { [weak self] in self?.onReceivers?(count, parked, detail) }
@@ -402,6 +412,7 @@ private final class RelayPeer {
     var resumeOffered = false
     var released = false
     var intentToken: UInt32 = 0
+    var displayName = "Phone"
     var identity: String?
     var compensation: Double?
     var presentationAlignment = false

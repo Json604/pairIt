@@ -17,6 +17,7 @@ final class RelayReceiver: ObservableObject {
     @Published private(set) var headphones = "Bluetooth headphones"
     @Published private(set) var estimatedMs: Int?
     @Published private(set) var correction = 0
+    var canAdjustTiming: Bool { !routeUID.isEmpty && profile != nil }
     @Published private(set) var groupTimingStatus = ""
     @Published private(set) var diagnostics = "No active session."
     @Published private(set) var output: RelayOutput = .bluetooth
@@ -390,12 +391,14 @@ final class RelayReceiver: ObservableObject {
                 guard let self, self.desired, self.generation == generation else { return }
                 let profile = RouteTiming(pin: computer.pin, route: route.uid, mode: self.playback.mode, hostOverride: override)
                 profile.saveEstimate(value); transport?.setCompensation(profile.effective)
+                self.playback.setLocalCorrection(["linux", "windows"].contains(computer.platform) ? profile.correction : 0)
                 DispatchQueue.main.async { self.estimatedMs = value; self.correction = profile.correction }
             }
             self.playback.onModeChange = { [weak self, weak transport] mode, message in
                 guard let self, self.desired, self.generation == generation else { return }
                 let profile = RouteTiming(pin: computer.pin, route: route.uid, mode: mode, hostOverride: override)
                 transport?.setCompensation(profile.effective)
+                self.playback.setLocalCorrection(["linux", "windows"].contains(computer.platform) ? profile.correction : 0)
                 DispatchQueue.main.async { self.activeMode = mode; self.modeNote = message; self.estimatedMs = profile.estimate; self.correction = profile.correction }
             }
             self.playback.onRecovery = { [weak self] in
@@ -437,6 +440,7 @@ final class RelayReceiver: ObservableObject {
                               text, "Keep both devices on the same local network.")
             }
             transport.diagnostics = { [weak self] in self?.playback.diagnostics ?? "" }
+            self.playback.setLocalCorrection(["linux", "windows"].contains(computer.platform) ? timing.correction : 0)
             transport.setCompensation(timing.effective)
             if requestPhoneOutput { transport.requestOutput(computer: false) }
             if existing != nil { transport.resume() } else { transport.start() }
@@ -486,6 +490,7 @@ final class RelayReceiver: ObservableObject {
         parkListening("PAUSE", phase: .phone, title: "Phone audio")
     }
     func disconnect() {
+        UserDefaults.standard.removeObject(forKey: "groupGuestPin")
         groupTimingStatus = "";
         hasRemoteSession = false
         computerVolumeText = ""
@@ -553,13 +558,15 @@ final class RelayReceiver: ObservableObject {
         if !keepTransport { supportsOutputControl = false; computerOutput = false; waitingForComputerOutput = false }
     }
     func adjustCorrection(_ delta: Int) {
-        guard supportsVideoCompensation, !routeUID.isEmpty, let profile else { return }
+        guard !routeUID.isEmpty, let profile else { return }
         profile.setCorrection(profile.correction + delta); correction = profile.correction
-        queue.async { self.transport?.setCompensation(profile.effective) }
+        let local = !supportsVideoCompensation
+        queue.async { self.transport?.setCompensation(profile.effective); self.playback.setLocalCorrection(local ? profile.correction : 0) }
     }
     func resetCorrection() {
-        guard supportsVideoCompensation, let profile else { return }; profile.setCorrection(0); correction = 0
-        queue.async { self.transport?.setCompensation(profile.effective) }
+        guard let profile else { return }; profile.setCorrection(0); correction = 0
+        let local = !supportsVideoCompensation
+        queue.async { self.transport?.setCompensation(profile.effective); self.playback.setLocalCorrection(local ? profile.correction : 0) }
     }
     func refreshAudio() {
         guard playIntent, phase.macSelected, !computerOutput else { return }

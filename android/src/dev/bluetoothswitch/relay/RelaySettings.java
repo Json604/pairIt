@@ -95,8 +95,10 @@ final class RelaySettings {
     void pair(String code) throws Exception {
         pair(PairingCode.parse(code));
     }
+    boolean groupGuest() { return !pin().isEmpty() && pin().equals(prefs.getString("group_guest_pin", "")); }
+    void groupGuest(boolean guest) { prefs.edit().putString("group_guest_pin", guest ? pin() : "").apply(); }
     void pair(PairingCode code) {
-        prefs.edit().putString("host", code.host).putString("pin", code.pin).putString("token", code.token)
+        prefs.edit().remove("group_guest_pin").putString("host", code.host).putString("pin", code.pin).putString("token", code.token)
                 .putString("computer_name", code.name)
                 .remove("output_recovery_pin").putString("computer_platform", code.platform).remove("host_override").putBoolean("wifi", true).apply();
     }

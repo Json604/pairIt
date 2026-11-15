@@ -94,7 +94,7 @@ internal sealed class CompanionForm : Form
     private void Render(DesktopStatus value)
     {
         var ready = value.Receivers > 0;
-        status.Text = value.Receivers > 0 ? $"Your phone{(value.Receivers > 1 ? " · +" + (value.Receivers - 1) : "")}\n{(value.ActiveReceivers > 0 && !value.ComputerOutput ? "Listening" : value.ComputerOutput ? "Computer output" : "Paused")}" : sessions.CurrentSettings.MicrophoneEnabled ? value.MicrophoneActive ? "Phone microphone active" : "Phone microphone ready. Start it on your phone." : "No phones connected";
+        status.Text = value.Receivers > 0 ? $"{value.PhoneNames}\n{(value.ActiveReceivers > 0 && !value.ComputerOutput ? "Listening" : value.ComputerOutput ? "Computer output" : "Paused")}" : sessions.CurrentSettings.MicrophoneEnabled ? value.MicrophoneActive ? "Phone microphone active" : "Phone microphone ready. Start it on your phone." : "No phones connected";
         playback.Visible=ready;playback.Enabled=ready&&!playbackBusy;
         if(!playbackBusy)playback.Text=value.ActiveReceivers>0&&!value.ComputerOutput?"Pause audio":"Resume audio";
         outputs.Visible = ready; disconnect.Visible = ready || sessions.CurrentSettings.SharingEnabled || sessions.CurrentSettings.MicrophoneEnabled;

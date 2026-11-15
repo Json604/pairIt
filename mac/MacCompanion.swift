@@ -13,6 +13,7 @@ final class MacCompanionModel: ObservableObject {
     @Published private(set) var forward = true
     @Published var sharing = false
     @Published var sharingAction: SharingAction?
+    @Published var phoneNames = "Phone"
     @Published var connected = false
     @Published var outputInstalled = SyncOutput.installed
     @Published var volumeControlsInstalled = SyncOutput.volumeControlsInstalled
@@ -242,7 +243,7 @@ struct MacCompanionView: View {
                 HStack(spacing: 10) {
                     Image(systemName: "iphone").font(.system(size: 21)).frame(width: 34, height: 36).background(Color(white: 0.93), in: RoundedRectangle(cornerRadius: 10))
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(model.receiverCount + model.parkedCount > 1 ? "\(model.receiverCount + model.parkedCount) phones" : "Your phone").font(.system(size: 12, weight: .semibold))
+                        Text(model.phoneNames).font(.system(size: 12, weight: .semibold))
                         Text(model.computerOutput ? "Computer output" : model.receiverCount > 0 ? "Listening" : "Paused").font(.system(size: 11)).foregroundStyle(RelayPalette.secondary)
                     }
                     Spacer(); Image(systemName: "checkmark").font(.system(size: 12))
@@ -315,7 +316,7 @@ struct MacCompanionView: View {
             if model.pairingConfirmed {
                 VStack(spacing: 14) {
                     Label("Phone paired", systemImage: "checkmark.circle").font(.system(size: 22, weight: .semibold))
-                    Text(model.connected ? "Your phone is connected." : "Pairing confirmed on your phone.")
+                    Text(model.connected ? model.phoneNames + " connected." : "Pairing confirmed on your phone.")
                         .font(.system(size: 12)).foregroundStyle(RelayPalette.secondary)
                     HStack(spacing: 12) {
                         Button("Done") { model.navigate(to: 0) }.buttonStyle(RelayPrimaryButtonStyle())

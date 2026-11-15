@@ -25,6 +25,7 @@ final class WiFiServer {
     var reserveMicrophone: () -> Bool = { false }
     var releaseMicrophone: () -> Void = {}
     var onMicrophoneStatus: ((String) -> Void)?
+    var phoneNames: (() -> String)?
     var onStatus: ((String) -> Void)?
     // Delivered on the network queue after token authentication, without capture.
     var onPairingConfirmed: (() -> Void)?
@@ -94,6 +95,8 @@ final class WiFiServer {
             guard let self, !self.stopped, self.peers.count < 12 else { connection.cancel(); return }
             let id = UUID()
             let peer = WiFiPeer(connection: connection, token: self.config["token"]!, queue: self.queue, upstreamPort: self.upstreamPort, upstreamToken: self.upstreamToken)
+            peer.phoneNames = { [weak self] in self?.phoneNames?() ?? "" }
+            peer.receiverCount = { [weak self] in self?.peers.values.filter({ $0.admittedReceiver }).count ?? 0 }
             peer.onAuthenticated = { [weak self, weak peer] in
                 guard let self, let peer else { return }
                 guard !self.microphoneEnabled else { peer.stop(); return }
@@ -112,7 +115,7 @@ final class WiFiServer {
                 let code = stride(from: 0, to: 16, by: 4).map { offset in
                     String(digest.dropFirst(offset).prefix(4))
                 }.joined(separator: " ")
-                approve(code) { [weak self, weak peer] accepted in
+                approve((peer.requestedName.isEmpty ? "" : "Phone: " + peer.requestedName + "\n\n") + code) { [weak self, weak peer] accepted in
                     self?.queue.async { [weak self, weak peer] in
                         guard let self, !self.stopped, self.pendingPairing == id else { return }
                         peer?.finishPairingRequest(accepted)
@@ -258,6 +261,9 @@ private final class WiFiPeer {
     let queue: DispatchQueue
     let upstreamPort: UInt16
     let upstreamToken: String
+    var requestedName = ""
+    var phoneNames: (() -> String)?
+    var receiverCount: (() -> Int)?
     var admittedReceiver = false
     var onAuthenticated: (() -> Void)?
     var onPairingConfirmed: (() -> Void)?
@@ -304,8 +310,21 @@ private final class WiFiPeer {
             guard error == nil, !complete, self.prefix.count <= 4096 else { self.stop(); return }
             if let newline = self.prefix.firstIndex(of: 10) {
                 let line = self.prefix.prefix(upTo: newline)
+                if line == Data("STATUS1".utf8), self.prefix.count == line.count + 1 {
+                    let count = min(4,max(0,self.receiverCount?() ?? 0))
+                    self.connection.send(content: Data("OK STATUS1 \(count) \(Data((self.phoneNames?() ?? "").utf8).base64EncodedString())\n".utf8), completion: .contentProcessed { [weak self] _ in self?.stop() })
+                    return
+                }
                 if let request = String(data: line, encoding: .utf8), request.hasPrefix("REQUEST1 ") {
-                    let nonce = String(request.dropFirst(9))
+                    let parts = request.dropFirst(9).split(separator: " ", omittingEmptySubsequences: false)
+                    guard parts.count == 1 || parts.count == 2 else { self.stop(); return }
+                    let nonce = String(parts[0])
+                    let encodedName = parts.count == 2 ? String(parts[1]) : ""
+                    if !encodedName.isEmpty {
+                        guard encodedName.utf8.count <= 344, let data = Data(base64Encoded: encodedName), let name = String(data: data, encoding: .utf8), !name.isEmpty, name.count <= 64,
+                            !name.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) || $0.properties.generalCategory == .format }) else { self.stop(); return }
+                        self.requestedName = name
+                    }
                     guard nonce.count == 64, nonce.allSatisfy({ "0123456789abcdef".contains($0) }),
                           self.prefix.count == line.count + 1 else { self.stop(); return }
                     self.prefix.removeAll(); self.pairingRequestPending = true
@@ -313,7 +332,7 @@ private final class WiFiPeer {
                     // Cancel approval if the requester disconnects or sends extra data.
                     self.connection.receive(minimumIncompleteLength: 1, maximumLength: 1) { [weak self] _, _, _, _ in self?.stop() }
                     guard let requestPairing = self.onPairingRequest else { self.stop(); return }
-                    requestPairing(nonce); return
+                    requestPairing(nonce + encodedName); return
                 }
                 let suffix = Data(" MIC1".utf8)
                 let mic = line.suffix(suffix.count) == suffix

@@ -248,6 +248,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             guard let self, self.wifi === nextWiFi, self.model.sharingAction != .pausing else { return }
             if self.model.network != value { self.model.network = value }
         }
+        nextServer.onPhoneNames = { [weak self, weak nextServer] names in
+            guard let self, self.server === nextServer else { return }; self.model.phoneNames = names.isEmpty ? "Phone" : names
+        }
         nextServer.onReceivers = { [weak self, weak nextServer] count, parked, detail in
             guard let self, self.server === nextServer else { return }
             let previouslyConnected = self.model.connected
@@ -262,6 +265,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             self.model.computerOutput = speakers
             if changed { self.model.announce(speakers ? "Mac speakers selected. Phones stay connected." : "Phone headphones selected. Paused listeners resume on their phones.") }
         }
+        nextWiFi.phoneNames = { [weak nextServer] in nextServer?.phoneNames ?? "" }
         nextWiFi.onPairingRequest = { [weak self, weak nextWiFi] code, completion in
             DispatchQueue.main.async {
                 guard let self, let nextWiFi, self.wifi === nextWiFi, !self.pairingApprovalActive else { completion(false); return }

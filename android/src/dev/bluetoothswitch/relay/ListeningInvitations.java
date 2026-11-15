@@ -55,12 +55,12 @@ final class ListeningInvitations {
     void invite(String host,int port,String code,String computer){
         if(port==0){ui.finished("Update PairIt on that phone to receive invitations.");return;}
         if(!busy.compareAndSet(false,true)){ui.finished("Finish the current invitation first.");return;}
-        final int session=generation;hosting=true;progress(session,"Inviting listener… Keep Together open on both phones.");
+        final int session=generation;hosting=true;progress(session,"Inviting listener… Keep PairIt open on both phones.");
         Thread thread=new Thread(()->{
             try {
                 Socket socket=new Socket();active=socket;socket.connect(new InetSocketAddress(host,port),5000);socket.setSoTimeout(65000);
                 exchange(socket,code,computer,session);
-            }catch(Exception error){finish(session,"Couldn’t reach that phone. Keep Together open on both phones.");}
+            }catch(Exception error){finish(session,"Couldn’t reach that phone. Keep PairIt open on both phones.");}
         },"send-listening-invitation");thread.setDaemon(true);thread.start();
     }
     private void exchange(Socket socket,String code,String computer,int session){

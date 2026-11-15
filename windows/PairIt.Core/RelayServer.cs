@@ -88,6 +88,14 @@ public sealed class RelayServer(X509Certificate2 certificate, string pairingToke
             }, deadline.Token).ConfigureAwait(false);
             var reader = new ProtocolReader(stream);
             var line = await reader.ReadLineAsync(deadline.Token).ConfigureAwait(false);
+            // Local occupancy display hint only; never returns credentials or controls a session.
+            if (line == "STATUS1")
+            {
+                var status = sessions.Status;
+                var names = Convert.ToBase64String(Encoding.UTF8.GetBytes(status.PhoneNames));
+                await stream.WriteAsync(Encoding.ASCII.GetBytes($"OK STATUS1 {status.Receivers} {names}\n"), deadline.Token).ConfigureAwait(false);
+                return;
+            }
             var proIndex = line.IndexOf(" PRO1 ", StringComparison.Ordinal);
             // Retired preview suffix is ignored; it never bypasses pairing-token validation.
             if (proIndex >= 0) line = line[..proIndex];
@@ -233,6 +241,7 @@ public sealed class RelayServer(X509Certificate2 certificate, string pairingToke
             peer.SyncMilliseconds = delay; // Diagnostic only; Windows has no HAL compensation.
             return;
         }
+        if (line.StartsWith("NAME1 ", StringComparison.Ordinal)) { sessions.SetDisplayName(peer,line[6..]); return; }
         if (line.StartsWith("HELLO ", StringComparison.Ordinal) && line.Length == 38 &&
             line.AsSpan(6).ContainsAnyExcept("0123456789abcdef".AsSpan()) == false)
         {

@@ -37,7 +37,7 @@ final class ListeningInvitations: ObservableObject {
         begin(NWConnection(host: .init(host), port: port, using: .tcp), code: code, computer: computer)
     }
     private func begin(_ connection: NWConnection, code: String?, computer: String?) {
-        notice = code == nil ? "Invitation received. Compare the code with your host." : "Inviting listener… Keep Together open on both phones."; busy = true
+        notice = code == nil ? "Invitation received. Compare the code with your host." : "Inviting listener… Keep PairIt open on both phones."; busy = true
         let session = InvitationExchange(connection: connection, code: code, computer: computer)
         exchange = session
         session.canHost = { [weak self] in self?.canHost() == true }
@@ -80,7 +80,7 @@ private final class InvitationExchange {
     private var ended = false
     init(connection: NWConnection, code: String?, computer: String?) { self.connection = connection; self.code = code; self.computer = computer }
     func start() {
-        let timeout = DispatchWorkItem { [weak self] in self?.end(nil, "Invitation expired. Keep Together open on both phones and try again.") }
+        let timeout = DispatchWorkItem { [weak self] in self?.end(nil, "Invitation expired. Keep PairIt open on both phones and try again.") }
         deadline = timeout; DispatchQueue.main.asyncAfter(deadline: .now() + 65, execute: timeout)
         connection.stateUpdateHandler = { [weak self] state in
             guard let self, !self.ended else { return }
@@ -90,7 +90,7 @@ private final class InvitationExchange {
                     let name = Data((self.computer ?? "Computer").utf8).base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
                     self.send("INVITE1 " + InvitationCrypto.hex(self.crypto.publicKey) + " " + name) { self.senderReady() }
                 } else { self.receiveOffer() }
-            case .failed, .cancelled: self.end(nil, "Couldn’t reach that phone. Keep Together open on both phones.")
+            case .failed, .cancelled: self.end(nil, "Couldn’t reach that phone. Keep PairIt open on both phones.")
             default: break
             }
         }

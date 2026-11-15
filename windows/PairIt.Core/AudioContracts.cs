@@ -25,4 +25,4 @@ public interface IAudioEndpoints
 public sealed record DesktopSettings(string? SourceEndpointId = null, string? MicrophoneEndpointId = null,
     bool VirtualEndpointConfirmed = false, bool MicrophoneEnabled = false, bool SharingEnabled = false);
 
-public sealed record DesktopStatus(int Receivers, int ActiveReceivers, bool Capturing, bool MicrophoneActive, string Message, bool ComputerOutput = false);
+public sealed record DesktopStatus(int Receivers, int ActiveReceivers, bool Capturing, bool MicrophoneActive, string Message, bool ComputerOutput = false, string PhoneNames = "Phone");

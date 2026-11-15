@@ -230,7 +230,7 @@ public class RelayService extends Service {
             @Override public void onPause(){pauseComputer();}
             @Override public void onStop(){pauseComputer();}
             @Override public void onCustomAction(String action,Bundle extras){
-                if("disconnect".equals(action))requestStop();
+                if("disconnect".equals(action)){settings.groupGuest(false);requestStop();}
                 else if("use_phone".equals(action))mediaAction("USE_PHONE");
             }
         },main);
@@ -252,7 +252,7 @@ public class RelayService extends Service {
         }
         String action = intent.getAction();
         foreground(canPlay());
-        if ("STOP".equals(action)) { requestStop(); return START_NOT_STICKY; }
+        if ("STOP".equals(action)) { settings.groupGuest(false); requestStop(); return START_NOT_STICKY; }
         if ("OUTPUT_COMPUTER".equals(action)) { selectComputerOutput(); return START_STICKY; }
         if ("LOCAL_OUTPUT".equals(action)) {
             cancelOutputRecovery();
@@ -709,7 +709,10 @@ public class RelayService extends Service {
                 groupTimingStatus = inbox.presentationListeners < 2 ? "" : inbox.presentationCapable < inbox.presentationListeners
                         ? "Update other phones for shared timing" : inbox.presentationTargetMs == 0 || outputDelayMs < 0
                         ? "Learning shared timing…" : "Shared timing adjusted";
-                int desiredCushion = PresentationTiming.renderDelay(minimumCushionMs, outputDelayMs, inbox.presentationTargetMs);
+                int baseCushion = PresentationTiming.renderDelay(minimumCushionMs, outputDelayMs, inbox.presentationTargetMs);
+                int desiredCushion = ("linux".equals(settings.platform()) || "windows".equals(settings.platform()))
+                        ? PresentationTiming.correctedDelay(baseCushion, settings.profileCorrection(activeProfileKey)) : baseCushion;
+                int correctedTarget = inbox.presentationTargetMs + desiredCushion - baseCushion;
                 if (desiredCushion != cushionMs) {
                     cushionMs = desiredCushion;
                     int previousRecoveries = timing.recoveries;
@@ -799,7 +802,7 @@ public class RelayService extends Service {
                 // Let route startup settle before correcting tiny clock differences.
                 if (now - started > 3000 && timing.correctionDue()) {
                     int corrected = inbox.presentationTargetMs > 0 && outputDelayMs >= 0
-                            ? timing.correctedPresentationRate(videoTiming.presentationDelay(track, inbox, packet, writtenFrames), inbox.presentationTargetMs, rate)
+                            ? timing.correctedPresentationRate(videoTiming.presentationDelay(track, inbox, packet, writtenFrames), correctedTarget, rate)
                             : timing.correctedRate(packet);
                     if (corrected != 0) track.setPlaybackRate(corrected);
                 }
@@ -842,7 +845,7 @@ public class RelayService extends Service {
             String sentAlignment = "";
             try {
                 OutputStream output = connection.getOutputStream();
-                output.write(("HELLO " + settings.installationId() + "\nSTATS CONTROLS1\nSTATS VOLUME1\n").getBytes(StandardCharsets.US_ASCII)); output.flush();
+                output.write(("HELLO " + settings.installationId() + "\nNAME1 " + PhoneDisplayName.encoded(this) + "\nSTATS CONTROLS1\nSTATS VOLUME1\n").getBytes(StandardCharsets.US_ASCII)); output.flush();
                 while (running && socket == connection) {
                     int sync = profileReady ? settings.profileCompensation(activeProfileKey) : -1;
                     String message = control.nextCommand() + "PING " + System.nanoTime() + "\n";
@@ -915,6 +918,7 @@ public class RelayService extends Service {
         catch(IllegalStateException | SecurityException error){stopSelf();}
     }
     static void stopFromUi(Context context) {
+        new RelaySettings(context).groupGuest(false);
         RelayService current = liveInstance;
         if (current != null) current.requestStop();
         else {

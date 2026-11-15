@@ -248,7 +248,7 @@ final class RelayTransport {
             switch state {
             case .ready:
                 self.retry = 0; self.connections += 1; self.lastReceived = RelayClock.nanoseconds
-                self.send(self.mac.token + "\nHELLO " + RelayInstallation.identifier + "\nSTATS CONTROLS1\nSTATS VOLUME1\n")
+                self.send(self.mac.token + "\nHELLO " + RelayInstallation.identifier + "\nNAME1 " + NearbyDevices.encodedName + "\nSTATS CONTROLS1\nSTATS VOLUME1\n")
                 self.send(self.alignmentReport)
                 if let value = self.compensation { self.send("SYNC \(value)\n") }
                 self.onState?("Getting audio ready"); self.startTimer(); self.receive(current)

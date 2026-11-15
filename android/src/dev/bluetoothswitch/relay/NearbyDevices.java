@@ -12,9 +12,13 @@ final class NearbyDevices {
     static final class Device {
         final String name, platform, pin, host;
         int invitationPort;
+        boolean occupancySupported;
+        String connectedNames = "";
+        Device(PairingCode code) {name=code.name;platform=code.platform;pin=code.pin;host=code.host;}
         Device(DiscoveryRecord record,String host) {name=record.name;platform=record.platform;pin=record.pin;this.host=host;}
     }
     private final NsdManager manager;
+    private final String displayName;
     private final Handler main=new Handler(Looper.getMainLooper());
     private final Runnable changed;
     private final Map<String,Device> devices=new LinkedHashMap<>();
@@ -27,7 +31,7 @@ final class NearbyDevices {
     private int generation;
     int invitationPort;
     private boolean resolving, phones;
-    NearbyDevices(Context context,Runnable changed){manager=context.getSystemService(NsdManager.class);this.changed=changed;}
+    NearbyDevices(Context context,Runnable changed){displayName=PhoneDisplayName.get(context);manager=context.getSystemService(NsdManager.class);this.changed=changed;}
     List<Device> snapshot(){return new ArrayList<>(devices.values());}
     void start(boolean phones){
         stop();this.phones=phones;final int session=generation;
@@ -42,7 +46,7 @@ final class NearbyDevices {
             });}
         };
         try{manager.discoverServices(phones?"_pairit-phone._tcp.":"_audiorelay._tcp.",NsdManager.PROTOCOL_DNS_SD,listener);}catch(RuntimeException ignored){listener=null;retry(session);}
-        if(phones)advertise(session);
+        advertise(session);
     }
     private void retry(int session){
         main.postDelayed(()->{if(session==generation)start(phones);},2000);
@@ -75,7 +79,7 @@ final class NearbyDevices {
         ownName="PairIt-"+UUID.randomUUID().toString().substring(0,8);
         NsdServiceInfo info=new NsdServiceInfo();info.setServiceName(ownName);info.setServiceType("_pairit-phone._tcp.");
         // Invitation endpoint carries an ephemeral, user-approved encrypted exchange.
-        info.setAttribute("id",presenceId);info.setPort(invitationPort>0?invitationPort:9);if(invitationPort>0)info.setAttribute("invite","1");info.setAttribute("role","phone");info.setAttribute("v","1");info.setAttribute("platform","android");String model=android.os.Build.MODEL.replaceAll("[\\p{Cntrl}\\p{Cf}]", "").trim();info.setAttribute("name",model.isEmpty()?"Android phone":model.substring(0,Math.min(64,model.length())));
+        info.setAttribute("id",presenceId);info.setPort(invitationPort>0?invitationPort:9);if(invitationPort>0)info.setAttribute("invite","1");info.setAttribute("role","phone");info.setAttribute("v","1");info.setAttribute("platform","android");info.setAttribute("name",displayName);
         registration=new NsdManager.RegistrationListener(){public void onRegistrationFailed(NsdServiceInfo i,int e){}public void onUnregistrationFailed(NsdServiceInfo i,int e){}public void onServiceUnregistered(NsdServiceInfo i){}public void onServiceRegistered(NsdServiceInfo i){main.post(()->{if(session==generation){ownName=i.getServiceName();devices.remove(ownName);changed.run();}});}};
         try{manager.registerService(info,NsdManager.PROTOCOL_DNS_SD,registration);}catch(RuntimeException ignored){registration=null;}
     }
