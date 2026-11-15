@@ -3,6 +3,12 @@ package dev.bluetoothswitch.relay;
 /** Common presentation deadline, with each phone's measured output path removed.
  * A zero target means solo/legacy/unmeasured group: preserve existing timing. */
 final class PresentationTiming {
+    static boolean adaptive(String platform, boolean bluetooth) {
+        return !bluetooth && ("linux".equals(platform) || "windows".equals(platform));
+    }
+    static int adaptiveCushion(double jitterMs, double packetMs, double leadMs) {
+        return (int)Math.min(320, Math.max(40, Math.ceil(jitterMs + 2 * packetMs + leadMs)));
+    }
     static int correctedDelay(int delay, int correction) {
         return Math.max(Math.min(delay,40), Math.min(2500,delay-Math.max(-500,Math.min(500,correction))));
     }

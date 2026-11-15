@@ -12,6 +12,7 @@ internal sealed class CompanionForm : Form
     private readonly LocalIdentity identity;
     private DesktopSettings preferences;
     private readonly ReleaseUpdates updates = new();
+    private readonly UpdatePromptPolicy updatePrompts = new();
     private readonly InstallerProgress installer = new();
     internal Func<Task>? UpdateRestartRequested;
     private Task InstallUpdateAsync() => updates.Available is { } entry && UpdateRestartRequested != null ? installer.StartOrCancelAsync(entry.Build, UpdateRestartRequested) : Task.CompletedTask;
@@ -83,13 +84,38 @@ internal sealed class CompanionForm : Form
             }
         }
         updates.Changed += RefreshUpdateNotice;
+        updates.Changed += async () => await PromptForUpdateAsync();
         installer.Changed += RefreshUpdateNotice;
         RefreshUpdateNotice();
-        updateTimer.Tick += async (_, _) => await updates.CheckAsync(); Activated += async (_, _) => await updates.CheckAsync();
+        updateTimer.Tick += async (_, _) => await updates.CheckAsync(); Shown += async (_, _) => await updates.CheckAsync();
+        Activated += async (_, _) => await updates.CheckAsync();
         FormClosing += (_, e) => { if (!ExitRequested) { e.Cancel = true; Hide(); } };
         VisibleChanged += (_, _) => { if (!Visible) pairingWindow?.Close(); };
         Disposed += (_, _) => { updateTimer.Dispose(); updates.Dispose(); installer.Dispose(); logo.Image?.Dispose(); pairingWindow?.Dispose(); };
         Render(sessions.Status);
+    }
+    private async Task PromptForUpdateAsync()
+    {
+        if (IsDisposed || Disposing || installer.Busy || updates.Available is not { } entry ||
+            !updatePrompts.TryPresent(entry.Build, DateTimeOffset.UtcNow)) return;
+        var install = false;
+        try {
+            Show(); Activate();
+            using var dialog = new Form {
+                Text = "PairIt update available", ClientSize = new Size(360, 180),
+                BackColor = BackColor, ForeColor = ForeColor, Font = Font,
+                StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog,
+                MinimizeBox = false, MaximizeBox = false, ShowInTaskbar = false, AutoScaleMode = AutoScaleMode.Dpi
+            };
+            var message = TextLabel($"PairIt {entry.Version} is ready.\nDownload and install the update, then PairIt will reopen.");
+            message.SetBounds(20, 20, 320, 90);
+            var later = ActionButton("Later"); later.SetBounds(20, 125, 110, 36); later.DialogResult = DialogResult.Cancel;
+            var update = ActionButton("Update app"); update.SetBounds(145, 125, 195, 36); update.DialogResult = DialogResult.OK;
+            dialog.Controls.AddRange(new Control[] { message, later, update });
+            dialog.AcceptButton = update; dialog.CancelButton = later;
+            install = dialog.ShowDialog(this) == DialogResult.OK;
+        } finally { updatePrompts.Dismiss(); }
+        if (install && !IsDisposed && !installer.Busy) await InstallUpdateAsync();
     }
     private void Render(DesktopStatus value)
     {

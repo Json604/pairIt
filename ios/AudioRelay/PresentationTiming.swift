@@ -1,6 +1,12 @@
 /// Match presentation time, not merely the instant each audio engine starts.
 /// Zero target preserves solo timing and compatibility with older companions.
 enum PresentationTiming {
+    static func adaptive(platform: String, bluetooth: Bool) -> Bool {
+        !bluetooth && (platform == "linux" || platform == "windows")
+    }
+    static func adaptiveCushion(jitter: Double, packet: Double, lead: Double) -> Int {
+        Int(min(320, max(40, (jitter + 2 * packet + lead).rounded(.up))))
+    }
     static func correctedDelay(_ delay: Int, correction: Int) -> Int {
         max(min(delay, 40), min(2500, delay - max(-500, min(500, correction))))
     }

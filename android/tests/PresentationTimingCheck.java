@@ -1,6 +1,14 @@
 package dev.bluetoothswitch.relay;
 public final class PresentationTimingCheck {
  public static void main(String[] args) {
+  check(PresentationTiming.adaptive("linux", false),"Linux local output learns latency");
+  check(PresentationTiming.adaptive("windows", false),"Windows local output learns latency");
+  check(!PresentationTiming.adaptive("linux", true),"Bluetooth keeps reliable headroom");
+  check(!PresentationTiming.adaptive("mac", false),"Mac path unchanged");
+  check(!PresentationTiming.adaptive("", false),"legacy path unchanged");
+  check(PresentationTiming.adaptiveCushion(3,10,20)==43,"stable network reduces buffer");
+  check(PresentationTiming.adaptiveCushion(600,10,20)==320,"jitter bounded to reliable cushion");
+  check(PresentationTiming.adaptiveCushion(0,10,2)==40,"minimum safe local cushion");
   check(PresentationTiming.correctedDelay(20,0)==20,"reset preserves learned interactive prefill");
   check(PresentationTiming.correctedDelay(320,-10)==330,"early sound delayed ten ms");
   check(PresentationTiming.correctedDelay(320,10)==310,"late sound advanced ten ms");

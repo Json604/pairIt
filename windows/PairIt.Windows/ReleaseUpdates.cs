@@ -29,7 +29,7 @@ internal sealed class ReleaseUpdates : IDisposable
     }
     internal async Task CheckAsync(bool force = false)
     {
-        if (disposed || checking || !force && DateTimeOffset.UtcNow - lastAttempt < TimeSpan.FromHours(6)) return;
+        if (disposed || checking || !force && DateTimeOffset.UtcNow - lastAttempt < TimeSpan.FromDays(1)) return;
         checking = true; lastAttempt = DateTimeOffset.UtcNow; Status = "Checking for updates…";
         try {
             using var response = await client.GetAsync(Endpoint);
@@ -46,7 +46,7 @@ internal sealed class ReleaseUpdates : IDisposable
             Status = Available == null ? "No newer release available" : "Update available · " + Available.Version;
         } catch (Exception error) {
             Status = UpdateCheckFailure.Describe(error);
-            lastAttempt = DateTimeOffset.UtcNow - TimeSpan.FromHours(6) + TimeSpan.FromMinutes(5);
+            lastAttempt = DateTimeOffset.UtcNow - TimeSpan.FromDays(1) + TimeSpan.FromMinutes(5);
         } finally { checking = false; if (!disposed) Changed?.Invoke(); }
     }
     private static bool Eligible(Entry entry)

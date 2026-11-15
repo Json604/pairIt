@@ -5,6 +5,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var server = RelayServer()
     private lazy var wifi = WiFiServer(upstreamToken: server.gatewayToken)
     private let model = MacCompanionModel()
+    @MainActor private lazy var installerUpdates = MacInstallerUpdates()
     private let lifecycle = DispatchQueue(label: "relay.companion.lifecycle", qos: .userInitiated)
     private var item: NSStatusItem!
     private let popover = NSPopover()
@@ -26,7 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         if let existing = copies.first(where: { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }) {
             existing.activate(); NSApp.terminate(nil); return
         }
-        if !interfacePreview { SyncOutput.recoverAfterCrash() }
+        if !interfacePreview { SyncOutput.recoverAfterCrash(); installerUpdates.start() }
         model.toggleSharing = { [weak self] in self?.toggleSharing() }
         model.selectOutput = { [weak self] speakers in
             guard let self, self.model.sharing, self.model.sharingAction == nil else { return }
@@ -81,7 +82,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.delegate = self
         popover.animates = false
         popover.contentSize = NSSize(width: model.panelWidth, height: model.panelHeight)
-        let controller = NSHostingController(rootView: MacCompanionView(model: model))
+        let controller = NSHostingController(rootView: MacCompanionView(model: model, installerUpdates: installerUpdates))
         popover.contentViewController = controller
         model.resize = { [weak self] _ in guard let self else { return }; self.popover.contentSize = NSSize(width: self.model.panelWidth, height: self.model.panelHeight) }
         // Build/layout the small control surface before the first click, rather

@@ -330,6 +330,7 @@ public class RelayService extends Service {
             if (!running) stopSelf();
             return;
         }
+        interactiveMode = settings.interactive();
         selectedDeviceId=chosenOutput.getId();
         resumeWhenQuietAfterReconnect=false;
         if (!PhoneAudioSession.availableTo(this)) {
@@ -643,6 +644,11 @@ public class RelayService extends Service {
                 if (seenOutputRevision != outputRevision) {
                     if (track != null) { activeTrack = null; releaseTrack(track); track = null; }
                     seenOutputRevision = outputRevision; inbox.clear();
+                    interactiveMode = settings.interactive();
+                    interactive = interactiveMode ? new InteractivePlayback() : null;
+                    learning = interactive != null;
+                    cushionMs = minimumCushionMs = PlayoutTiming.CUSHION_MS;
+                    timing = new PlayoutTiming();
                     outputDelayMs = -1; alignmentReport = "STATS ALIGN1 " + minimumCushionMs + " -1\n";
                 }
                 if (!canPlay()) {
@@ -662,7 +668,7 @@ public class RelayService extends Service {
                     if (fallbackRoute == null) throw new OutputUnavailable("Selected output disconnected");
                     policy = new PlaybackBuffer(); policy.configure(track, fallbackRoute, rate); routeConfigured = true;
                     profileReady = false; generation.incrementAndGet();
-                    publish(RelayState.Phase.BUFFERING, "Using Reliable for this session", "Interactive preview could not keep a stable playback window.");
+                    publish(RelayState.Phase.BUFFERING, "Using Reliable for this session", "The connection needs a larger audio buffer.");
                 }
                 PcmInbox.Packet packet = inbox.next();
                 if (seenOutputRevision != outputRevision) continue;
@@ -788,7 +794,7 @@ public class RelayService extends Service {
                 if (canPlay()) track.setVolume(1);
                 if (state.phase != RelayState.Phase.PLAYING) publish(RelayState.Phase.PLAYING,
                         "Listening to " + settings.computerName(), headphoneName + " · "
-                        + (interactiveMode ? "Interactive preview" : (settings.interactive() ? "Reliable (session fallback)" : "Reliable")));
+                        + (interactiveMode ? "Adaptive latency" : (settings.interactive() ? "Reliable (session fallback)" : "Reliable")));
                 Integer videoDelay = videoTiming.observe(track, inbox, packet, writtenFrames, started);
                 if (videoDelay != null && canPlay() && generation.get() == currentGeneration) {
                     if (outputDelayMs < 0) {

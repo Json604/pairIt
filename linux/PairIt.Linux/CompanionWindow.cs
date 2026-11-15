@@ -38,6 +38,7 @@ internal sealed class CompanionWindow : Window
         Background = Brush.Parse("#E8F0FA"), Foreground = Brush.Parse("#173C68"), CornerRadius = new CornerRadius(9), MinHeight = 36 };
     private readonly ReleaseUpdates? releaseUpdates;
     private readonly InstallerProgress installer = new();
+    private readonly UpdatePromptPolicy updatePrompts = new();
     private Task InstallUpdateAsync() => releaseUpdates?.Available is { } entry ? installer.StartOrCancelAsync(entry.Build, () => { Close(); return Task.CompletedTask; }) : Task.CompletedTask;
     private readonly DispatcherTimer? updateTimer;
 
@@ -86,7 +87,10 @@ internal sealed class CompanionWindow : Window
             updateTimer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(15) };
             updateTimer.Tick += async (_, _) => await releaseUpdates.CheckAsync();
             updateTimer.Start();
-            releaseUpdates.Changed += () => Dispatcher.UIThread.Post(UpdateReleaseNotice);
+            releaseUpdates.Changed += () => Dispatcher.UIThread.Post(async () => {
+                UpdateReleaseNotice();
+                if (!releaseUpdates.Checking) await PromptForUpdateAsync();
+            });
             Activated += async (_, _) => { if (!closing) await releaseUpdates.CheckAsync(); };
         }
         Content = ScrollContent(panel);
@@ -111,6 +115,28 @@ internal sealed class CompanionWindow : Window
             finally { tray?.Dispose(); identity?.Dispose(); instance?.Dispose(); closed = true; Close(); }
         };
         UpdateButtons();
+    }
+    private async Task PromptForUpdateAsync()
+    {
+        if (closing || installer.Busy || releaseUpdates?.Available is not { } entry ||
+            !updatePrompts.TryPresent(entry.Build, DateTimeOffset.UtcNow)) return;
+        bool install = false;
+        try {
+            Show(); WindowState = WindowState.Normal; Activate();
+            var dialog = CreateDialog("PairIt update available", 380, 240);
+            var later = new Button { Content = "Later", Foreground = Brushes.Black, Background = Brush.Parse("#EEEEEE"), CornerRadius = new CornerRadius(12), MinHeight = 40 };
+            var update = new Button { Content = "Update app", Foreground = Brushes.White, Background = Brush.Parse("#111111"), CornerRadius = new CornerRadius(12), MinHeight = 40 };
+            later.Click += (_, _) => dialog.Close(false);
+            update.Click += (_, _) => dialog.Close(true);
+            var actions = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), ColumnSpacing = 10 };
+            Grid.SetColumn(update, 1); actions.Children.Add(later); actions.Children.Add(update);
+            dialog.Content = ScrollContent(new StackPanel { Margin = new Thickness(20), Spacing = 18, Children = {
+                new TextBlock { Text = "Update available", FontSize = 22, FontWeight = FontWeight.SemiBold, Foreground = Brushes.Black },
+                Label($"PairIt {entry.Version} is ready. Download and install the update, then PairIt will reopen."), actions
+            } });
+            install = await dialog.ShowDialog<bool>(this);
+        } finally { updatePrompts.Dismiss(); }
+        if (install && !closing && !installer.Busy) await InstallUpdateAsync();
     }
     private void UpdateReleaseNotice()
     {

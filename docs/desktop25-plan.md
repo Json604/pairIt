@@ -1,11 +1,13 @@
 # Desktop follow-up — 2026-11-15
 
-Owner confirmed in-app download/install/relaunch works on physical Mac and Linux. Windows real installation remains unverified.
+## Published baseline
+Preview24 + phone33 published; all12 assets verified; all6 CI jobs passed. iOS33 uploaded; Android33 AAB prepared for owner submission. See preview24-publication.json.
 
-Sequence requested:
-1. COMPLETED: desktop24 + phone33 published, all12 GitHub assets verified, CI43663365180 all6 passed; iOS33 uploaded; signed Android33 AAB in artifacts/publish-24/google-play. Public feeds7826a33, website41 deployed and verified. Final Mac app notarized/stapled after reusing unchanged trusted driver installer; rejected initial export was never published.
-2. Investigate Ubuntu latency and Windows equivalents. Both phones currently default to320ms Reliable prefill; Mac additionally reports video compensation through its virtual audio output. Windows/Linux do not implement equivalent system video compensation. Distinguish video lip-sync from raw output latency. Owner clarification pending. Linux capture already requests10ms, timestamps sample cadence and restarts stale capture. Windows loopback requests100ms and reads on events/20ms fallback. Do not fake timestamps or claim system-wide video sync by simply reducing queues.
-3. Add automatic visible update prompt on each desktop launch and every24hours while continuously open. Use existing signed installation path; no automatic installation without pressing Update. Prevent simultaneous/repeated dialogs. Preserve manual Settings update action, graceful restart and saved data.
-4. Publish prompt-enabled desktop25; wait for owner to install25 before publishing test26. Never make26 live early, because22/23/24 could skip25 and the requested new-prompt test would be invalid.
+## Candidate25 / phone34
+- Owner says Ubuntu delay probably affects all audio, not only videos. Phone default was fixed320ms Reliable prefill; Mac also provides virtual-output video compensation. Linux capture already requests10ms with5ms process time and bounds stale capture. Windows100ms WASAPI allocation is not proof of100ms delivery latency; event capture already drains packets. No speculative OS buffer change.
+- Enable existing adaptive arrival learning on Linux/Windows with speaker/wired outputs on both phones.64 packets establish jitter95, plus two packets and output lead;40..320ms cushion; unstable sessions fall back to320ms. Bluetooth/Mac/unknown peers preserve Reliable. Live Android route changes reset learning/policy. Group deadlines and manual correction remain bounded. This needs mobile34; a desktop-only update cannot remove receiver buffering. Physical/acoustic improvement is NOT yet measured.
+- Desktop launch and daily automatic checks. Windows/Linux use prominent Update app/Later dialog and shared process-local dedup policy (no stacking, no same-build reminder inside24hours). Existing signed installation/relaunch path unchanged. Failure retries allowed after5minutes; no error popup automatically.
+- Mac Sparkle owns launch/daily checks and update dialog. Explicit startup before opening menu,86400second schedule, no automatic download/install; respects saved Sparkle check preference. Existing manual action retained.
 
-Keep the source in private Json604/pairIt; only binary assets and public feeds in Json604/pairIt-download. Never overwrite published assets or owner's installed apps. No iOS simulator runtime. No computer UI; terminal/API uploads only. Site source /Volumes/PairItSite17/site; site41 is live with24 and foreground discovery/privacy changes.
+## Release sequence
+Publish25 after all builds/CI, mobile34, signed installers and Mac notarization. Owner must install25 before publishing test26, otherwise older clients may skip25 and invalidate the prompt test. Do not overwrite installed owner apps, use computer UI, or launch iOS audio simulator. Windows physical updater remains unverified; Mac/Linux owner confirmed previous in-app install/relaunch.

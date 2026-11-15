@@ -54,7 +54,7 @@ final class RelaySettings {
     void output(OutputRoute route) { prefs.edit().putString("output", route.name()).remove("output_device_id").apply(); }
     int outputDeviceId() { return prefs.getInt("output_device_id", -1); }
     void output(OutputRoute route, int deviceId) { prefs.edit().putString("output",route.name()).putInt("output_device_id",deviceId).apply(); }
-    boolean interactive() { return false; } // The two-feature app uses the proven Reliable path.
+    boolean interactive() { return PresentationTiming.adaptive(platform(), output() == OutputRoute.BLUETOOTH); }
     void interactive(boolean value) { prefs.edit().putBoolean("interactive", value).apply(); }
     String timingRoute(String actualRoute, boolean interactive) {
         // Preserve the confirmed Bluetooth/Reliable key; isolate every new mode/transport.

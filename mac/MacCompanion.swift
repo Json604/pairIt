@@ -121,7 +121,7 @@ final class MacCompanionModel: ObservableObject {
 struct MacCompanionView: View {
     @ObservedObject var model: MacCompanionModel
     @StateObject private var updates = ReleaseUpdates()
-    @StateObject private var installerUpdates = MacInstallerUpdates()
+    @ObservedObject var installerUpdates: MacInstallerUpdates
     @Environment(\.accessibilityReduceMotion) private var reduced
     var body: some View {
         ZStack(alignment: .bottom) {

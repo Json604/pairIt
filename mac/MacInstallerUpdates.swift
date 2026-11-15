@@ -1,11 +1,21 @@
 import SwiftUI
 import Sparkle
 
-/// Sparkle verifies EdDSA archives and Developer ID identity, handles replacement
-/// and relaunch, and asks for system authorization when the app folder needs it.
+/// Sparkle verifies signed archives and owns the daily reminder/install lifecycle.
 @MainActor final class MacInstallerUpdates: ObservableObject {
-    private let controller = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
+    private let controller = SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil)
     @Published private(set) var canCheck = false
+    private var started = false
+
     init() { controller.updater.publisher(for: \.canCheckForUpdates).assign(to: &$canCheck) }
+    func start() {
+        guard !started else { return }
+        started = true
+        controller.startUpdater()
+        // Explicit launch check in addition to Sparkle's 24-hour scheduler.
+        if controller.updater.automaticallyChecksForUpdates {
+            controller.updater.checkForUpdatesInBackground()
+        }
+    }
     func downloadAndInstall() { controller.checkForUpdates(nil) }
 }

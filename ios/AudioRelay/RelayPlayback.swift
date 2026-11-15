@@ -140,13 +140,13 @@ final class RelayPlayback {
         let sorted = learning.map { max(0, $0.residual - minimum) }.sorted()
         let jitter = sorted[Int(ceil(Double(sorted.count) * 0.95)) - 1]
         let packetDuration = learning.map(\.duration).max()!
-        cushion = min(0.320, max(lead, ceil((jitter + packetDuration * 2 + lead) * 1000) / 1000))
+        cushion = Double(PresentationTiming.adaptiveCushion(jitter: jitter * 1000, packet: packetDuration * 1000, lead: lead * 1000)) / 1000
         minimumCushionMs = Int((cushion * 1000).rounded())
         cushion = Double(correctedRenderDelay) / 1000
         onOutputTiming?(minimumCushionMs, outputDelayMs)
         prime = lead
         learned = true; learning.removeAll(keepingCapacity: true)
-        onModeChange?(.interactive, "Interactive preview · \(Int((cushion * 1000).rounded())) ms network prefill")
+        onModeChange?(.interactive, "Adaptive latency · \(Int((cushion * 1000).rounded())) ms network prefill")
     }
     private func fallback(_ reason: String) {
         reliableFallback = true; mode = .reliable; minimumCushionMs = 320; cushion = Double(correctedRenderDelay) / 1000; prime = 0.120

@@ -30,7 +30,7 @@ internal sealed class ReleaseUpdates : IDisposable
     }
     internal async Task CheckAsync(bool force = false)
     {
-        if (disposed || Checking || !force && DateTimeOffset.UtcNow - lastAttempt < TimeSpan.FromHours(6)) return;
+        if (disposed || Checking || !force && DateTimeOffset.UtcNow - lastAttempt < TimeSpan.FromDays(1)) return;
         Checking = true; lastAttempt = DateTimeOffset.UtcNow; Status = "Checking for updates…"; Changed?.Invoke();
         try {
             var bytes = await client.GetByteArrayAsync(Endpoint);
@@ -41,7 +41,7 @@ internal sealed class ReleaseUpdates : IDisposable
         } catch (Exception error) {
             if (disposed) return;
             Status = UpdateCheckFailure.Describe(error);
-            lastAttempt = DateTimeOffset.UtcNow - TimeSpan.FromHours(6) + TimeSpan.FromMinutes(5);
+            lastAttempt = DateTimeOffset.UtcNow - TimeSpan.FromDays(1) + TimeSpan.FromMinutes(5);
         } finally {
             Checking = false;
             if (!disposed) Changed?.Invoke();

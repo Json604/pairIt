@@ -254,7 +254,7 @@ final class RelayReceiver: ObservableObject {
             publish(.headphones, "Choose \(output.title)", "Use the output picker or Control Center. PairIt won’t silently switch to another output."); return
         }
         playIntent = true; headphones = route.portName; routeUID = route.uid
-        let requestedMode = output == .bluetooth ? RelayPlaybackMode.reliable : playbackMode
+        let requestedMode: RelayPlaybackMode = PresentationTiming.adaptive(platform: computer.platform ?? "", bluetooth: output == .bluetooth) ? .interactive : .reliable
         activeMode = requestedMode; modeNote = requestedMode == .interactive ? "Learning arrival timing…" : ""
         let override = pairing.hostOverride
         let timing = RouteTiming(pin: computer.pin, route: route.uid, mode: requestedMode, hostOverride: override)

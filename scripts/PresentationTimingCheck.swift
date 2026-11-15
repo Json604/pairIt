@@ -1,5 +1,13 @@
 @main struct PresentationTimingCheck {
  static func main() {
+  precondition(PresentationTiming.adaptive(platform:"linux", bluetooth:false))
+  precondition(PresentationTiming.adaptive(platform:"windows", bluetooth:false))
+  precondition(!PresentationTiming.adaptive(platform:"linux", bluetooth:true))
+  precondition(!PresentationTiming.adaptive(platform:"mac", bluetooth:false))
+  precondition(!PresentationTiming.adaptive(platform:"", bluetooth:false))
+  precondition(PresentationTiming.adaptiveCushion(jitter:3, packet:10, lead:20)==43)
+  precondition(PresentationTiming.adaptiveCushion(jitter:600, packet:10, lead:20)==320)
+  precondition(PresentationTiming.adaptiveCushion(jitter:0, packet:10, lead:2)==40)
   precondition(PresentationTiming.correctedDelay(20, correction:0)==20)
   precondition(PresentationTiming.correctedDelay(320, correction:-10)==330)
   precondition(PresentationTiming.correctedDelay(320, correction:10)==310)
