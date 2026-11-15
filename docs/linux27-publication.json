@@ -1,0 +1,22 @@
+{
+  "source": "ac7d41d90441edc4662ef04a67462541cf254f80",
+  "release": "https://github.com/Json604/pairIt-download/releases/tag/v1.1.0-preview.27",
+  "versions": {
+    "linux": 27,
+    "mac": 26,
+    "windows": 26,
+    "phones": 34
+  },
+  "fix": "PulseSource accepts exact capture PID registration without waiting for PCM; startup bounded2s; failed/unregistered clients still rejected. Preserve first-frame success path and runtime capture error cleanup.",
+  "regression": "Old code canceled waiting for PCM. New Linux fixture starts with no PCM, survives6.5s silence, then delivers PCM from same process. Failed and unregistered process cases rejected. Requires Linux ioctl; intentionally skipped on Mac cross-build, executed in Linux container/CI.",
+  "live_pipewire": "routing/restoration/private capture passed;250packets at10ms sample cadence;1recovery after350ms stall;median10.61ms,p9511.58ms",
+  "ci_run": 43666811631,
+  "status": "Published; all6CI jobs passed;7asset SHA256 digests verified",
+  "physical_acceptance": "Owner must retest affected Ubuntu with no player running, then start audio without reconnecting.",
+  "public_feed_commit": "571ce51",
+  "website": {
+    "version": 45,
+    "source": "467f5d85acebfe3ff88038920d244aa4891e6821",
+    "status": "deployed, live home/download links verified"
+  }
+}
