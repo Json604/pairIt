@@ -10,7 +10,7 @@ User authorized a manually installed bootstrap release, then a second release to
 - [x] Baseline release22: signed/notarized Mac; complete Windows x64 ZIP; Linux amd64/arm64 packages and archives; website/feed published only after verification.
 - [x] Owner confirms baseline22 installed on Mac and Linux; authorized23 for all desktops.
 - [x] Publish test release23 for all desktops after owner confirmed Mac/Linux22.
-- [ ] Owner verifies22→23 in-app installation on physical Mac/Linux; Windows acceptance pending.
+- [x] Owner confirmed in-app installation/relaunch works on physical Mac and Linux. Windows acceptance remains pending.
 
 Private ECDSA signing key: ~/.config/pairit/desktop-update-signing.pem (never commit or log). Mac Sparkle key belongs in login Keychain. Public keys are intentionally distributable. Existing phone builds remain unchanged. Do not launch phone audio simulators or overwrite the owner's installed Mac app during development.
 

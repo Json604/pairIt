@@ -1,0 +1,15 @@
+{
+  "source": "d048bfdb60f91cf91340cf413b3e9791f1d8cac5",
+  "release": "https://github.com/Json604/pairIt-download/releases/tag/v1.1.0-preview.24",
+  "desktop": 24,
+  "mobile": 33,
+  "ci": 43663365180,
+  "ci_result": "all six jobs passed",
+  "assets": "all12 SHA256 verified against GitHub",
+  "mac": "final archive notarized/stapled; unchanged trusted driver installer from23 reused after first development-driver rejection",
+  "ios": "App Store Connect upload succeeded; owner submits",
+  "android_aab": "artifacts/publish-24/google-play/PairIt-1.1.0.aab; signed/validated, owner uploads/submits",
+  "public_feed_commit": "7826a33",
+  "site_version": 41,
+  "physical_acceptance": "not established by automated checks"
+}
