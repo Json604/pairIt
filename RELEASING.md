@@ -141,14 +141,16 @@ identifiers, not signing keys or account credentials.
    and signatures, then publish these feeds in the downloads repository only after
    their assets are public. Preserve unchanged platform entries.
 
-8. **Update and deploy the website.** It has a separate source repository and
-   deployment workflow; it is not shipped from the app repository. Update
-   `dist/index.html` and `dist/downloads.html` to exact new asset URLs and correct
-   versions. Update favicon/brand assets when changed, including cache-version
-   suffixes. Refresh legacy files in `dist/downloads/` and their checksums if those
-   URLs remain supported. Regenerate policy/setup pages when their source changes.
-   Publish the website through its existing hosting workflow; pushing this app repo
-   does not deploy the website. Never point a public button to a draft or local file.
+8. **Update and deploy the website.** Its source is `site/` in this repository,
+   deployed by its own Vercel project (root directory `site`) to
+   `pairit.kartikey.xyz`; Vercel rebuilds only when `site/` changes on `main`.
+   Update `site/index.html` and `site/downloads.html` to exact new asset URLs and
+   correct versions, and point the legacy `/downloads/*` redirects in
+   `site/vercel.json` at the new release. Never commit binaries to `site/`. Update
+   favicon/brand assets when changed, including cache-version suffixes. Regenerate
+   policy/setup pages with `python3 scripts/build-pairit-site.py` after changing
+   `scripts/prepare-play-content.py`. Merge only after the release assets are public;
+   never point a public button to a draft or local file.
 9. **Verify what users actually receive.** Follow the deployed website buttons,
    download and extract/mount the packages, and compare hashes, icons and versions.
    Check store rollout status separately. Confirm the update notification opens the

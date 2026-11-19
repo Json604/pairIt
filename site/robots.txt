@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://pairit.kartikey.xyz/sitemap.xml

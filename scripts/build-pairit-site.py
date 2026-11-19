@@ -3,10 +3,10 @@ from pathlib import Path
 import argparse,json,re,shutil
 parser=argparse.ArgumentParser()
 parser.add_argument('--page', choices=['privacy','support'], help='Update only this policy/help page')
-parser.add_argument('--site-dir', type=Path, help='Website dist folder (default: sites/paircove/dist)')
+parser.add_argument('--site-dir', type=Path, help='Website folder (default: site/)')
 args=parser.parse_args()
 ROOT=Path(__file__).resolve().parent.parent
-site=(args.site_dir or ROOT/'sites/paircove/dist').resolve()
+site=(args.site_dir or ROOT/'site').resolve()
 home=(site/'index.html').read_text()
 head=home.split('<main id="main">')[0]+'<main id="main">'
 header=re.search(r'<header>.*?</header>',home,re.S).group()
