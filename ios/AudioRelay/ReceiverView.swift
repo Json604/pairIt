@@ -14,7 +14,6 @@ struct ReceiverView: View {
     @AppStorage("soundFeedback") private var soundFeedback = true
     @AppStorage("trustedAutoReconnect") private var autoReconnect = true
     @AppStorage("groupGuestPin") private var groupGuestPin = ""
-    @AppStorage("lowLatency") private var lowLatency = false
     private var isGroupGuest: Bool { !groupGuestPin.isEmpty && groupGuestPin == pairing.mac?.pin }
     @State private var computerToForget: PairedMac?
     @State private var disconnecting = false
@@ -99,7 +98,6 @@ struct ReceiverView: View {
                 // Saved computers changed: advertise their tags so they can offer Connect.
                 nearby.computerTags = NearbyDevices.tags(tokens: pairing.computers.map(\.token), installation: RelayInstallation.identifier)
             }
-            .onChange(of: lowLatency) { _, _ in receiver.lowLatencyChanged() }
             .onChange(of: ads.ready) { _, ready in if ready { ads.appOpen.prepare() } }
             .onChange(of: ads.openingScreen) { _, opening in if !opening { confirmTrustedNearby(nearby.computers) } }
             .onChange(of: receiver.computerDisconnects) { _, _ in
@@ -683,13 +681,6 @@ struct ReceiverView: View {
                 Toggle("Auto-reconnect", isOn: $autoReconnect)
                 Divider()
                 Toggle("Sound feedback", isOn: $soundFeedback)
-                Divider()
-                Toggle(isOn: $lowLatency) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Low latency")
-                        Text("Game and click sounds arrive sooner. Switches to Reliable if Wi-Fi is unstable.").font(.caption).foregroundStyle(RelayPalette.secondary)
-                    }
-                }
                 Divider()
                 Button { incomingCode = ""; sheet = .pair } label: {
                     HStack { Text("Pair another computer"); Spacer(); Image(systemName: "plus") }.frame(minHeight: 40)

@@ -337,7 +337,6 @@ public class MainActivity extends Activity {
         LinearLayout connectionCard=column();connectionCard.setPadding(dp(16),dp(2),dp(16),dp(2));connectionCard.setBackground(shape(0xfff6f6f8,27,Color.TRANSPARENT));
         connectionCard.addView(preference("Auto-reconnect","Previously paired computers on this Wi-Fi.",settings.autoReconnect(),on->settings.autoReconnect(on)));
         connectionCard.addView(preference("Sound feedback","A short sound when connected.",settings.soundFeedback(),on->settings.soundFeedback(on)));
-        connectionCard.addView(preference("Low latency","Game and click sounds arrive sooner. Switches to Reliable if Wi-Fi is unstable.",settings.lowLatency(),this::setLowLatency));
         connectionCard.addView(settingRow("Paired computers",settings.savedComputers().size()+" saved",this::connectionDialog));devicesArea.addView(connectionCard,new LinearLayout.LayoutParams(-1,-2));space(devicesArea,18);
         TextView general=text("GENERAL",10,0xffcccccc,false);general.setLetterSpacing(.12f);devicesArea.addView(general);space(devicesArea,9);
         LinearLayout generalCard=column();generalCard.setPadding(dp(16),dp(2),dp(16),dp(2));generalCard.setBackground(shape(0xfff6f6f8,27,Color.TRANSPARENT));
@@ -345,14 +344,6 @@ public class MainActivity extends Activity {
         generalCard.addView(settingRow("Help & setup","",()->InformationActivity.open(this,"help")));
         generalCard.addView(settingRow("Privacy","",()->InformationActivity.open(this,"privacy")));
         generalCard.addView(settingRow("More settings","",this::settingsDialog));devicesArea.addView(generalCard,new LinearLayout.LayoutParams(-1,-2));
-    }
-    private void setLowLatency(boolean on){
-        settings.lowLatency(on);
-        // Apply to a live session by reopening this phone's output; pairing and the computer stay connected.
-        if(RelayService.hasControlConnection()&&RelayService.state.phase==RelayState.Phase.PLAYING&&!RelayService.computerOutputSelected){
-            try{startService(new Intent(this,RelayService.class).setAction("LOCAL_OUTPUT"));}catch(RuntimeException ignored){}
-        }
-        showFeedback(on?"Low latency on. Sounds arrive sooner.":"Reliable playback. Extra buffering for busy Wi-Fi.");
     }
     private View preference(String label,String detail,boolean checked,java.util.function.Consumer<Boolean> action){
         LinearLayout row=row();row.setPadding(0,dp(12),0,dp(12));LinearLayout labels=column();labels.addView(text(label,13,INK,true));space(labels,5);labels.addView(text(detail,10,MUTED,false));row.addView(labels,new LinearLayout.LayoutParams(0,-2,1));Switch control=new PlainSwitch(this);control.setContentDescription(label);control.setChecked(checked);control.setThumbTintList(ColorStateList.valueOf(Color.WHITE));control.setTrackTintList(new ColorStateList(new int[][]{new int[]{android.R.attr.state_checked},new int[]{}},new int[]{INK,0xffcccccc}));control.setOnCheckedChangeListener((b,on)->action.accept(on));row.addView(control);return row;

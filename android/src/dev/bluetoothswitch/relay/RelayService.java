@@ -688,7 +688,7 @@ public class RelayService extends Service {
         int rate = 0, seenGeneration = -1, underruns = 0, primedFrames = 0, leadFrames = 0;
         int cushionMs = PlayoutTiming.CUSHION_MS, minimumCushionMs = cushionMs, outputDelayMs = -1;
         alignmentReport = "STATS ALIGN1 " + minimumCushionMs + " -1\n";
-        InteractivePlayback interactive = interactiveMode ? new InteractivePlayback(PresentationTiming.floorMs(settings.platform(), selectedOutput == OutputRoute.BLUETOOTH)) : null;
+        InteractivePlayback interactive = interactiveMode ? new InteractivePlayback() : null;
         boolean learning = interactive != null;
         long previousSequence = -1, writtenFrames = 0, lastReport = 0, started = 0;
         boolean playing = false, routeConfigured = false;
@@ -704,7 +704,7 @@ public class RelayService extends Service {
                     if (track != null) { activeTrack = null; releaseTrack(track); track = null; }
                     seenOutputRevision = outputRevision; inbox.clear();
                     interactiveMode = settings.interactive();
-                    interactive = interactiveMode ? new InteractivePlayback(PresentationTiming.floorMs(settings.platform(), selectedOutput == OutputRoute.BLUETOOTH)) : null;
+                    interactive = interactiveMode ? new InteractivePlayback() : null;
                     learning = interactive != null;
                     cushionMs = minimumCushionMs = PlayoutTiming.CUSHION_MS;
                     timing = new PlayoutTiming();
