@@ -226,8 +226,7 @@ Current published builds are Mac/Windows/Linux **29**, Android **36** (GitHub AP
 **37** (Google Play) and iOS **36**. Phone store availability depends on the testing
 track and review status. Recent changes include per-phone Mac controls, earphone
 media keys, phone volume from the Mac’s volume keys, Connect from the Mac, Low latency
-playback, and banner plus app-open ads only. In-app update feeds still point at the
-previous builds until they are advanced.
+playback, and banner plus app-open ads only.
 PairIt is free with ads; there is no paid tier.
 
 Mac and Ubuntu have owner testing. Physical Windows and iPhone acceptance remain

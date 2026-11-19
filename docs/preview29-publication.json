@@ -33,11 +33,18 @@
     ],
     "legacy": "/downloads/* redirect to the Preview 29 release assets"
   },
-  "update_feeds": "Not advanced: updates.json, installers.json and mac-appcast.xml still point at previous builds (owner decision)",
+  "update_feeds": {
+    "published": "Json604/pairIt-download 94e3631 (installers d03b80d first)",
+    "installers.json": "Windows/Linux 29 (5 targets), ECDSA verified against release/desktop-update-public-key.txt",
+    "mac-appcast.xml": "Mac 29, Sparkle EdDSA verified with sign_update; tampered file rejected",
+    "updates.json": "Mac/Windows/Linux 29, Android 36 GitHub APK; iOS not advertised until public on the App Store",
+    "live_check": "raw.githubusercontent.com copies byte-identical after push"
+  },
   "not_tested": [
     "Physical iPhone",
     "Windows media sessions and play/skip",
     "Linux volume linking",
     "Mac Connect round trip with an iPhone"
-  ]
+  ],
+  "android_preview_key": "Original Preview debug key (deb49245\u2026) was lost before this release when android/build was regenerated; Preview 36 is signed 4953b71e\u2026. Older Preview installs are not offered this update (signer mismatch) and need a reinstall. Key now backed up outside the repo and restored by scripts/build-android.sh."
 }
