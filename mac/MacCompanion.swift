@@ -38,6 +38,21 @@ final class MacCompanionModel: ObservableObject {
     @Published var playbackAction: Bool?
     @Published var pairingConfirmed = false
     @Published var receiverDetail = "No active listeners"
+    @Published var phones: [RelayPhone] = []
+    @Published var rememberedPhones: [NearbyPhones.Phone] = []
+    @Published var connectingPhone: String?
+    var connectPhone: (String) -> Void = { _ in }
+    var forgetPhone: (String) -> Void = { _ in }
+    /// Phones that connected before and are not connected now.
+    var reconnectablePhones: [NearbyPhones.Phone] {
+        let connected = Set(phones.compactMap(\.installation))
+        return rememberedPhones.filter { !connected.contains($0.id) }
+    }
+    @Published var mediaKeysAllowed = false
+    var setPhoneVolume: (UUID, Int) -> Void = { _, _ in }
+    var setPlaybackFor: (UUID, Bool) -> Void = { _, _ in }
+    var disconnectPhone: (UUID) -> Void = { _ in }
+    var allowMediaKeys: () -> Void = {}
     let macName = Host.current().localizedName ?? "This Mac"
     private var history = [0]
     private var copyReset: DispatchWorkItem?
@@ -53,7 +68,13 @@ final class MacCompanionModel: ObservableObject {
     var setPhonePlayback: (Bool) -> Void = { _ in }
     var selectOutput: (Bool) -> Void = { _ in }
     var panelWidth: CGFloat { page == 1 ? 500 : 300 }
-    var panelHeight: CGFloat { page == 1 ? 330 : page == 0 ? (microphoneEnabled ? 340 : !outputInstalled ? 390 : ((connected || parkedCount > 0) ? 326 : (!sharing || connectionFailed ? 240 : 200)) + (outputInstalled && !volumeControlsInstalled ? 76 : 0)) : 440 }
+    var panelHeight: CGFloat { page == 1 ? 330 : page == 0 ? (microphoneEnabled ? 340 : !outputInstalled ? 390 : ((connected || parkedCount > 0) ? connectedHeight : (!sharing || connectionFailed ? 240 : 200 + (reconnectablePhones.isEmpty ? 0 : CGFloat(30 + reconnectablePhones.prefix(4).count * 46)))) + (outputInstalled && !volumeControlsInstalled ? 76 : 0)) : 470 }
+    /// One row per phone (taller with a volume slider); the panel scrolls beyond four.
+    private var connectedHeight: CGFloat {
+        let rows = phones.isEmpty ? 46 : phones.reduce(CGFloat(0)) { $0 + ($1.level == nil ? 48 : 78) }
+        let saved = reconnectablePhones.isEmpty ? 0 : CGFloat(30 + reconnectablePhones.prefix(4).count * 46)
+        return min(640, 300 + rows + saved + (mediaKeysAllowed ? 0 : 58))
+    }
     var needsAudioPermission: Bool { outputInstalled && detail.hasPrefix("Capture failed") }
     var connectionFailed: Bool { detail.hasPrefix("Couldn’t start") || network.hasPrefix("Wi-Fi unavailable") }
 
@@ -240,14 +261,20 @@ struct MacCompanionView: View {
                 }
                 Button(primaryTitle, action: primaryAction).buttonStyle(RelayPrimaryButtonStyle())
             } else if model.connected || model.parkedCount > 0 {
-                HStack(spacing: 10) {
-                    Image(systemName: "iphone").font(.system(size: 21)).frame(width: 34, height: 36).background(Color(white: 0.93), in: RoundedRectangle(cornerRadius: 10))
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(model.phoneNames).font(.system(size: 12, weight: .semibold))
-                        Text(model.computerOutput ? "Computer output" : model.receiverCount > 0 ? "Listening" : "Paused").font(.system(size: 11)).foregroundStyle(RelayPalette.secondary)
+                Text(model.phones.count > 1 ? "\(model.phones.count) PHONES" : "PHONE").font(.system(size: 10, weight: .medium)).tracking(0.8).foregroundStyle(RelayPalette.secondary)
+                if model.phones.isEmpty {
+                    HStack(spacing: 10) {
+                        Image(systemName: "iphone").font(.system(size: 21)).frame(width: 34, height: 36).background(Color(white: 0.93), in: RoundedRectangle(cornerRadius: 10))
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(model.phoneNames).font(.system(size: 12, weight: .semibold))
+                            Text(model.computerOutput ? "Computer output" : model.receiverCount > 0 ? "Listening" : "Paused").font(.system(size: 11)).foregroundStyle(RelayPalette.secondary)
+                        }
+                        Spacer(); Image(systemName: "checkmark").font(.system(size: 12))
                     }
-                    Spacer(); Image(systemName: "checkmark").font(.system(size: 12))
                 }
+                ForEach(model.phones) { phone in PhoneControlRow(phone: phone, model: model) }
+                if !model.mediaKeysAllowed { mediaKeysPrompt }
+                savedPhones
                 Divider()
                 Text("Audio output").font(.system(size: 11)).foregroundStyle(RelayPalette.secondary)
                 HStack(spacing: 4) {
@@ -264,10 +291,11 @@ struct MacCompanionView: View {
                 HStack {
                     Button("Pair a phone") { model.navigate(to: 1) }
                     Spacer()
-                    Button("Disconnect", action: model.toggleSharing)
+                    Button("Stop sharing", action: model.toggleSharing).help("Disconnect every phone and return audio to this Mac")
                 }.buttonStyle(.plain).font(.system(size: 11)).padding(.top, 2)
             } else {
                 Text(model.sharingAction == nil ? "No phones connected" : "Connecting…").font(.system(size: 12)).foregroundStyle(RelayPalette.secondary)
+                savedPhones
                 Button { model.navigate(to: 1) } label: { Label("Pair a phone", systemImage: "qrcode") }.buttonStyle(RelayPrimaryButtonStyle())
             }
             if model.outputInstalled && !model.volumeControlsInstalled {
@@ -277,6 +305,50 @@ struct MacCompanionView: View {
                     .font(.system(size: 10)).foregroundStyle(RelayPalette.secondary).fixedSize(horizontal: false, vertical: true)
             }
         }.padding(.horizontal, 18).padding(.top, 10).padding(.bottom, 14)
+    }
+    /// Previously connected phones: connect without a code while PairIt is open on them.
+    @ViewBuilder private var savedPhones: some View {
+        let saved = Array(model.reconnectablePhones.prefix(4))
+        if !saved.isEmpty {
+            Text("PAIRED PHONES").font(.system(size: 10, weight: .medium)).tracking(0.8).foregroundStyle(RelayPalette.secondary).padding(.top, 2)
+            ForEach(saved) { phone in
+                HStack(spacing: 10) {
+                    Image(systemName: "iphone").font(.system(size: 15)).frame(width: 30, height: 30)
+                        .background(Color(white: 0.93), in: RoundedRectangle(cornerRadius: 9))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(phone.name).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                        Text(phone.available ? "PairIt is open on this phone" : "Open PairIt on this phone to connect")
+                            .font(.system(size: 10)).foregroundStyle(RelayPalette.secondary).lineLimit(1)
+                    }
+                    Spacer(minLength: 4)
+                    Button { model.connectPhone(phone.id) } label: {
+                        HStack(spacing: 5) {
+                            if model.connectingPhone == phone.id { ProgressView().controlSize(.mini).tint(.white) }
+                            Text(model.connectingPhone == phone.id ? "Connecting" : "Connect")
+                        }.font(.system(size: 11, weight: .semibold)).padding(.horizontal, 12).frame(minHeight: 28)
+                            .foregroundStyle(.white).background(RelayPalette.ink, in: Capsule())
+                    }.buttonStyle(RelayControlButtonStyle()).disabled(!phone.available || model.connectingPhone != nil)
+                        .help(phone.available ? "Connect \(phone.name) and start listening" : "Open PairIt on \(phone.name) first")
+                        .contextMenu { Button("Forget \(phone.name) on this Mac") { model.forgetPhone(phone.id) } }
+                }
+            }
+        }
+    }
+    private var mediaKeysPrompt: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "playpause.fill").font(.system(size: 13)).frame(width: 30, height: 30)
+                .background(Color(white: 0.93), in: RoundedRectangle(cornerRadius: 9))
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Headphone buttons").font(.system(size: 11, weight: .semibold))
+                Text("Let them pause videos and music on this Mac.").font(.system(size: 10)).foregroundStyle(RelayPalette.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 4)
+            Button("Allow", action: model.allowMediaKeys).font(.system(size: 11, weight: .semibold))
+                .padding(.horizontal, 12).frame(minHeight: 28).foregroundStyle(.white)
+                .background(RelayPalette.ink, in: Capsule()).buttonStyle(RelayControlButtonStyle())
+                .help("Opens Accessibility permission. PairIt only sends the Play/Pause key.")
+        }.padding(8).frost(12)
     }
     private func outputButton(_ title: String, icon: String, computer: Bool) -> some View {
         let selected = model.computerOutput == computer
@@ -403,6 +475,10 @@ struct MacCompanionView: View {
                 Divider().opacity(0.4)
                 RelaySettingRow(icon: "lock.shield", title: "Audio permission", detail: "Manage in System Settings", action: model.openPermissions)
                 Divider().opacity(0.4)
+                RelaySettingRow(icon: "playpause", title: "Headphone controls",
+                                detail: model.mediaKeysAllowed ? "On · phone pause also pauses Mac media" : "Allow in Accessibility to pause Mac media",
+                                action: model.allowMediaKeys)
+                Divider().opacity(0.4)
                 RelaySettingRow(icon: "qrcode", title: "Pair a phone") { model.navigate(to: 1) }
                 Divider().opacity(0.4)
                 RelaySettingRow(icon: "arrow.clockwise", title: "Check for updates", detail: "Download, verify and install in PairIt") { installerUpdates.downloadAndInstall() }
@@ -446,6 +522,59 @@ struct MacCompanionView: View {
                 Spacer(); Button(action: model.quit) { Text("Quit").frame(minWidth: 32, minHeight: 28) }.buttonStyle(RelayControlButtonStyle(scales: false))
             }.font(.system(size: 11))
         }
+    }
+}
+
+/// One listener: status, its own play/pause, disconnect and (for updated phones) the
+/// phone's real media volume. Dragging keeps a local value so phone echoes cannot fight it.
+private struct PhoneControlRow: View {
+    let phone: RelayPhone
+    @ObservedObject var model: MacCompanionModel
+    @State private var editing: Double?
+    @State private var sent = -1
+    private var status: String {
+        if model.computerOutput { return "Mac speakers selected" }
+        switch phone.state {
+        case .listening: return phone.level.map { "Listening · \(Int((Double($0) / 10).rounded()))%" } ?? "Listening"
+        case .paused: return "Paused"
+        case .connected: return "Connected"
+        }
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 10) {
+                Image(systemName: "iphone").font(.system(size: 17)).frame(width: 30, height: 32)
+                    .background(Color(white: 0.93), in: RoundedRectangle(cornerRadius: 9))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(phone.name).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                    Text(status).font(.system(size: 11)).foregroundStyle(RelayPalette.secondary).lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                let listening = phone.state == .listening && !model.computerOutput
+                Button { model.setPlaybackFor(phone.id, !listening) } label: {
+                    Image(systemName: listening ? "pause.fill" : "play.fill").font(.system(size: 12)).frame(width: 28, height: 28)
+                }.buttonStyle(RelayControlButtonStyle()).help(listening ? "Pause \(phone.name)" : "Resume on \(phone.name)")
+                    .accessibilityLabel(listening ? "Pause \(phone.name)" : "Resume on \(phone.name)")
+                if phone.canDisconnect {
+                    Button { model.disconnectPhone(phone.id) } label: {
+                        Image(systemName: "xmark").font(.system(size: 11, weight: .semibold)).frame(width: 28, height: 28)
+                    }.buttonStyle(RelayControlButtonStyle()).help("Disconnect \(phone.name)").accessibilityLabel("Disconnect \(phone.name)")
+                }
+            }
+            if let level = phone.level {
+                HStack(spacing: 6) {
+                    Image(systemName: "speaker.fill").font(.system(size: 9)).accessibilityHidden(true)
+                    Slider(value: Binding(get: { editing ?? Double(level) / 1000 }, set: { value in
+                        editing = value
+                        let target = Int((value * 1000).rounded())
+                        if abs(target - sent) >= 10 || target == 0 || target == 1000 { sent = target; model.setPhoneVolume(phone.id, target) }
+                    }), in: 0...1, onEditingChanged: { active in
+                        if !active, let value = editing { model.setPhoneVolume(phone.id, Int((value * 1000).rounded())); editing = nil; sent = -1 }
+                    }).controlSize(.small).accessibilityLabel("\(phone.name) volume")
+                    Image(systemName: "speaker.wave.3.fill").font(.system(size: 9)).accessibilityHidden(true)
+                }.foregroundStyle(RelayPalette.secondary).padding(.leading, 40)
+            }
+        }.padding(.vertical, 2)
     }
 }
 

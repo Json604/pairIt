@@ -27,7 +27,7 @@ public final class RelayTileService extends TileService {
     }
     private void toggle() {
         RelaySettings settings = new RelaySettings(this);
-        if (PairingInterstitial.isPresenting()) {
+        if (AppOpenAds.isPresenting()) {
             android.widget.Toast.makeText(this, "Close the advertisement, then tap the PairIt tile again.", android.widget.Toast.LENGTH_LONG).show();
             return;
         }

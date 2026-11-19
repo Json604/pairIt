@@ -6,7 +6,6 @@ def liveAds = adsInfo.mode == 'live'
 def testAppId = 'ca-app-pub-3940256099942544~3347511713'
 def testBannerId = 'ca-app-pub-3940256099942544/6300978111'
 def testAppOpenId = 'ca-app-pub-3940256099942544/9257395921'
-def testInterstitialId = 'ca-app-pub-3940256099942544/1033173712'
 if (liveAds && (!(adsInfo.app_id ==~ /ca-app-pub-\d{16}~\d{10}/) || !(adsInfo.banner_id ==~ /ca-app-pub-\d{16}\/\d{10}/) || adsInfo.app_id.startsWith('ca-app-pub-3940256099942544'))) {
     throw new GradleException('Live ads require your own valid AdMob App ID and banner ID in release.json')
 }
@@ -24,7 +23,6 @@ android {
         buildConfigField 'String', 'BANNER_AD_UNIT_ID', '"' + (liveAds ? adsInfo.banner_id : testBannerId) + '"'
         buildConfigField 'boolean', 'ADS_TEST_MODE', liveAds ? 'false' : 'true'
         buildConfigField 'String', 'APP_OPEN_AD_UNIT_ID', '"' + (liveAds ? (adsInfo.app_open_id ?: '') : testAppOpenId) + '"'
-        buildConfigField 'String', 'INTERSTITIAL_AD_UNIT_ID', '"' + (liveAds ? (adsInfo.interstitial_id ?: '') : testInterstitialId) + '"'
     }
     sourceSets { main { manifest.srcFile 'AndroidManifest.xml'; java.srcDirs = ['src']; res.srcDirs = ['res']; assets.srcDirs = ['assets'] } }
     buildFeatures { buildConfig true }
@@ -52,7 +50,6 @@ android {
             buildConfigField 'String', 'BANNER_AD_UNIT_ID', '"' + testBannerId + '"'
             buildConfigField 'boolean', 'ADS_TEST_MODE', 'true'
             buildConfigField 'String', 'APP_OPEN_AD_UNIT_ID', '"' + testAppOpenId + '"'
-            buildConfigField 'String', 'INTERSTITIAL_AD_UNIT_ID', '"' + testInterstitialId + '"'
         }
         release { debuggable false; minifyEnabled false; if (System.getenv('RELAY_KEYSTORE')) signingConfig signingConfigs.release }
     }

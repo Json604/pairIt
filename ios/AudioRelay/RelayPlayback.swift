@@ -21,6 +21,7 @@ final class RelayPlayback {
     private var lockedEstimate = false
     private var lastDrift: Double = 0, referencePhase: Double?, filteredError = 0.0
     private let requestedMode: RelayPlaybackMode
+    private let floorMs: Int
     private var learning: [(residual: Double, duration: Double)] = []
     private var learningStarted: Int64?
     private var learned = false, reliableFallback = false
@@ -56,7 +57,10 @@ final class RelayPlayback {
     var diagnostics: String {
         "Mode: \(mode.title)\nReceived frames: \(receivedFrames)\nAutomatic recoveries: \(recoveries)\nOutput estimate: \(Int(player.outputPresentationLatency * 1000)) ms\nPlayback rate: \(speed.rate)\nNetwork prefill: \(Int((cushion * 1000).rounded())) ms\nInteractive learning: \(mode == .interactive && !learned ? "in progress" : "complete")"
     }
-    init(mode: RelayPlaybackMode = .reliable) { requestedMode = mode; self.mode = mode; engine.attach(player); engine.attach(speed) }
+    /// floorMs: the smallest learned cushion (PresentationTiming.floorMs); Reliable ignores it.
+    init(mode: RelayPlaybackMode = .reliable, floorMs: Int = 40) {
+        requestedMode = mode; self.mode = mode; self.floorMs = floorMs; engine.attach(player); engine.attach(speed)
+    }
     func stop() { player.stop(); engine.stop(); resetEpoch(); resetLearning() }
     func reset() { player.stop(); resetEpoch(); resetLearning() }
     func configurationChanged(_ object: AnyObject?) {
@@ -140,7 +144,7 @@ final class RelayPlayback {
         let sorted = learning.map { max(0, $0.residual - minimum) }.sorted()
         let jitter = sorted[Int(ceil(Double(sorted.count) * 0.95)) - 1]
         let packetDuration = learning.map(\.duration).max()!
-        cushion = Double(PresentationTiming.adaptiveCushion(jitter: jitter * 1000, packet: packetDuration * 1000, lead: lead * 1000)) / 1000
+        cushion = Double(PresentationTiming.adaptiveCushion(jitter: jitter * 1000, packet: packetDuration * 1000, lead: lead * 1000, floor: floorMs)) / 1000
         minimumCushionMs = Int((cushion * 1000).rounded())
         cushion = Double(correctedRenderDelay) / 1000
         onOutputTiming?(minimumCushionMs, outputDelayMs)

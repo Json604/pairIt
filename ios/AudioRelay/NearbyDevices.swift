@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import CryptoKit
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -35,6 +36,24 @@ final class NearbyDevices: NSObject, ObservableObject, NetServiceBrowserDelegate
     private let presenceID = UUID().uuidString
     private var running = false
     var invitationPort = 0
+    /// Comma-separated daily tags, one per saved computer (TXT "c"). See `tag`.
+    var computerTags = "" {
+        didSet { if computerTags != oldValue, let advertisement { advertisement.setTXTRecord(txtRecord()) } }
+    }
+    /// One daily-rotating tag per saved computer: SHA-256("token:installation:day"), first 6 bytes
+    /// as hex. Only a computer holding that pairing token can recognise (and offer to connect) this phone.
+    static func tag(token: String, installation: String, day: Int) -> String {
+        SHA256.hash(data: Data("\(token):\(installation):\(day)".utf8)).prefix(6).map { String(format: "%02x", $0) }.joined()
+    }
+    static func tags(tokens: [String], installation: String, now: Date = Date()) -> String {
+        let day = Int(now.timeIntervalSince1970 / 86400)
+        return tokens.prefix(8).map { tag(token: $0, installation: installation, day: day) }.joined(separator: ",")
+    }
+    private func txtRecord() -> Data {
+        var fields = ["invite": Data((invitationPort > 0 ? "1" : "0").utf8), "id": Data(presenceID.utf8), "role": Data("phone".utf8), "v": Data("1".utf8), "platform": Data("ios".utf8), "name": Data(Self.localName.utf8)]
+        if !computerTags.isEmpty { fields["c"] = Data(computerTags.utf8) }
+        return NetService.data(fromTXTRecord: fields)
+    }
 
     func start() {
         guard !running else { return }; running = true
@@ -48,7 +67,7 @@ final class NearbyDevices: NSObject, ObservableObject, NetServiceBrowserDelegate
         guard advertisement == nil else { return }
         sessionName = UUID().uuidString
         let service = NetService(domain: "local.", type: "_pairit-phone._tcp.", name: sessionName, port: Int32(invitationPort > 0 ? invitationPort : 9))
-        service.setTXTRecord(NetService.data(fromTXTRecord: ["invite": Data((invitationPort > 0 ? "1" : "0").utf8), "id": Data(presenceID.utf8), "role": Data("phone".utf8), "v": Data("1".utf8), "platform": Data("ios".utf8), "name": Data(Self.localName.utf8)]))
+        service.setTXTRecord(txtRecord())
         advertisement = service; service.publish()
     }
     func stop() {

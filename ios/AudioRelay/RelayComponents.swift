@@ -5,12 +5,14 @@ struct RelayNearbyDevice: View {
     let name: String
     let detail: String
     var phone = false
+    var icon: String?
     let action: () -> Void
     var body: some View {
         Button(action: action) {
             VStack(spacing: 6) {
                 Group {
-                    if phone { Image(systemName: "iphone").font(.title) }
+                    if let icon { Image(systemName: icon).font(.title) }
+                    else if phone { Image(systemName: "iphone").font(.title) }
                     else { LaptopGlyph().stroke(Color(white: 0.15), style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round)).frame(width: 26, height: 26) }
                 }.frame(width: 88, height: 88).background(NearbyPresence()).foregroundStyle(.black)
                 Text(name).font(.caption.bold()).fixedSize(horizontal: false, vertical: true)

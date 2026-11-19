@@ -5,8 +5,11 @@ import android.os.Build;
 import java.util.ArrayDeque;
 import java.util.Arrays;
 
-/** Fixed-epoch jitter estimate for local outputs on Linux/Windows. Never used for Bluetooth/Reliable playback. */
+/** Fixed-epoch jitter estimate used by Low latency playback. Reliable playback never uses it. */
 final class InteractivePlayback {
+    private final int floorMs;
+    InteractivePlayback() { this(40); }
+    InteractivePlayback(int floorMs) { this.floorMs = floorMs; }
     private final long[] arrival = new long[64];
     private final ArrayDeque<Long> recoveries = new ArrayDeque<>();
     private int count;
@@ -32,7 +35,7 @@ final class InteractivePlayback {
         if (leadMs > PlayoutTiming.CUSHION_MS) { useReliable(); return true; }
         long[] sorted = arrival.clone(); Arrays.sort(sorted);
         long residual95 = sorted[(int)Math.ceil(.95 * sorted.length) - 1] - sorted[0];
-        cushionMs = PresentationTiming.adaptiveCushion(residual95 / 1e6, maximumPacketNs / 1e6, leadMs);
+        cushionMs = PresentationTiming.adaptiveCushion(residual95 / 1e6, maximumPacketNs / 1e6, leadMs, floorMs);
         ready = true; return true;
     }
     void recovery() {

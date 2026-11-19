@@ -2,16 +2,15 @@
   "app_name": "PairIt - AudioRelay",
   "bundle_id": "dev.bluetoothswitch.iosrelay",
   "version_name": "1.1.0",
-  "build_number": 35,
+  "build_number": 36,
   "release_stage": "feature-preview",
   "admob": {
     "mode": "live",
     "app_id": "ca-app-pub-1439264473551763~5550361995",
     "banner_id": "ca-app-pub-1439264473551763/6017120065",
     "consent_messages_confirmed": false,
-    "placement": "Banner remains behind ordinary sheets. Preloaded connection interstitials before audio without a local cooldown. App Open ads only during opening, at least 30 minutes after the last full-screen ad. No ads interrupt active audio.",
+    "placement": "Banner remains behind ordinary sheets. App Open ads on a cold start after a static loading screen of up to 6 s (skipped offline), or when already loaded after at least 30 seconds away, at most once every 3 minutes, and never while this phone is playing audio. No connection interstitials; no ads interrupt active audio.",
     "personalized_ads": false,
-    "interstitial_id": "ca-app-pub-1439264473551763/3263944155",
     "app_open_id": "ca-app-pub-1439264473551763/5988604522"
   },
   "store_name": "PairIt - AudioRelay"

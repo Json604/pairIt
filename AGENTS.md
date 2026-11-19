@@ -20,6 +20,15 @@ handoffs, machine-specific paths, credentials or deployment/account records.
 - PairIt streams computer audio to phone speakers or connected headphones over the local
   network. It is free with ads, including up to four phones in Listen Together. There is
   no payment tier. Preserve ad consent and do not insert ads into active playback.
+- Ads are a banner plus an App Open ad (no connection interstitials, no launch animation).
+  A cold launch waits on a static loading screen up to 6 s for the ad (skipped offline or
+  while audio plays); returns show an already-loaded ad at once. Keep pacing in `AdTiming`
+  (Android) and its iOS twin.
+- Protocol compatibility: new phone→computer control lines must start with `STATS `
+  (Windows/Linux reject other unknown lines); new computer→phone frames or flags go only
+  to phones that advertised a capability (phones reject unknown frames). Current
+  extensions: `STATS VOLUME2`/`STATS PVOL1 n` (phone-owned volume, frame `0x35435342`,
+  volume flag `0x20000`) and `STATS CONTROLS2` (computer disconnect, request bit 64).
 - Preserve TLS certificate pinning, token authentication and comparison-code approval.
   Discovery is not authentication; pairing QR codes contain credentials and are private.
 - Respect explicit Pause, Disconnect and Stop sharing. Temporary capture/network failures

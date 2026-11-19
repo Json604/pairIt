@@ -2,6 +2,7 @@ namespace PairIt.Core;
 
 public enum ParkReason { Phone, Pause, Output }
 internal enum ReceiverIntent { None, Park, Resume, Release }
+public enum MediaCommand { Play, Next, Previous }
 
 // The Windows adapter observes a single actual media session. No PCM, route,
 // system volume or default-device operations belong in this interface.
@@ -17,6 +18,10 @@ public interface IMediaHandoffController : IAsyncDisposable
 {
     bool IsAvailable { get; }
     Task<IMediaPauseLease?> TryPauseCurrentAsync(CancellationToken cancellation);
+    // Explicit listener commands (STATS MEDIA1, and Play when a paused phone resumes).
+    // Play must not toggle: an adapter does nothing when its session is already playing.
+    Task<bool> TryPlayCurrentAsync(CancellationToken cancellation) => Task.FromResult(false);
+    Task<bool> TrySkipAsync(bool forward, CancellationToken cancellation) => Task.FromResult(false);
 }
 
 internal sealed class UnavailableMediaController : IMediaHandoffController
@@ -46,6 +51,9 @@ internal sealed class MediaHandoffCoordinator(IMediaHandoffController controller
     private Ticket? pending;
     private Task worker = Task.CompletedTask;
     private Task? unsettledCommand;
+    // Play/skip run one at a time, in arrival order, each bounded like a pause.
+    private Task commands = Task.CompletedTask;
+    private int queuedCommands;
     private bool workerRunning, disposed;
     public bool IsAvailable => controller.IsAvailable;
     public bool HasUnsettledCommand { get { lock (state) return unsettledCommand is { IsCompleted: false }; } }
@@ -80,6 +88,43 @@ internal sealed class MediaHandoffCoordinator(IMediaHandoffController controller
             workerRunning = true;
             worker = Task.Run(WorkAsync);
         }
+    }
+
+    // True while this peer's own park demonstrably paused the computer player.
+    public bool PausedFor(Guid peer, uint token)
+    {
+        lock (state) return tickets.TryGetValue(peer, out var ticket) && ticket.Token == token && ticket.PausedConfirmed;
+    }
+
+    public bool Send(MediaCommand command)
+    {
+        lock (state)
+        {
+            // A phone cannot queue an unbounded series of native commands.
+            if (disposed || !controller.IsAvailable || queuedCommands >= 4) return false;
+            queuedCommands++;
+            commands = RunCommandAsync(commands, command);
+            return true;
+        }
+    }
+
+    private async Task RunCommandAsync(Task previous, MediaCommand command)
+    {
+        await previous.ConfigureAwait(false);
+        try
+        {
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+            deadline.CancelAfter(TimeSpan.FromSeconds(2));
+            var token = deadline.Token;
+            token.ThrowIfCancellationRequested();
+            await Task.Run(() => command == MediaCommand.Play ? controller.TryPlayCurrentAsync(token)
+                : controller.TrySkipAsync(command == MediaCommand.Next, token)).WaitAsync(token).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // An unsupported, rejected or stalled player never affects the relay.
+        }
+        finally { lock (state) queuedCommands--; }
     }
 
     public uint Flags(Guid peer, uint token)
@@ -139,6 +184,10 @@ internal sealed class MediaHandoffCoordinator(IMediaHandoffController controller
             Task<IMediaPauseLease?>? attempt = null;
             try
             {
+                // An earlier Play/skip must finish first, or it could undo this newer pause.
+                Task earlier;
+                lock (state) earlier = commands;
+                await earlier.WaitAsync(deadline.Token).ConfigureAwait(false);
                 attempt = BeginAttempt(ticket, deadline.Token);
                 if (attempt == null) continue;
                 var lease = await attempt.WaitAsync(deadline.Token).ConfigureAwait(false);
@@ -217,6 +266,10 @@ internal sealed class MediaHandoffCoordinator(IMediaHandoffController controller
         CancelAll();
         lifetime.Cancel();
         await worker.ConfigureAwait(false);
+        // Each queued command observes the canceled lifetime and ends promptly.
+        Task queued;
+        lock (state) queued = commands;
+        await queued.ConfigureAwait(false);
         await controller.DisposeAsync().ConfigureAwait(false);
         lifetime.Dispose();
     }

@@ -14,6 +14,7 @@ struct ReceiverView: View {
     @AppStorage("soundFeedback") private var soundFeedback = true
     @AppStorage("trustedAutoReconnect") private var autoReconnect = true
     @AppStorage("groupGuestPin") private var groupGuestPin = ""
+    @AppStorage("lowLatency") private var lowLatency = true
     private var isGroupGuest: Bool { !groupGuestPin.isEmpty && groupGuestPin == pairing.mac?.pin }
     @State private var computerToForget: PairedMac?
     @State private var disconnecting = false
@@ -23,7 +24,6 @@ struct ReceiverView: View {
     @State private var pairingReady = false
     @State private var confirmationTask: Task<Void, Never>?
     @State private var explicitIntent = 0
-    @State private var connectionAdFlow: Int?
     @State private var connectionNotice = ""
     @State private var radialCenter = UnitPoint(x: 0.5, y: 0.65)
     @State private var tab = 0
@@ -92,15 +92,19 @@ struct ReceiverView: View {
                 if let mac = pairing.mac, !computers.contains(where: { $0.pin == mac.pin }), receiver.phase == .idle {
                     attemptedPin = nil; pairingReady = false
                 }
-                guard !disconnecting, autoReconnect, tab == 0, sheet == nil, nearbyRequest == nil, scenePhase == .active, !ads.openingScreen, !AudioPresentationGate.isPresenting,
-                      receiver.phase == .idle, let mac = pairing.mac, attemptedPin != mac.pin,
-                      let device = computers.first(where: { $0.pin == mac.pin }) else { return }
-                confirm(mac, host: pairing.hostOverride ?? device.host)
-
+                confirmTrustedNearby(computers)
             }
             .onChange(of: autoReconnect) { _, enabled in receiver.autoReconnectChanged(enabled) }
-            .onChange(of: ads.ready) { _, ready in
-                if ready { ads.pairingVideo.preload(audioIdle: receiver.audioIdleForAdvertisement); ads.appOpen.prepare() }
+            .onChange(of: pairing.computers.map(\.pin)) { _, _ in
+                // Saved computers changed: advertise their tags so they can offer Connect.
+                nearby.computerTags = NearbyDevices.tags(tokens: pairing.computers.map(\.token), installation: RelayInstallation.identifier)
+            }
+            .onChange(of: lowLatency) { _, _ in receiver.lowLatencyChanged() }
+            .onChange(of: ads.ready) { _, ready in if ready { ads.appOpen.prepare() } }
+            .onChange(of: ads.openingScreen) { _, opening in if !opening { confirmTrustedNearby(nearby.computers) } }
+            .onChange(of: receiver.computerDisconnects) { _, _ in
+                // The computer's Disconnect matches this phone's Disconnect, including leaving a group.
+                cancelExplicitConnection(); pairingReady = false; groupGuestPin = ""
             }
             .onChange(of: receiver.phase) { _, phase in
                 if phase == .error || phase == .headphones { pairingReady = false; cancelExplicitConnection() }
@@ -121,8 +125,12 @@ struct ReceiverView: View {
             .onReceive(Timer.publish(every: 900, on: .main, in: .common).autoconnect()) { _ in if scenePhase == .active { updates.check() } }
             .onAppear {
                 invitations.received = acceptInvitation
+                invitations.connectRequest = computerConnectRequest
                 invitations.canHost = { togetherHostProblem.isEmpty }
-                updates.check(); nearby.start(); updateInvitations(active: scenePhase == .active); prepareOpeningAds()
+                // Start consent and the ad SDK at once, so the launch ad request goes out immediately.
+                ads.start()
+                updates.check(); nearby.start(); updateInvitations(active: scenePhase == .active)
+                if scenePhase == .active { prepareOpeningAds() }
                 #if DEBUG
                 if ProcessInfo.processInfo.arguments.contains("--preview-microphone") { showingMicrophone = true }
                 if ProcessInfo.processInfo.arguments.contains("--preview-settings") { tab = 2 }
@@ -130,12 +138,10 @@ struct ReceiverView: View {
                 #endif
             }
             .onDisappear { invitations.stop(); nearby.stop(); cancelExplicitConnection(); cancelNearbyPairing(); confirmationTask?.cancel() }
+            .overlay { if ads.launchLoading { LaunchLoadingView() } }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active { if receiver.phase == .idle { attemptedPin = nil }; updates.checkOnForeground(); nearby.start(); updateInvitations(active: true); prepareOpeningAds() }
-                else { ads.appOpen.pause(); invitations.stop(); nearby.stop(); cancelNearbyPairing(); if !ads.fullscreenActive { cancelExplicitConnection() }; confirmationTask?.cancel() }
-            }
-            .overlay {
-                if ads.openingScreen { ZStack { Color.black.ignoresSafeArea(); Text("PairIt").font(.title.bold()).foregroundStyle(.white) } }
+                else { if phase == .background { ads.appOpen.background() } else { ads.appOpen.pause() }; invitations.stop(); nearby.stop(); cancelNearbyPairing(); if !ads.fullscreenActive { cancelExplicitConnection() }; confirmationTask?.cancel() }
             }
     }
 
@@ -180,6 +186,8 @@ struct ReceiverView: View {
                 case .downloads: downloadsPanel
                 case .audio: audioPanel
                 case .connection: connectionPanel
+                case .nearbyComputers: nearbyListPanel(together: false)
+                case .nearbyPhones: nearbyListPanel(together: true)
                 } }.tint(.black).preferredColorScheme(.light)
             }
             .onOpenURL { url in
@@ -256,16 +264,12 @@ struct ReceiverView: View {
     private func cancelExplicitConnection() {
         confirmationTask?.cancel(); confirmationTask = nil
         explicitIntent += 1
-        if let flow = connectionAdFlow { ads.pairingVideo.cancelUnshown(flow: flow) }
-        connectionAdFlow = nil
     }
     private func connectExplicitly(_ mac: PairedMac, host: String?) {
         guard scenePhase == .active, sheet == nil, !AudioPresentationGate.isPresenting else { return }
         confirmationTask?.cancel(); cancelExplicitConnection(); connectionNotice = ""
         let intent = explicitIntent
         attemptedPin = mac.pin
-        let flow = ads.pairingVideo.begin(audioIdle: receiver.audioIdleForAdvertisement)
-        connectionAdFlow = flow
         confirmationTask = Task { @MainActor in
             if !isGroupGuest && [.idle, .error].contains(receiver.phase) {
                 let status = await ComputerOccupancy.check(pin: mac.pin, host: host ?? mac.host)
@@ -280,13 +284,15 @@ struct ReceiverView: View {
             confirmationTask = nil
             guard verified else { connectionNotice = "Computer unavailable. Keep PairIt open on the same Wi-Fi."; cancelExplicitConnection(); return }
             pairingReady = true
-            ads.pairingVideo.showAfterConnection(flow: flow, eligible: {
-                explicitIntent == intent && scenePhase == .active && tab == 0 && sheet == nil && receiver.audioIdleForAdvertisement
-            }) {
-                guard explicitIntent == intent, scenePhase == .active, tab == 0, sheet == nil, pairing.mac?.pin == mac.pin else { return }
-                connectionAdFlow = nil; receiver.connect()
-            }
+            guard tab == 0, sheet == nil else { return }
+            receiver.connect()
         }
+    }
+    private func confirmTrustedNearby(_ computers: [NearbyDevices.Device]) {
+        guard !disconnecting, autoReconnect, tab == 0, sheet == nil, nearbyRequest == nil, scenePhase == .active, !ads.openingScreen, !AudioPresentationGate.isPresenting,
+              receiver.phase == .idle, let mac = pairing.mac, attemptedPin != mac.pin,
+              let device = computers.first(where: { $0.pin == mac.pin }) else { return }
+        confirm(mac, host: pairing.hostOverride ?? device.host)
     }
     private func confirm(_ mac: PairedMac, host: String?) {
         guard confirmationTask == nil, scenePhase == .active, sheet == nil, !AudioPresentationGate.isPresenting else { return }
@@ -337,12 +343,9 @@ struct ReceiverView: View {
                 Image(systemName: "laptopcomputer").font(.system(size: 40, weight: .light))
                 Text("Looking for computers…").font(.subheadline)
             } else {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: nearby.computers.count == 1 ? 1 : 2), spacing: 18) {
-                    ForEach(Array(nearby.computers.prefix(6))) { device in
-                        RelayNearbyDevice(name: device.name, detail: device.pin == pairing.mac?.pin ? "Paired" : (["macos": "macOS", "windows": "Windows", "linux": "Linux"][device.platform] ?? "Computer")) {
-                            selectComputer(device)
-                        }
-                    }
+                let list = sortedNearby(together: false)
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: list.count == 1 ? 1 : 2), spacing: 18) {
+                    nearbyNodes(list, together: false)
                 }
             }
             Spacer(minLength: 20)
@@ -388,14 +391,14 @@ struct ReceiverView: View {
         VStack(spacing: 12) {
             Spacer(minLength: 0)
             if connecting { ProgressView().tint(.white).scaleEffect(1.3).frame(height: 110) }
-            else { ListeningVisual(playing: receiver.phase == .playing, computer: receiver.computerOutput, reduceMotion: reduced) }
-            Text(connecting ? "Connecting…" : receiver.phase == .playing ? "Listening through your phone" : receiver.phase == .computerOutput ? "Playing on computer" : pairingReady && receiver.phase == .idle ? "Paired" : receiver.title)
+            else { ListeningVisual(playing: receiver.phase == .playing && !receiver.computerPlayerPaused, computer: receiver.computerOutput, reduceMotion: reduced) }
+            Text(connecting ? "Connecting…" : receiver.phase == .playing && receiver.computerPlayerPaused ? "Paused on computer · press play on your earphones" : receiver.phase == .playing ? "Listening through your phone" : receiver.phase == .computerOutput ? "Playing on computer" : pairingReady && receiver.phase == .idle ? "Paired" : receiver.title)
                 .font(.subheadline).multilineTextAlignment(.center)
             Spacer(minLength: 0)
             VStack(spacing: 12) {
                 if !receiver.computerVolumeText.isEmpty {
                     Text(receiver.computerVolumeText).font(.caption).foregroundStyle(RelayPalette.secondary)
-                        .accessibilityLabel(receiver.computerVolumeText + ". Phone volume is separate.")
+                        .accessibilityLabel(receiver.computerVolumeText + (receiver.computerVolumeLinked ? ". The computer’s volume keys change this iPhone’s volume." : ". Phone volume is separate."))
                 }
                 if receiver.supportsOutputControl {
                     HStack(spacing: 4) {
@@ -422,8 +425,9 @@ struct ReceiverView: View {
                     shortcut("More", icon: "ellipsis", destination: .connection)
                 }
                 connectTools(connected: true)
-                if !receiver.groupTimingStatus.isEmpty {
-                    Text(receiver.groupTimingStatus).font(.caption).foregroundStyle(RelayPalette.secondary)
+                // Group timing wins; otherwise an updated Mac may need headphone controls allowed.
+                if !(receiver.groupTimingStatus.isEmpty ? receiver.mediaControlHint : receiver.groupTimingStatus).isEmpty {
+                    Text(receiver.groupTimingStatus.isEmpty ? receiver.mediaControlHint : receiver.groupTimingStatus).font(.caption).foregroundStyle(RelayPalette.secondary)
                         .multilineTextAlignment(.center)
                 }
 
@@ -489,22 +493,116 @@ struct ReceiverView: View {
             }.padding(24)
         }.scrollBounceBehavior(.basedOnSize).presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
     }
+    /// Called whenever the scene is active: a cold launch or a return may be an opening.
     private func prepareOpeningAds() {
-        ads.pairingVideo.preload(audioIdle: receiver.audioIdleForAdvertisement)
-        ads.appOpen.prepare()
-        ads.appOpen.open { receiver.audioIdleForAdvertisement && sheet == nil && !showingMicrophone && !sharingApp && !invitations.busy && confirmationTask == nil && nearbyRequest == nil }
+        ads.appOpen.foreground { receiver.audioIdleForAdvertisement && sheet == nil && !showingMicrophone && !sharingApp && !invitations.busy && confirmationTask == nil && nearbyRequest == nil }
     }
     private func playbackDestination(_ title: String, icon: String, computer: Bool) -> some View {
         RelayOutputChoice(title: title, icon: icon, selected: receiver.computerOutput == computer) {
             if computer { receiver.listenOnComputer() } else { receiver.connect() }
         }
     }
+    /// "Connect" chosen on a paired computer. The CONNECT1 hint is only acted on after the
+    /// computer confirms over its pinned channel (WANT1) that it asked for this phone.
+    private func computerConnectRequest(pin: String, host: String) {
+        guard scenePhase == .active, let saved = pairing.savedComputer(pin: pin), PairedMac.validHost(host),
+              !AudioPresentationGate.isPresenting, !ads.openingScreen, sheet == nil, !sharingApp, !showingMicrophone,
+              !requestingPairing, nearbyRequest == nil, !checkingComputer, !disconnecting, !invitations.busy else { return }
+        if isGroupGuest && pin != pairing.mac?.pin { return }
+        if receiver.phase == .playing && pin == pairing.mac?.pin { return }
+        connectionNotice = "Connecting to \(saved.displayName)…"; checkingComputer = true
+        Task { @MainActor in
+            let wanted = await PairingConfirmation.confirmConnectRequest(saved, host: host, installation: RelayInstallation.identifier)
+            checkingComputer = false
+            if connectionNotice.hasPrefix("Connecting to ") { connectionNotice = "" }
+            guard wanted, scenePhase == .active, sheet == nil, !AudioPresentationGate.isPresenting,
+                  let current = pairing.savedComputer(pin: pin) else { return }
+            tab = 0
+            if receiver.phase.macSelected && pin == pairing.mac?.pin {
+                // Already connected to this computer but not listening: start audio.
+                if receiver.phase != .playing { receiver.connect() }
+                return
+            }
+            if pin == pairing.mac?.pin { connectExplicitly(current, host: pairing.hostOverride ?? host); return }
+            // The same path as tapping this saved computer: verify, connect and start audio.
+            selectSavedComputer(current, host: host)
+        }
+    }
     private func updateInvitations(active: Bool) {
         guard active else { invitations.stop(); nearby.showTogether(false); return }
         invitations.start { port in
             guard scenePhase == .active else { return }
+            nearby.computerTags = NearbyDevices.tags(tokens: pairing.computers.map(\.token), installation: RelayInstallation.identifier)
             nearby.showTogether(false); nearby.invitationPort = port; nearby.showTogether(true)
         }
+    }
+    /// Current and saved computers first, then names; phones by name. Stable for equal names.
+    private func sortedNearby(together: Bool) -> [NearbyDevices.Device] {
+        func rank(_ device: NearbyDevices.Device) -> Int {
+            guard let pin = device.pin else { return 2 }
+            return pin == pairing.mac?.pin ? 0 : pairing.savedComputer(pin: pin) != nil ? 1 : 2
+        }
+        return (together ? nearby.phones : nearby.computers).sorted { a, b in
+            if !together, rank(a) != rank(b) { return rank(a) < rank(b) }
+            let byName = a.name.caseInsensitiveCompare(b.name)
+            if byName != .orderedSame { return byName == .orderedAscending }
+            return (a.pin ?? "") + (a.host ?? "") + a.id < (b.pin ?? "") + (b.host ?? "") + b.id
+        }
+    }
+    /// Duplicate names get a stable " · 2" suffix in sorted order.
+    private func nearbyLabel(_ device: NearbyDevices.Device, in list: [NearbyDevices.Device]) -> String {
+        let same = list.filter { $0.name.caseInsensitiveCompare(device.name) == .orderedSame }
+        guard same.count > 1, let index = same.firstIndex(where: { $0.id == device.id }) else { return device.name }
+        return device.name + " · \(index + 1)"
+    }
+    private func nearbyDetail(_ device: NearbyDevices.Device, together: Bool) -> String {
+        let platform = ["macos": "Mac", "windows": "Windows", "linux": "Linux", "ios": "iPhone", "android": "Android"][device.platform] ?? (together ? "Phone" : "Computer")
+        guard !together, let pin = device.pin else { return platform }
+        return pin == pairing.mac?.pin ? "Paired" : pairing.savedComputer(pin: pin) != nil ? "Saved" : platform
+    }
+    private func chooseNearby(_ device: NearbyDevices.Device, together: Bool) {
+        if together { invitePhone(device) } else { selectComputer(device) }
+    }
+    /// Four fit around the map. A busy network shows three plus a complete, sorted list.
+    @ViewBuilder private func nearbyNodes(_ list: [NearbyDevices.Device], together: Bool) -> some View {
+        let shown = list.count <= 4 ? list.count : 3
+        ForEach(Array(list.prefix(shown))) { device in
+            RelayNearbyDevice(name: nearbyLabel(device, in: list), detail: nearbyDetail(device, together: together), phone: together) {
+                chooseNearby(device, together: together)
+            }
+        }
+        if list.count > 4 {
+            RelayNearbyDevice(name: "\(list.count - shown) more", detail: together ? "Show all phones" : "Show all computers", icon: "ellipsis") {
+                sheet = together ? .nearbyPhones : .nearbyComputers
+            }
+        }
+    }
+    private func nearbyListPanel(together: Bool) -> some View {
+        let list = sortedNearby(together: together)
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                Text((together ? "Nearby phones" : "Nearby computers") + " · \(list.count)").font(.title3.bold())
+                Text(together ? "Tap a phone to invite it. Compare the code on both phones before accepting." : "Tap a computer to connect. Saved computers are listed first.")
+                    .font(.subheadline).foregroundStyle(RelayPalette.secondary)
+                if list.isEmpty { Text(together ? "No phones nearby" : "No computers nearby").foregroundStyle(RelayPalette.secondary) }
+                ForEach(list) { device in
+                    Button {
+                        sheet = nil
+                        // Let the sheet dismissal finish before connecting or inviting.
+                        DispatchQueue.main.async { chooseNearby(device, together: together) }
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: together ? "iphone" : "laptopcomputer").font(.system(size: 19)).frame(width: 28)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(nearbyLabel(device, in: list)).font(.subheadline.weight(.medium))
+                                Text(nearbyDetail(device, together: together)).font(.caption).foregroundStyle(RelayPalette.secondary)
+                            }
+                            Spacer()
+                        }.padding(14).frame(minHeight: 56).background(Color(white: 0.94), in: RoundedRectangle(cornerRadius: 14))
+                    }.buttonStyle(RelayControlButtonStyle(scales: false)).foregroundStyle(.black)
+                }
+            }.padding(24)
+        }.scrollBounceBehavior(.basedOnSize).presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
     }
     private var togetherHostProblem: String {
         if isGroupGuest { return "You joined a listening group. Leave this group before hosting or joining another." }
@@ -542,11 +640,7 @@ struct ReceiverView: View {
                 Image(systemName: "person.2").font(.system(size: 40, weight: .light))
                 Text("No phones nearby yet").font(.subheadline)
             } else {
-                RelayPhoneOrbit {
-                    ForEach(Array(nearby.phones.prefix(6))) { phone in
-                        RelayNearbyDevice(name: phone.name, detail: "", phone: true) { invitePhone(phone) }
-                    }
-                }
+                RelayPhoneOrbit { nearbyNodes(sortedNearby(together: true), together: true) }
             }
             VStack(spacing: 5) {
                 Image(systemName: "iphone").font(.title2).frame(width: 46, height: 46)
@@ -555,6 +649,9 @@ struct ReceiverView: View {
                         Color.clear.preference(key: PhoneAnchorPreference.self, value: CGPoint(x: proxy.frame(in: .named("phoneContent")).midX, y: proxy.frame(in: .named("phoneContent")).midY))
                     })
                 Text(NearbyDevices.localName + " (you)").font(.caption)
+                if !nearby.phones.isEmpty {
+                    Text("\(nearby.phones.count) \(nearby.phones.count == 1 ? "phone" : "phones") nearby · same Wi-Fi").font(.caption)
+                }
             }
             Spacer(minLength: 0)
             VStack(alignment: .leading, spacing: 10) {
@@ -587,6 +684,13 @@ struct ReceiverView: View {
                 Divider()
                 Toggle("Sound feedback", isOn: $soundFeedback)
                 Divider()
+                Toggle(isOn: $lowLatency) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Low latency")
+                        Text("Game and click sounds arrive sooner. Switches to Reliable if Wi-Fi is unstable.").font(.caption).foregroundStyle(RelayPalette.secondary)
+                    }
+                }
+                Divider()
                 Button { incomingCode = ""; sheet = .pair } label: {
                     HStack { Text("Pair another computer"); Spacer(); Image(systemName: "plus") }.frame(minHeight: 40)
                 }.buttonStyle(RelayControlButtonStyle(scales: false))
@@ -611,7 +715,7 @@ struct ReceiverView: View {
 
 }
 
-enum ReceiverSheet: String, Identifiable { case pair, settings, sync, address, shared, output, downloads, audio, connection, report; var id: String { rawValue } }
+enum ReceiverSheet: String, Identifiable { case pair, settings, sync, address, shared, output, downloads, audio, connection, report, nearbyComputers, nearbyPhones; var id: String { rawValue } }
 
 struct AudioRoutePicker: UIViewRepresentable {
     func makeUIView(context: Context) -> AVRoutePickerView {
@@ -687,11 +791,11 @@ struct ReceiverSettings: View {
                             Text("Use the same Wi-Fi. Select an output in Settings, then choose its route in the system picker and tap Start audio.")
                             Text("Phone / Computer switches the shared playback destination. Pairings stay saved; paused listeners stay paused. Each phone controls its own volume.")
                             Text("Phone interruptions and lost connections stop local playback. Updated Mac companions hold their relay output, so media may continue silently; pause the computer player if needed. Return to PairIt explicitly after an interruption or background suspension.")
-                            Text("Lock-screen and headphone controls pause or resume audio. Change tracks on the computer.")
+                            Text("Lock-screen and headphone controls pause or resume this iPhone. On a Mac with PairIt’s headphone controls allowed, pausing also pauses the video or music playing on the Mac, and resuming plays it again. Volume keys on an updated Mac change this iPhone’s volume. Change tracks on the computer.")
                         }.font(.subheadline).foregroundStyle(RelayPalette.secondary).padding(22).frost()
                         VStack(alignment: .leading, spacing: 12) {
                             Label("Local by design", systemImage: "lock.shield").font(.headline).foregroundStyle(RelayPalette.ink)
-                            Text("Audio is encrypted directly between your devices. There are no cloud audio servers or PairIt accounts. A Google AdMob banner and an eligible post-pairing advertisement support the app. Google may process IP-derived location, device identifiers, ad interactions and diagnostics for advertising, measurement and fraud prevention. Live ad requests require the available consent choices; this build requests non-personalized ads and does not request tracking permission. Optional Phone microphone mode asks for permission and sends microphone audio directly to your paired computer only while its screen is open. No recording is saved. Pairing credentials stay in Keychain. Camera access only scans pairing codes; no photos are saved. Update checks fetch a public release list from GitHub, which receives normal web-request information such as your IP address. No audio, pairing credentials or device identifier is attached.")
+                            Text("Audio is encrypted directly between your devices. There are no cloud audio servers or PairIt accounts. A Google AdMob banner supports the app. An ad may appear when PairIt opens, at most every 3 minutes, never while this phone plays audio and never on connect. Google may process IP-derived location, device identifiers, ad interactions and diagnostics for advertising, measurement and fraud prevention. Live ad requests require the available consent choices; this build requests non-personalized ads and does not request tracking permission. Optional Phone microphone mode asks for permission and sends microphone audio directly to your paired computer only while its screen is open. No recording is saved. Pairing credentials stay in Keychain. Camera access only scans pairing codes; no photos are saved. Update checks fetch a public release list from GitHub, which receives normal web-request information such as your IP address. No audio, pairing credentials or device identifier is attached.")
                                 .font(.footnote).foregroundStyle(RelayPalette.secondary)
                         }.padding(22).frost()
                         VStack(spacing: 0) {

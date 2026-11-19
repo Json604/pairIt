@@ -75,3 +75,7 @@ with tempfile.TemporaryDirectory() as out:
 with tempfile.TemporaryDirectory() as out:
     subprocess.run(["javac","-d",out,str(android/"src/dev/bluetoothswitch/relay/PresentationTiming.java"),str(android/"tests/PresentationTimingCheck.java")],check=True)
     subprocess.run(["java","-cp",out,"dev.bluetoothswitch.relay.PresentationTimingCheck"],check=True)
+
+with tempfile.TemporaryDirectory() as out:
+    subprocess.run(["javac","-d",out,str(android/"src/dev/bluetoothswitch/relay/PhoneVolume.java"),str(android/"tests/PhoneVolumeCheck.java")],check=True)
+    subprocess.run(["java","-cp",out,"dev.bluetoothswitch.relay.PhoneVolumeCheck"],check=True)

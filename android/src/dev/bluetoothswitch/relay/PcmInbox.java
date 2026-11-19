@@ -18,7 +18,7 @@ final class PcmInbox {
     // About 1.4 seconds at 256 frames. A ceiling, never a prefill target.
     private final ArrayBlockingQueue<Packet> queue = new ArrayBlockingQueue<>(256);
     private volatile IOException failure;
-    java.util.function.IntConsumer onControlStatus, onDesktopRequest, onComputerVolume;
+    java.util.function.IntConsumer onControlStatus, onDesktopRequest, onComputerVolume, onVolumeSet, onPlayerState;
     Runnable onHeartbeat;
     volatile long framesReceived, sequenceGaps, discarded;
     private volatile long bestClockOffset = Long.MAX_VALUE;
@@ -61,8 +61,23 @@ final class PcmInbox {
                 if (magic == 0x31455342 && h.getInt() == 1) throw new GroupFull();
                 if (magic == 0x33435342) {
                     int volume = h.getInt();
-                    if ((volume & ~0x103FF) != 0 || (volume & 0x3FF) > 1000) throw new IOException("Invalid computer volume");
+                    // 0x20000 is sent only to STATS VOLUME2 phones: the computer no longer attenuates them.
+                    if ((volume & ~0x303FF) != 0 || (volume & 0x3FF) > 1000) throw new IOException("Invalid computer volume");
                     if (onComputerVolume != null) onComputerVolume.accept(volume);
+                    continue;
+                }
+                if (magic == 0x36435342) {
+                    // Sent only after STATS PLAYER1: bit 0 means the computer is producing sound.
+                    int playing = h.getInt();
+                    if ((playing & ~1) != 0) throw new IOException("Invalid player state");
+                    if (onPlayerState != null) onPlayerState.accept(playing);
+                    continue;
+                }
+                if (magic == 0x35435342) {
+                    // Sent only after this phone advertises STATS VOLUME2: set the phone's own media volume.
+                    int level = h.getInt();
+                    if (level < 0 || level > 1000) throw new IOException("Invalid phone volume request");
+                    if (onVolumeSet != null) onVolumeSet.accept(level);
                     continue;
                 }
                 if(magic==0x32435342){int command=h.getInt();if(onDesktopRequest!=null)onDesktopRequest.accept(command);continue;}

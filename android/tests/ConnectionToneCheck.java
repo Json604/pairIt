@@ -7,7 +7,10 @@ public class ConnectionToneCheck {
             if(peak<.05||tail<.005)throw new AssertionError("Missing resolving tail");
         }
         if(ConnectionTone.sample(0)!=0||ConnectionTone.sample(.9)!=0||ConnectionTone.sample(-1)!=0||ConnectionTone.sample(Double.NaN)!=0)throw new AssertionError("Invalid endpoint");
-        if(!AdTiming.appOpenDue(1000,0)||AdTiming.appOpenDue(1_800_999,1000)||!AdTiming.appOpenDue(1_801_000,1000)||AdTiming.appOpenDue(999,1000))throw new AssertionError("Thirty minute TTL boundary");
-        System.out.println("Connection chime envelope, tail and app-open 30-minute TTL passed");
+        if(!AdTiming.appOpenDue(1000,0)||AdTiming.appOpenDue(180_999,1000)||!AdTiming.appOpenDue(181_000,1000)||AdTiming.appOpenDue(999,1000))throw new AssertionError("Three minute app-open cooldown boundary");
+        if(!AdTiming.returnEligible(1000,0)||AdTiming.returnEligible(30_999,1000)||!AdTiming.returnEligible(31_000,1000)||!AdTiming.returnEligible(999,1000))throw new AssertionError("Warm-return absence boundary");
+        if(AdTiming.PRESENT_WINDOW_MS>1_000||AdTiming.COLD_WAIT_MS>6_000||AdTiming.AD_EXPIRY_MS>=4*60*60_000L)throw new AssertionError("App-open wait/expiry bounds");
+        if(AdTiming.bannerRetryMs(0)!=15_000||AdTiming.bannerRetryMs(1)!=30_000||AdTiming.bannerRetryMs(2)!=60_000||AdTiming.bannerRetryMs(9)!=60_000)throw new AssertionError("Banner retry backoff");
+        System.out.println("Connection chime envelope, tail and app-open pacing passed");
     }
 }

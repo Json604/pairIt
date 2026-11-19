@@ -30,7 +30,7 @@ final class ConnectionChime {
     }
     private static void play(Context context,RelaySettings settings,boolean disconnect){
         if(!settings.paired()||(!disconnect&&acknowledgedPin.equals(settings.pin())))return;
-        if(PairingInterstitial.isPresenting()||AppOpenAds.isPresenting()||current!=null)return;
+        if(AppOpenAds.isPresenting()||current!=null)return;
         if(!settings.soundFeedback())return;
         AudioManager audio=context.getSystemService(AudioManager.class);
         if(audio.getStreamVolume(AudioManager.STREAM_MUSIC)==0)return;

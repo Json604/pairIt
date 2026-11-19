@@ -50,7 +50,6 @@ for name in ['Debug','Release']:
     settings={'ASSETCATALOG_COMPILER_APPICON_NAME':'AppIcon','CODE_SIGN_STYLE':'Automatic','CURRENT_PROJECT_VERSION':release['build_number'],'MARKETING_VERSION':release['version_name'],'DEVELOPMENT_TEAM':team,'GENERATE_INFOPLIST_FILE':'NO','INFOPLIST_FILE':'AudioRelay/Info.plist','PRODUCT_BUNDLE_IDENTIFIER':'dev.bluetoothswitch.iosrelay','PRODUCT_NAME':'Audio Relay','SUPPORTED_PLATFORMS':'iphoneos iphonesimulator','SUPPORTS_MACCATALYST':'NO','TARGETED_DEVICE_FAMILY':'1','LD_RUNPATH_SEARCH_PATHS':'$(inherited) @executable_path/Frameworks'}
     settings['PAIRIT_ADMOB_APP_ID'] = 'ca-app-pub-3940256099942544~1458002511' if name == 'Debug' else admob['app_id']
     settings['PAIRIT_ADMOB_BANNER_ID'] = 'ca-app-pub-3940256099942544/2435281174' if name == 'Debug' else admob['banner_id']
-    settings['PAIRIT_ADMOB_INTERSTITIAL_ID'] = 'ca-app-pub-3940256099942544/4411468910' if name == 'Debug' else admob.get('interstitial_id', '')
     settings['PAIRIT_ADMOB_APP_OPEN_ID'] = 'ca-app-pub-3940256099942544/5575463023' if name == 'Debug' else admob.get('app_open_id', '')
     settings['OTHER_LDFLAGS'] = '$(inherited) -ObjC'
     config=add('target:'+name,'isa = XCBuildConfiguration; buildSettings = {'+' '.join(f'{k} = {q(v)};' for k,v in settings.items())+'}; name = '+name+';'); targetconfigs.append(config)

@@ -5,9 +5,13 @@ import Foundation
 import CoreImage
 import Darwin
 
+import os
+private let unifiedLog = Logger(subsystem: "dev.bluetoothswitch.macrelay", category: "relay")
 func log(_ message: String) {
     let line = "\(ISO8601DateFormatter().string(from: Date())) \(message)\n"
     FileHandle.standardError.write(Data(line.utf8))
+    // Visible with: log show --predicate 'subsystem == "dev.bluetoothswitch.macrelay"'
+    unifiedLog.notice("\(message, privacy: .public)")
 }
 
 struct AudioFailure: Error, CustomStringConvertible {
@@ -142,9 +146,14 @@ extension Capture: RelayCaptureSource {
             volumeLock.lock(); cachedVolume = value; volumeLock.unlock()
             nextVolumeRead = now + 0.05
         }
-        guard var packet = queue.pop() else { return nil }
-        computerVolume?.apply(to: &packet)
-        return packet
+        // Volume is applied per phone by RelayServer: phones that control their own
+        // volume receive full-scale audio, older phones keep the Mac level applied.
+        return queue.pop()
+    }
+    func setComputerVolume(_ level: Double) {
+        syncOutput.setComputerVolume(level)
+        let value = syncOutput.computerVolume()
+        volumeLock.lock(); cachedVolume = value; volumeLock.unlock()
     }
 }
 

@@ -31,6 +31,19 @@ final class WiFiServer {
     var onPairingConfirmed: (() -> Void)?
     var onPairingRequest: ((String, @escaping (Bool) -> Void) -> Void)?
     private var pendingPairing: UUID?
+    /// Installation IDs this Mac asked to connect ("Connect" in the Mac app), with expiry.
+    private var connectRequests: [String: TimeInterval] = [:]
+    var pairingToken: String { queue.sync { config["token"] ?? "" } }
+    var pairingPin: String { queue.sync { config["pin"] ?? "" } }
+    /// The phone verifies a CONNECT1 hint by asking over the pinned channel (WANT1).
+    func expectConnection(from installation: String) {
+        queue.async { self.connectRequests[installation] = ProcessInfo.processInfo.systemUptime + 30 }
+    }
+    fileprivate func claimConnectRequest(_ installation: String) -> Bool {
+        let now = ProcessInfo.processInfo.systemUptime
+        connectRequests = connectRequests.filter { $0.value > now }
+        return connectRequests.removeValue(forKey: installation) != nil
+    }
     private var lastPairingRequest: TimeInterval = -.infinity
     init(port: UInt16 = 5002, upstreamPort: UInt16 = 5001, upstreamToken: String,
          identityProvider: @escaping () throws -> LocalIdentity = { try LocalIdentity.load() },
@@ -104,6 +117,7 @@ final class WiFiServer {
                 peer.admittedReceiver = true; peer.connectUpstream()
             }
             peer.onPairingConfirmed = { [weak self] in self?.onPairingConfirmed?() }
+            peer.claimConnectRequest = { [weak self] installation in self?.claimConnectRequest(installation) ?? false }
             peer.onPairingRequest = { [weak self, weak peer] nonce in
                 guard let self, let peer else { return }
                 let now = ProcessInfo.processInfo.systemUptime
@@ -267,6 +281,7 @@ private final class WiFiPeer {
     var admittedReceiver = false
     var onAuthenticated: (() -> Void)?
     var onPairingConfirmed: (() -> Void)?
+    var claimConnectRequest: ((String) -> Bool)?
     var onClose: (() -> Void)?
     var onMicrophone: ((@escaping (MicrophoneAdmission) -> Void) -> Void)?
     var onMicrophoneStarted: (() -> Void)?
@@ -339,7 +354,13 @@ private final class WiFiPeer {
                 let pairingSuffix = Data(" PAIR1".utf8)
                 let pairing = line.suffix(pairingSuffix.count) == pairingSuffix
                 var supplied = mic ? line.dropLast(suffix.count) : pairing ? line.dropLast(pairingSuffix.count) : line
-                if !mic && !pairing, let text = String(data: line, encoding: .utf8), let range = text.range(of: " PRO1 ") {
+                var wanted: String?
+                if !mic && !pairing, let text = String(data: line, encoding: .utf8), let range = text.range(of: " WANT1 ") {
+                    let installation = String(text[range.upperBound...])
+                    guard installation.range(of: "^[a-f0-9]{32}$", options: .regularExpression) != nil else { self.stop(); return }
+                    supplied = Data(text[..<range.lowerBound].utf8); wanted = installation
+                }
+                if !mic && !pairing && wanted == nil, let text = String(data: line, encoding: .utf8), let range = text.range(of: " PRO1 ") {
                     supplied = Data(text[..<range.lowerBound].utf8)
                     // Older preview phones append this retired suffix. It grants no access;
                     // the original pairing token below must still match exactly.
@@ -350,7 +371,12 @@ private final class WiFiPeer {
                 guard difference == 0 else { self.stop(); return }
                 self.prefix.removeSubrange(...newline)
                 self.authenticated = true; self.lastActivity = ProcessInfo.processInfo.systemUptime
-                if pairing {
+                if let wanted {
+                    // Authenticated by the pairing token: answer whether this Mac asked.
+                    guard self.prefix.isEmpty else { self.stop(); return }
+                    let asked = self.claimConnectRequest?(wanted) ?? false
+                    self.connection.send(content: Data((asked ? "OK WANT1\n" : "NO WANT1\n").utf8), completion: .contentProcessed { [weak self] _ in self?.stop() })
+                } else if pairing {
                     guard self.prefix.isEmpty else { self.stop(); return }
                     self.onPairingConfirmed?()
                     self.connection.send(content: Data("OK PAIR1\n".utf8), completion: .contentProcessed { [weak self] _ in self?.stop() })

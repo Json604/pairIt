@@ -25,10 +25,9 @@ public class MainActivity extends Activity {
     private boolean scanningCode;
     private Runnable pendingScanResult;
     private AlertDialog pairingDialog;
-    private PairingInterstitial pairingAds;
     private AppOpenAds appOpenAds;
-    private boolean appOpeningOpportunity=true;
-    private String automaticAdPin="";
+    private boolean appOpeningOpportunity=true, coldOpening=true;
+    private long backgroundedAt;
     private Runnable pendingPairingCompletion;
     private long pairingFlow;
     private PairingConfirmation pairingConfirmation;
@@ -58,7 +57,7 @@ public class MainActivity extends Activity {
         feedback.animate().alpha(0).setDuration(120).withEndAction(() -> feedback.setVisibility(View.GONE)).start();
     };
     private final Runnable refresh = new Runnable() {
-        public void run() { render();showPairingCompletion(); if (updates != null) updates.check(); if(pairingAds!=null)pairingAds.prepare(); handler.postDelayed(this, 500); }
+        public void run() { render();showPairingCompletion(); if (updates != null) updates.check(); handler.postDelayed(this, 500); }
     };
 
     private NearbyDevices nearby;
@@ -95,7 +94,7 @@ public class MainActivity extends Activity {
     private final Button[] tabs = new Button[3];
 
     @Override public void onCreate(Bundle saved) {
-        super.onCreate(saved); LegacyPurchaseCleanup.run(this); settings=new RelaySettings(this);
+        super.onCreate(saved); LegacyPurchaseCleanup.runInBackground(this); settings=new RelaySettings(this);
         setVolumeControlStream(android.media.AudioManager.STREAM_MUSIC);
         getWindow().getDecorView().setSystemUiVisibility(0);
         getWindow().setStatusBarColor(Color.BLACK);getWindow().setNavigationBarColor(Color.BLACK);
@@ -137,15 +136,19 @@ public class MainActivity extends Activity {
         nav=row();nav.setClipChildren(true);nav.setClipToPadding(true);nav.setPadding(dp(6),dp(6),dp(6),dp(6));navFrame=new FrameLayout(this);navFrame.setClipChildren(true);navFrame.setClipToPadding(true);navFrame.setBackground(shape(0xff111111,32,0xff333333));navIndicator=new View(this);navIndicator.setBackground(shape(0xffeeeeee,27,Color.TRANSPARENT));FrameLayout.LayoutParams indicatorParams=new FrameLayout.LayoutParams(0,dp(56));indicatorParams.setMargins(dp(6),dp(6),0,0);navFrame.addView(navIndicator,indicatorParams);navFrame.addView(nav,new FrameLayout.LayoutParams(-1,-2));navFrame.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob)->{if(r-l!=or-ol||b-t!=ob-ot)moveIndicator(false);});
         String[] names={"Connect","Together","Settings"};String[] icons={"headphones","people","settings"};
         for(int i=0;i<3;i++){final int index=i;tabs[i]=button(names[i],()->selectTab(index));tabs[i].setTextSize(12);tabs[i].setMinHeight(dp(56));GlassUI.Glyph g=new GlassUI.Glyph(icons[i],i==0?INK:0xffbbbbbb);g.setBounds(0,0,dp(22),dp(22));tabs[i].setCompoundDrawables(null,g,null,null);nav.addView(tabs[i],new LinearLayout.LayoutParams(0,-2,1));}LinearLayout navContainer=column();navContainer.setPadding(dp(22),dp(6),dp(22),dp(8));navContainer.addView(navFrame);outer.addView(navContainer);
-        LinearLayout ads=column();outer.addView(ads,new LinearLayout.LayoutParams(-1,-2));bannerAds=new BannerAds(this,ads);pairingAds=new PairingInterstitial(this,bannerAds,this::idleForPairingAd,this::updateAdVisibility);FrameLayout opening=new FrameLayout(this);opening.setBackgroundColor(Color.BLACK);opening.setClickable(true);opening.setVisibility(View.GONE);TextView openingLabel=text("PairIt",28,Color.WHITE,true);openingLabel.setGravity(Gravity.CENTER);opening.addView(openingLabel,new FrameLayout.LayoutParams(-1,-1));root.addView(opening,new FrameLayout.LayoutParams(-1,-1));
-        appOpenAds=new AppOpenAds(this,bannerAds,()->idleForPairingAd()&&!scanningCode&&pairingDialog==null&&nearbyRequest==null&&!explicitIntent.active(),on->opening.setVisibility(on?View.VISIBLE:View.GONE),()->{updateAdVisibility();confirmTrustedNearby();});
-        bannerAds.onReadinessChanged(()->{pairingAds.prepare();appOpenAds.prepare();});bannerAds.onConsentChanged(()->{pairingAds.consentChanged();appOpenAds.consentChanged();});
+        LinearLayout ads=column();outer.addView(ads,new LinearLayout.LayoutParams(-1,-2));bannerAds=new BannerAds(this,ads);
+        if(saved!=null)coldOpening=false;
+        // The original opening screen (black, "PairIt") while a launch ad loads.
+        FrameLayout loading=new FrameLayout(this);loading.setBackgroundColor(Color.BLACK);loading.setClickable(true);loading.setVisibility(View.GONE);
+        TextView loadingLabel=text("PairIt",28,Color.WHITE,true);loadingLabel.setGravity(Gravity.CENTER);loading.addView(loadingLabel,new FrameLayout.LayoutParams(-1,-1));root.addView(loading,new FrameLayout.LayoutParams(-1,-1));
+        appOpenAds=new AppOpenAds(this,bannerAds,()->idleForAd()&&!scanningCode&&pairingDialog==null&&nearbyRequest==null&&!explicitIntent.active(),on->{loading.setVisibility(on?View.VISIBLE:View.GONE);if(on)loading.bringToFront();},()->{updateAdVisibility();confirmTrustedNearby();});
+        bannerAds.onReadinessChanged(appOpenAds::prepare);bannerAds.onConsentChanged(appOpenAds::consentChanged);
         feedback=text("",13,INK,false);feedback.setPadding(dp(16),dp(14),dp(16),dp(14));feedback.setBackground(shape(Color.WHITE,16,Color.TRANSPARENT));feedback.setVisibility(View.GONE);feedback.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         FrameLayout.LayoutParams toast=new FrameLayout.LayoutParams(-1,-2,Gravity.TOP);toast.setMargins(dp(24),dp(60),dp(24),0);root.addView(feedback,toast);
         invitations=new ListeningInvitations(new ListeningInvitations.UI(){
             public boolean canHost(){return togetherHostProblem().isEmpty();}
             public void confirm(String title,String code,java.util.function.Consumer<Boolean> answer){
-                if(!visible||settings.groupGuest()||pairingDialog!=null||compactPanel!=null||AppOpenAds.isPresenting()||PairingInterstitial.isPresenting()){answer.accept(false);return;}
+                if(!visible||settings.groupGuest()||pairingDialog!=null||compactPanel!=null||AppOpenAds.isPresenting()){answer.accept(false);return;}
                 if(invitations.hosting()&&!togetherHostProblem().isEmpty()){answer.accept(false);showFeedback(togetherHostProblem());return;}
                 boolean hosting=invitations.hosting();
                 invitationDialog=new GlassDialogBuilder(MainActivity.this).setTitle(title)
@@ -158,18 +161,17 @@ public class MainActivity extends Activity {
                 handler.post(()->{try{connectVerifiedCode(PairingCode.parse(code),true,true);}catch(Exception invalid){showFeedback("Invalid invitation. Ask your friend to try again.");}});
             }
             public void progress(String message){renderedKey="";render();}
+            public void connectRequest(String pin,String host){computerConnectRequest(pin,host);}
             public void finished(String message){renderedKey="";render();if(invitationDialog!=null){invitationDialog.dismiss();invitationDialog=null;}if(!message.isEmpty()&&visible)showFeedback(message);}
         },handler::post);
-        nearby=new NearbyDevices(this,()->{confirmTrustedNearby();renderedKey="";render();});selectTab(0);acceptPairing(getIntent());handler.post(bannerAds::start);
+        nearby=new NearbyDevices(this,()->{confirmTrustedNearby();renderedKey="";render();});selectTab(0);acceptPairing(getIntent());bannerAds.start();
     }
     private void confirmTrustedNearby(){
-        if(tab!=0||!visible||(appOpenAds!=null&&appOpenAds.isOpening())||AppOpenAds.isPresenting()||pairingDialog!=null||PairingInterstitial.isPresenting()||!settings.autoReconnect()||!settings.paired()||automaticConfirmation!=null||confirmedPin.equals(settings.pin()))return;
+        if(tab!=0||!visible||(appOpenAds!=null&&appOpenAds.isOpening())||AppOpenAds.isPresenting()||pairingDialog!=null||!settings.autoReconnect()||!settings.paired()||automaticConfirmation!=null||confirmedPin.equals(settings.pin()))return;
         for(NearbyDevices.Device device:nearby.snapshot())if(device.pin.equals(settings.pin())){
             final String savedPin=settings.pin();confirmedPin=savedPin;
             automaticConfirmation=new PairingConfirmation(PairingCode.saved(settings,settings.connectionHost(device.host)),confirmed->{
-                automaticConfirmation=null;if(!settings.pin().equals(savedPin))return;trustedNearby=confirmed;if(confirmed){settings.discovered(device.host,savedPin);
-                    if(!automaticAdPin.equals(savedPin)&&idleForPairingAd()&&System.currentTimeMillis()-getSharedPreferences("advertising",MODE_PRIVATE).getLong("lastFullscreenAd",0)>10_000){automaticAdPin=savedPin;long adFlow=pairingAds.begin();pairingAds.showAfterConnection(adFlow,()->{});}
-                    else {automaticAdPin=savedPin;}}renderedKey="";render();
+                automaticConfirmation=null;if(!settings.pin().equals(savedPin))return;trustedNearby=confirmed;if(confirmed)settings.discovered(device.host,savedPin);renderedKey="";render();
             });break;
         }
     }
@@ -203,6 +205,23 @@ public class MainActivity extends Activity {
                 connectVerifiedCode(PairingCode.stored(device.host,saved.pin,saved.token,saved.name,saved.platform),true);
             } else requestNearbyPairing(device);
         });
+    }
+    /** "Connect" on a paired computer. Verified with that computer before anything starts. */
+    private void computerConnectRequest(String pin,String host){
+        PairingCode saved=settings.savedComputer(pin);
+        if(saved==null||!visible||!RelaySettings.validHost(host)||AppOpenAds.isPresenting()||pairingDialog!=null||checkingComputer)return;
+        if(settings.groupGuest()&&!pin.equals(settings.pin()))return;
+        if(RelayService.state.phase==RelayState.Phase.PLAYING&&pin.equals(settings.pin()))return;
+        String installation=settings.installationId();showFeedback("Connecting to "+saved.name+"…");
+        new Thread(()->{
+            boolean requested;
+            try{requested=RelayConnection.confirmConnectRequest(host,saved.pin,saved.token,installation);}catch(Exception error){requested=false;}
+            final boolean confirmed=requested;
+            handler.post(()->{
+                if(!confirmed||!visible||isFinishing()||isDestroyed())return;
+                selectTab(0);connectVerifiedCode(PairingCode.stored(host,saved.pin,saved.token,saved.name,saved.platform),true);
+            });
+        },"computer-connect-request").start();
     }
     private void requestNearbyPairing(NearbyDevices.Device device){
         cancelExplicitConnection();
@@ -253,23 +272,26 @@ public class MainActivity extends Activity {
             ImageView symbol=new ImageView(this);symbol.setImageDrawable(new GlassUI.Glyph(RelayService.computerOutputSelected?"mac":"headphones",Color.WHITE));
             devicesArea.addView(symbol,new LinearLayout.LayoutParams(dp(64),dp(64)));
             space(devicesArea,24);
-            devicesArea.addView(new ListeningBars(this,RelayService.state.phase==RelayState.Phase.PLAYING),new LinearLayout.LayoutParams(-1,dp(28)));
+            boolean macPaused=RelayService.state.phase==RelayState.Phase.PLAYING&&RelayService.computerPlayerPaused;
+            devicesArea.addView(new ListeningBars(this,RelayService.state.phase==RelayState.Phase.PLAYING&&!macPaused),new LinearLayout.LayoutParams(-1,dp(28)));
             space(devicesArea,16);
-            TextView status=text(RelayService.state.phase==RelayState.Phase.PLAYING?"Listening on this phone":RelayService.computerOutputSelected?"Playing on computer":RelayService.state.phase==RelayState.Phase.PAUSED?"Paused":RelayService.state.title.equals("Waiting for computer audio")?"Connected · play audio on your computer":RelayService.state.phase==RelayState.Phase.CONNECTING||RelayService.state.phase==RelayState.Phase.BUFFERING||RelayService.state.phase==RelayState.Phase.RECONNECTING?"Connecting…":"Ready to listen",13,Color.WHITE,false);
+            TextView status=text(macPaused?"Paused on computer · press play on your earphones":RelayService.state.phase==RelayState.Phase.PLAYING?"Listening on this phone":RelayService.computerOutputSelected?"Playing on computer":RelayService.state.phase==RelayState.Phase.PAUSED?"Paused":RelayService.state.title.equals("Waiting for computer audio")?"Connected · play audio on your computer":RelayService.state.phase==RelayState.Phase.CONNECTING||RelayService.state.phase==RelayState.Phase.BUFFERING||RelayService.state.phase==RelayState.Phase.RECONNECTING?"Connecting…":"Ready to listen",13,Color.WHITE,false);
             status.setGravity(Gravity.CENTER);devicesArea.addView(status,new LinearLayout.LayoutParams(-1,-2));return;
         }
-        java.util.List<NearbyDevices.Device> list=nearby==null?java.util.Collections.emptyList():nearby.snapshot();
+        java.util.List<NearbyDevices.Device> list=sortedNearby(together);
         LinearLayout map=column();map.setGravity(Gravity.CENTER);map.setMinimumHeight(dp(112));devicesArea.addView(map,new LinearLayout.LayoutParams(-1,-2,1));
         LinearLayout deviceRow=null;
         java.util.List<android.view.View> phoneNodes=new java.util.ArrayList<>();
-        int count=0;
-        for(NearbyDevices.Device d:list){
-            if(count>=4)break;final int position=count++;
-            LinearLayout node=RelayComponents.nearby(this,d.name,together?d.platform:d.pin.equals(settings.pin())?"Paired":(d.platform.equals("macos")?"Mac":d.platform.equals("ios")?"iPhone":d.platform),together,()->{if(together)invitePhone(d);else selectComputer(d);});
+        int count=list.size();
+        // Four fit around the map. A busy network shows three plus a complete, sorted list.
+        int shown=count<=4?count:3;
+        for(int position=0;position<shown+(count>4?1:0);position++){
+            LinearLayout node;
+            if(position<shown){NearbyDevices.Device d=list.get(position);node=RelayComponents.nearby(this,nearbyLabel(list,d),nearbyDetail(d,together),together,()->{if(together)invitePhone(d);else selectComputer(d);});}
+            else node=RelayComponents.nearby(this,(count-shown)+" more",together?"Show all phones":"Show all computers","more",()->nearbyListPanel(together));
             if(together){phoneNodes.add(node);continue;}
             if(position%2==0){deviceRow=row();deviceRow.setGravity(Gravity.CENTER);map.addView(deviceRow,new LinearLayout.LayoutParams(-1,-2));}
             deviceRow.addView(node,new LinearLayout.LayoutParams(0,-2,1));
-
         }
         if(together&&!phoneNodes.isEmpty())map.addView(RelayComponents.phoneOrbit(this,phoneNodes),new LinearLayout.LayoutParams(-1,-2));
         if(count==0){TextView empty=text(together?"No phones nearby":"Looking for computers…",15,Color.WHITE,false);empty.setGravity(Gravity.CENTER);map.addView(empty,new LinearLayout.LayoutParams(-1,-2));}
@@ -277,12 +299,45 @@ public class MainActivity extends Activity {
         TextView countLabel=text(count==0?(together?"Open PairIt on another phone":"Open PairIt on your computer"):count+" "+(together?(count==1?"phone":"phones"):(count==1?"computer":"computers"))+" nearby · same Wi-Fi",11,Color.WHITE,false);countLabel.setGravity(Gravity.CENTER);devicesArea.addView(countLabel);space(devicesArea,12);
         Runnable anchor=()->{int[] y=new int[2],f=new int[2];orb.getLocationOnScreen(y);field.getLocationOnScreen(f);field.centerY=(y[1]-f[1]+orb.getHeight()/2f)/Math.max(1,field.getHeight());field.invalidate();};orb.post(anchor);discoveryAnchor=anchor;
     }
+    /** Saved/selected computers first, then names; duplicate names get a stable suffix. */
+    private java.util.List<NearbyDevices.Device> sortedNearby(boolean together){
+        java.util.List<NearbyDevices.Device> list=nearby==null?new java.util.ArrayList<>():nearby.snapshot();
+        list.sort((a,b)->{
+            if(!together){int ra=nearbyRank(a),rb=nearbyRank(b);if(ra!=rb)return ra-rb;}
+            int byName=a.name.compareToIgnoreCase(b.name);return byName!=0?byName:(a.pin+a.host).compareTo(b.pin+b.host);
+        });
+        return list;
+    }
+    private int nearbyRank(NearbyDevices.Device d){return d.pin.equals(settings.pin())?0:settings.savedComputer(d.pin)!=null?1:2;}
+    private String nearbyLabel(java.util.List<NearbyDevices.Device> list,NearbyDevices.Device device){
+        int same=0,index=0;
+        for(NearbyDevices.Device d:list)if(d.name.equalsIgnoreCase(device.name)){same++;if(d==device)index=same;}
+        return same>1?device.name+" · "+index:device.name;
+    }
+    private String nearbyDetail(NearbyDevices.Device d,boolean together){
+        String platform=d.platform.equals("macos")?"Mac":d.platform.equals("ios")?"iPhone":d.platform.equals("android")?"Android":d.platform.equals("windows")?"Windows":d.platform.equals("linux")?"Linux":d.platform;
+        if(together)return platform;
+        return d.pin.equals(settings.pin())?"Paired":settings.savedComputer(d.pin)!=null?"Saved":platform;
+    }
+    private void nearbyListPanel(boolean together){
+        LinearLayout body=column();java.util.List<NearbyDevices.Device> list=sortedNearby(together);
+        body.addView(text(together?"Tap a phone to invite it. Compare the code on both phones before accepting.":"Tap a computer to connect. Saved computers are listed first.",13,MUTED,false));space(body,12);
+        for(NearbyDevices.Device d:list){
+            Button item=button(nearbyLabel(list,d)+"\n"+nearbyDetail(d,together),()->{if(compactPanel!=null)compactPanel.dismiss();if(together)invitePhone(d);else selectComputer(d);});
+            style(item,false);item.setTextSize(13);item.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);item.setMinHeight(dp(56));
+            GlassUI.Glyph glyph=new GlassUI.Glyph(together?"phone":"laptop",INK);glyph.setBounds(0,0,dp(22),dp(22));item.setCompoundDrawables(glyph,null,null,null);item.setCompoundDrawablePadding(dp(12));
+            body.addView(item,new LinearLayout.LayoutParams(-1,-2));space(body,6);
+        }
+        if(list.isEmpty())body.addView(text(together?"No phones nearby":"No computers nearby",14,MUTED,false));
+        openPanel((together?"Nearby phones":"Nearby computers")+" · "+list.size(),body);
+    }
     private void settingsPage(){
         discoveryAnchor=null;devicesArea.removeAllViews();devicesArea.setGravity(Gravity.TOP);space(devicesArea,18);
         TextView connection=text("CONNECTION",10,0xffcccccc,false);connection.setLetterSpacing(.12f);devicesArea.addView(connection);space(devicesArea,9);
         LinearLayout connectionCard=column();connectionCard.setPadding(dp(16),dp(2),dp(16),dp(2));connectionCard.setBackground(shape(0xfff6f6f8,27,Color.TRANSPARENT));
         connectionCard.addView(preference("Auto-reconnect","Previously paired computers on this Wi-Fi.",settings.autoReconnect(),on->settings.autoReconnect(on)));
         connectionCard.addView(preference("Sound feedback","A short sound when connected.",settings.soundFeedback(),on->settings.soundFeedback(on)));
+        connectionCard.addView(preference("Low latency","Game and click sounds arrive sooner. Switches to Reliable if Wi-Fi is unstable.",settings.lowLatency(),this::setLowLatency));
         connectionCard.addView(settingRow("Paired computers",settings.savedComputers().size()+" saved",this::connectionDialog));devicesArea.addView(connectionCard,new LinearLayout.LayoutParams(-1,-2));space(devicesArea,18);
         TextView general=text("GENERAL",10,0xffcccccc,false);general.setLetterSpacing(.12f);devicesArea.addView(general);space(devicesArea,9);
         LinearLayout generalCard=column();generalCard.setPadding(dp(16),dp(2),dp(16),dp(2));generalCard.setBackground(shape(0xfff6f6f8,27,Color.TRANSPARENT));
@@ -290,6 +345,14 @@ public class MainActivity extends Activity {
         generalCard.addView(settingRow("Help & setup","",()->InformationActivity.open(this,"help")));
         generalCard.addView(settingRow("Privacy","",()->InformationActivity.open(this,"privacy")));
         generalCard.addView(settingRow("More settings","",this::settingsDialog));devicesArea.addView(generalCard,new LinearLayout.LayoutParams(-1,-2));
+    }
+    private void setLowLatency(boolean on){
+        settings.lowLatency(on);
+        // Apply to a live session by reopening this phone's output; pairing and the computer stay connected.
+        if(RelayService.hasControlConnection()&&RelayService.state.phase==RelayState.Phase.PLAYING&&!RelayService.computerOutputSelected){
+            try{startService(new Intent(this,RelayService.class).setAction("LOCAL_OUTPUT"));}catch(RuntimeException ignored){}
+        }
+        showFeedback(on?"Low latency on. Sounds arrive sooner.":"Reliable playback. Extra buffering for busy Wi-Fi.");
     }
     private View preference(String label,String detail,boolean checked,java.util.function.Consumer<Boolean> action){
         LinearLayout row=row();row.setPadding(0,dp(12),0,dp(12));LinearLayout labels=column();labels.addView(text(label,13,INK,true));space(labels,5);labels.addView(text(detail,10,MUTED,false));row.addView(labels,new LinearLayout.LayoutParams(0,-2,1));Switch control=new PlainSwitch(this);control.setContentDescription(label);control.setChecked(checked);control.setThumbTintList(ColorStateList.valueOf(Color.WHITE));control.setTrackTintList(new ColorStateList(new int[][]{new int[]{android.R.attr.state_checked},new int[]{}},new int[]{INK,0xffcccccc}));control.setOnCheckedChangeListener((b,on)->action.accept(on));row.addView(control);return row;
@@ -345,7 +408,7 @@ public class MainActivity extends Activity {
         if(failed){trustedNearby=false;}
         observedPhase=state.phase;
         boolean connected=settings.paired()&&!failed&&(state.phase!=RelayState.Phase.IDLE)&&(state.phase!=RelayState.Phase.PHONE||RelayService.hasControlConnection());
-        String key=tab+":"+verifyingConnection+":"+state.phase+":"+state.detail+":"+settings.paired()+":"+trustedNearby+":"+settings.output()+":"+RelayService.outputControlSupported+":"+RelayService.computerOutputSelected+":"+inFlight+":"+connected+":"+RelayService.computerVolume+":"+RelayService.groupTimingStatus;
+        String key=tab+":"+verifyingConnection+":"+state.phase+":"+state.detail+":"+settings.paired()+":"+trustedNearby+":"+settings.output()+":"+RelayService.outputControlSupported+":"+RelayService.computerOutputSelected+":"+inFlight+":"+connected+":"+RelayService.computerVolume+":"+RelayService.groupTimingStatus+":"+RelayService.mediaControlHint+":"+RelayService.computerPlayerPaused;
         if(key.equals(renderedKey))return;renderedKey=key;
         for(int i=0;i<3;i++){tabs[i].setTextColor(i==tab?INK:0xffbbbbbb);tabs[i].setBackgroundColor(Color.TRANSPARENT);GlassUI.Glyph icon=new GlassUI.Glyph(i==0?"headphones":i==1?"people":"settings",i==tab?INK:0xffbbbbbb);icon.setBounds(0,0,dp(22),dp(22));tabs[i].setCompoundDrawables(null,icon,null,null);}
         moveIndicator(true);
@@ -377,7 +440,8 @@ public class MainActivity extends Activity {
         if(starting||pausing){primary.setText(pausing?"Pausing…":"Starting…");primary.setEnabled(false);primary.setCompoundDrawables(null,null,null,null);}
 
         connectTools.setVisibility(tab==0?View.VISIBLE:View.GONE);
-        groupTiming.setText(RelayService.groupTimingStatus);groupTiming.setVisibility(tab==0&&connected&&!RelayService.groupTimingStatus.isEmpty()?View.VISIBLE:View.GONE);
+        String cardNote=!RelayService.groupTimingStatus.isEmpty()?RelayService.groupTimingStatus:RelayService.mediaControlHint;
+        groupTiming.setText(cardNote);groupTiming.setVisibility(tab==0&&connected&&!cardNote.isEmpty()?View.VISIBLE:View.GONE);
         connectRefresh.setText(connected?"Refresh audio":"Refresh nearby");
         connectRefresh.setEnabled(!starting&&!pausing&&inFlight==null&&(!connected||(state.phase==RelayState.Phase.PLAYING&&!RelayService.computerOutputSelected)));
         connectRefresh.setAlpha(connectRefresh.isEnabled()?1f:.4f);
@@ -394,7 +458,7 @@ public class MainActivity extends Activity {
         renderedKey="";render();showFeedback("Looking for nearby computers…");
     }
     private void dispatch(String action) {
-        if (PairingInterstitial.isPresenting() || AppOpenAds.isPresenting()) { showFeedback("Close the advertisement, then choose Start audio."); return; }
+        if (AppOpenAds.isPresenting()) { showFeedback("Close the advertisement, then choose Start audio."); return; }
         if (inFlight != null || pendingAction != null) return;
         if (action.equals("PLAY") && RelayService.state.macSelected() && RelayService.state.phase != RelayState.Phase.PAUSED
                 && RelayService.state.phase != RelayState.Phase.COMPUTER_OUTPUT) return;
@@ -425,7 +489,7 @@ public class MainActivity extends Activity {
         render(); mac.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK);
     }
     private void disconnect() {
-        automaticAdPin="";trustedNearby=false;renderedKey="";render();
+        trustedNearby=false;renderedKey="";render();
         if(inFlight != null || RelayService.state.phase == RelayState.Phase.IDLE)return;
         beginAction("STOP");
         try{startService(new Intent(this,RelayService.class).setAction("STOP"));}
@@ -657,7 +721,7 @@ public class MainActivity extends Activity {
     }
     private void backgroundControlsDialog() {
         new GlassDialogBuilder(this).setTitle("Background controls")
-                .setMessage("Audio continues with the screen locked. The notification has Pause, Computer output and Disconnect controls. Switching output keeps the devices paired.\n\nHeadphone play/pause controls this phone’s audio. Volume stays with Android. Change tracks on the computer.")
+                .setMessage("Audio continues with the screen locked. The notification has Pause, Computer output and Disconnect controls. Switching output keeps the devices paired.\n\nHeadphone play/pause pauses this phone. On a Mac with PairIt’s headphone controls allowed, it also pauses and resumes the video or music playing on the Mac. Volume keys on an updated Mac change this phone’s volume. Change tracks on the computer.")
                 .setPositiveButton("Done", null).setNeutralButton("Notification settings", (d,w)->startActivity(new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE,getPackageName()))).show();
     }
     private void openAppSettings() { startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:" + getPackageName()))); }
@@ -709,7 +773,7 @@ public class MainActivity extends Activity {
     private void aboutDialog() {
         String publisher=getString(R.string.publisher_name);
         new GlassDialogBuilder(this).setTitle(getString(R.string.app_name))
-            .setMessage("Version "+BuildConfig.VERSION_NAME+(publisher.isEmpty()?"":"\n"+publisher)+"\n\nComputer audio through this phone. Listen together with up to four phones and their headphones.\n\nNo account. No cloud audio server.\nSupported by a banner and dismissible ads on connection or app opening.")
+            .setMessage("Version "+BuildConfig.VERSION_NAME+(publisher.isEmpty()?"":"\n"+publisher)+"\n\nComputer audio through this phone. Listen together with up to four phones and their headphones.\n\nNo account. No cloud audio server.\nSupported by a banner ad and an occasional ad when the app opens. Ads never play over your audio.")
             .setPositiveButton("Done",null).setNeutralButton("Diagnostics",(dialog,which)->diagnosticsDialog()).show();
     }
     private void pair() { pair("", ""); }
@@ -718,7 +782,6 @@ public class MainActivity extends Activity {
         if (pairingDialog != null) pairingDialog.dismiss();
         final long flow = ++pairingFlow;
         if (pairingConfirmation != null) { pairingConfirmation.cancel(); pairingConfirmation = null; }
-        final long adFlow = pairingAds.begin();
         final boolean[] confirmed = {false};
         EditText input = new EditText(this); input.setHint("Paste pairing code"); input.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         input.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(4096)});
@@ -765,18 +828,14 @@ public class MainActivity extends Activity {
                     showFeedback("Pairing saved. Confirming with your computer…");
                     getWindow().getDecorView().postOnAnimation(() -> {
                         if (isFinishing() || isDestroyed() || flow != pairingFlow) return;
-                        pairingAds.showAfterPairing(adFlow, () -> {
-                            if (flow != pairingFlow) return;
-                            pendingPairingCompletion = () -> { if (flow == pairingFlow) pairingReady(); };
-                            showPairingCompletion();
-                        });
+                        pendingPairingCompletion = () -> { if (flow == pairingFlow) pairingReady(); };
+                        showPairingCompletion();
                     });
                 } catch (Exception error) { input.requestFocus(); input.setError("Copy the complete pairing code from your computer"); }
             });
         });
         dialog.setOnDismissListener(d -> {
             if (pairingDialog == dialog) pairingDialog = null;
-            if (!confirmed[0]) pairingAds.cancelUnshown(adFlow);
             updateAdVisibility();
         });
         dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
@@ -819,19 +878,15 @@ public class MainActivity extends Activity {
         if(settings.groupGuest() && (guest || !code.pin.equals(settings.pin()))){showFeedback(togetherHostProblem());return;}
         if(isFinishing()||isDestroyed()||!visible)return;
         if(!guest&&RelayService.state.phase==RelayState.Phase.PLAYING&&code.pin.equals(settings.pin())){selectTab(0);return;}
-        final long flow=++pairingFlow;explicitIntent.begin(flow);final long adFlow=pairingAds.begin();
+        final long flow=++pairingFlow;explicitIntent.begin(flow);
         if(pairingConfirmation!=null)pairingConfirmation.cancel();pendingPairingCompletion=null;verifyingConnection=true;renderedKey="";render();
         pairingConfirmation=new PairingConfirmation(code,confirmed->{
             if(flow!=pairingFlow||!explicitIntent.matches(flow)||isFinishing()||isDestroyed())return;
             if(!visible||!hasWindowFocus()){cancelExplicitConnection();return;}
             pairingConfirmation=null;verifyingConnection=false;
-            if(!confirmed){explicitIntent.cancel();pairingAds.cancelUnshown(adFlow);renderedKey="";render();if(visible)showFeedback("Couldn’t verify this computer. Keep PairIt open on the same Wi-Fi and try again.");return;}
-            automaticAdPin=code.pin;
+            if(!confirmed){explicitIntent.cancel();renderedKey="";render();if(visible)showFeedback("Couldn’t verify this computer. Keep PairIt open on the same Wi-Fi and try again.");return;}
             if(save){waitingStopFlow=flow;stopAudioForSettings();settings.pair(code);settings.groupGuest(guest);}settings.discovered(code.host,code.pin);trustedNearby=true;confirmedPin=code.pin;tab=0;nearby.invitationPort=invitations.start();nearby.start(false);renderedKey="";render();
-            pairingAds.showAfterConnection(adFlow,()->{
-                if(flow!=pairingFlow||!explicitIntent.matches(flow)||isFinishing()||isDestroyed())return;
-                pendingPairingCompletion=()->startVerifiedAudio(flow,0);showPairingCompletion();
-            });
+            pendingPairingCompletion=()->startVerifiedAudio(flow,0);showPairingCompletion();
         });
     }
     private void cancelExplicitConnection(){
@@ -839,10 +894,10 @@ public class MainActivity extends Activity {
         if(!explicitIntent.active())return;
         explicitIntent.cancel();++pairingFlow;verifyingConnection=false;waitingStopFlow=0;pendingPairingCompletion=null;
         if(pairingConfirmation!=null){pairingConfirmation.cancel();pairingConfirmation=null;}
-        if(pairingAds!=null)pairingAds.cancelUnshown();renderedKey="";
+        renderedKey="";
     }
     private void startVerifiedAudio(long flow,int attempt){
-        if(flow!=pairingFlow||!explicitIntent.matches(flow)||!visible||!hasWindowFocus()||isFinishing()||isDestroyed()||PairingInterstitial.isPresenting())return;
+        if(flow!=pairingFlow||!explicitIntent.matches(flow)||!visible||!hasWindowFocus()||isFinishing()||isDestroyed()||AppOpenAds.isPresenting())return;
         if(waitingStopFlow==flow&&RelayService.state.phase!=RelayState.Phase.IDLE){if(attempt<30)handler.postDelayed(()->startVerifiedAudio(flow,attempt+1),100);else showFeedback("Audio is still stopping. Tap Start audio to retry.");return;}waitingStopFlow=0;
         if(RelayService.state.phase==RelayState.Phase.IDLE||RelayService.state.phase==RelayState.Phase.PAUSED||RelayService.state.phase==RelayState.Phase.COMPUTER_OUTPUT||RelayService.state.phase==RelayState.Phase.PHONE||RelayService.state.phase==RelayState.Phase.ERROR||RelayService.state.phase==RelayState.Phase.HEADPHONES){if(explicitIntent.consume(flow,visible,hasWindowFocus()))dispatch("PLAY");return;}
         if(RelayService.state.phase==RelayState.Phase.PLAYING){explicitIntent.cancel();return;}
@@ -852,7 +907,7 @@ public class MainActivity extends Activity {
         if (!visible || pendingScanResult == null || isFinishing() || isDestroyed()) return;
         Runnable result = pendingScanResult; pendingScanResult = null; result.run();
     }
-    private boolean idleForPairingAd() {
+    private boolean idleForAd() {
         return visible && !isFinishing() && !isDestroyed() && compactPanel==null
                 && (invitations==null||!invitations.busy()) && inFlight == null && pendingAction == null
                 && PhoneAudioSession.available();
@@ -861,7 +916,7 @@ public class MainActivity extends Activity {
         if (!visible || pendingPairingCompletion == null || isFinishing() || isDestroyed()) return;
         Runnable next = pendingPairingCompletion;
         getWindow().getDecorView().postOnAnimation(() -> {
-            if (pendingPairingCompletion == next && visible && !isFinishing() && !isDestroyed() && hasWindowFocus() && pairingDialog == null && idleForPairingAd()) { pendingPairingCompletion = null; next.run(); }
+            if (pendingPairingCompletion == next && visible && !isFinishing() && !isDestroyed() && hasWindowFocus() && pairingDialog == null && idleForAd()) { pendingPairingCompletion = null; next.run(); }
         });
     }
     private void pairingReady() {
@@ -876,7 +931,7 @@ public class MainActivity extends Activity {
     }
     private String pairingCompletionMessage() { return pairingResult + "\n\nChoose Start audio when you’re ready. Nothing is playing yet."; }
     private void diagnosticsDialog() {
-        String report = "PairIt " + BuildConfig.VERSION_NAME + " (" + BuildConfig.VERSION_CODE + ")\n" + RelayService.diagnostics + "\n\n" + bannerAds.diagnostics() + "\n" + pairingAds.diagnostics();
+        String report = "PairIt " + BuildConfig.VERSION_NAME + " (" + BuildConfig.VERSION_CODE + ")\n" + RelayService.diagnostics + "\n\n" + bannerAds.diagnostics() + "\n" + appOpenAds.diagnostics();
         TextView details = text(report, 13, INK, false); details.setTypeface(Typeface.MONOSPACE); details.setTextIsSelectable(true); details.setPadding(dp(20), dp(12), dp(20), dp(12));
         ScrollView scroll = new ScrollView(this); scroll.addView(details);
         new GlassDialogBuilder(this).setTitle("Diagnostics").setView(scroll).setPositiveButton("Done", null)
@@ -923,19 +978,20 @@ public class MainActivity extends Activity {
         super.onResume(); if (updates != null) updates.checkOnResume(); visible = true; RelayService.restoreControlsNotification(this);
         if(bannerAds!=null)bannerAds.resume();confirmedPin="";trustedNearby=false; if(nearby!=null){nearby.invitationPort=invitations.start();nearby.start(tab==1);} renderedKey="";
         handler.removeCallbacks(refresh);handler.post(refresh);
-        if(appOpeningOpportunity&&!scanningCode&&!PairingInterstitial.isPresenting()&&!AppOpenAds.isPresenting()){
-            appOpeningOpportunity=false;appOpenAds.open();
+        if(appOpeningOpportunity&&!scanningCode&&!AppOpenAds.isPresenting()){
+            appOpeningOpportunity=false;boolean cold=coldOpening;coldOpening=false;
+            if(cold||AdTiming.returnEligible(System.currentTimeMillis(),backgroundedAt))appOpenAds.open(cold);
         }
-        pairingAds.prepare();appOpenAds.prepare();
+        appOpenAds.prepare();
         showScanResult();
         showPairingCompletion();
         RelayService.restoreOutputMonitoring(this);
     }
-    @Override public void onPause() { visible = false;stopInvitations();if(appOpenAds!=null)appOpenAds.pause();if(!PairingInterstitial.isPresenting())cancelExplicitConnection(); cancelNearbyPairing(); if(nearby!=null)nearby.stop(); if(automaticConfirmation!=null){automaticConfirmation.cancel();automaticConfirmation=null;} if(pairingAds!=null)pairingAds.cancelUnshown(); if(bannerAds!=null)bannerAds.pause();handler.removeCallbacks(refresh); super.onPause(); }
-    @Override public void onStop(){super.onStop();if(!PairingInterstitial.isPresenting()&&!AppOpenAds.isPresenting()&&!scanningCode)appOpeningOpportunity=true;}
-    @Override public void onWindowFocusChanged(boolean focused) { super.onWindowFocusChanged(focused); updateAdVisibility(); if(pairingAds!=null)pairingAds.presentationWindowChanged(); if(focused)showPairingCompletion(); }
+    @Override public void onPause() { visible = false;stopInvitations();if(appOpenAds!=null)appOpenAds.pause();if(!AppOpenAds.isPresenting())cancelExplicitConnection(); cancelNearbyPairing(); if(nearby!=null)nearby.stop(); if(automaticConfirmation!=null){automaticConfirmation.cancel();automaticConfirmation=null;} if(bannerAds!=null)bannerAds.pause();handler.removeCallbacks(refresh); super.onPause(); }
+    @Override public void onStop(){super.onStop();if(!AppOpenAds.isPresenting()&&!scanningCode){appOpeningOpportunity=true;backgroundedAt=System.currentTimeMillis();}}
+    @Override public void onWindowFocusChanged(boolean focused) { super.onWindowFocusChanged(focused); updateAdVisibility(); if(focused)showPairingCompletion(); }
     private void updateAdVisibility() {
-        if (bannerAds != null) bannerAds.setVisibleToUser(visible && !PairingInterstitial.isPresenting() && !AppOpenAds.isPresenting() && !scanningCode && pendingScanResult == null);
+        if (bannerAds != null) bannerAds.setVisibleToUser(visible && !AppOpenAds.isPresenting() && !scanningCode && pendingScanResult == null);
     }
-    @Override public void onDestroy() { stopInvitations(); if(compactPanel!=null)compactPanel.dismiss(); if(appOpenAds!=null)appOpenAds.destroy();cancelNearbyPairing(); if(nearby!=null)nearby.stop();if(automaticConfirmation!=null)automaticConfirmation.cancel(); if (pairingConfirmation != null) pairingConfirmation.cancel(); if (updates != null) updates.destroy(); pendingScanResult = null; pendingPairingCompletion = null; if (pairingDialog != null) pairingDialog.dismiss(); if(pairingAds!=null)pairingAds.destroy(); if(bannerAds!=null)bannerAds.destroy();handler.removeCallbacksAndMessages(null);super.onDestroy(); }
+    @Override public void onDestroy() { stopInvitations(); if(compactPanel!=null)compactPanel.dismiss(); if(appOpenAds!=null)appOpenAds.destroy();cancelNearbyPairing(); if(nearby!=null)nearby.stop();if(automaticConfirmation!=null)automaticConfirmation.cancel(); if (pairingConfirmation != null) pairingConfirmation.cancel(); if (updates != null) updates.destroy(); pendingScanResult = null; pendingPairingCompletion = null; if (pairingDialog != null) pairingDialog.dismiss(); if(bannerAds!=null)bannerAds.destroy();handler.removeCallbacksAndMessages(null);super.onDestroy(); }
 }

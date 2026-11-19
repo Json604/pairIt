@@ -48,8 +48,6 @@
 	<string>$(PAIRIT_ADMOB_BANNER_ID)</string>
 	<key>PairItAppOpenAdUnitID</key>
 	<string>$(PAIRIT_ADMOB_APP_OPEN_ID)</string>
-	<key>PairItInterstitialAdUnitID</key>
-	<string>$(PAIRIT_ADMOB_INTERSTITIAL_ID)</string>
 	<key>SKAdNetworkItems</key>
 	<array>
 		<dict>

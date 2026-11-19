@@ -22,6 +22,7 @@ final class BannerAds {
     private final android.os.Handler retryHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable retryLoad = this::updateVisibility;
     private long nextLoadAt;
+    private int failures;
     private long consentRevision;
     private String bannerStatus = "Not requested";
     private Runnable readinessChanged = () -> { };
@@ -66,6 +67,7 @@ final class BannerAds {
         if (destroyed) return;
         if (started) { if (initialized && !gatheringConsent) readinessChanged.run(); return; }
         started = true;
+        readinessChanged.run(); // Start the app-open request now; showing still waits for initialization.
         MobileAds.setRequestConfiguration(new RequestConfiguration.Builder()
                 .setMaxAdContentRating(RequestConfiguration.MAX_AD_CONTENT_RATING_G).build());
         new Thread(() -> {
@@ -91,7 +93,9 @@ final class BannerAds {
                 || (!BuildConfig.ADS_TEST_MODE && !consent.canRequestAds())) return;
         View parent = (View) container.getParent();
         int width = (int) ((parent.getWidth()-parent.getPaddingLeft()-parent.getPaddingRight()) / activity.getResources().getDisplayMetrics().density);
-        if (width < 1) return;
+        // Before the first layout the width is unknown. Retry after layout instead of
+        // returning silently; otherwise the banner waits for an unrelated visibility change.
+        if (width < 1) { retryHandler.removeCallbacks(retryLoad); retryHandler.postDelayed(retryLoad, 100); return; }
         AdSize size = AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(activity, width);
         container.setOrientation(LinearLayout.VERTICAL);
         container.setGravity(Gravity.CENTER_HORIZONTAL);
@@ -110,18 +114,19 @@ final class BannerAds {
         ad.setAdListener(new AdListener() {
             @Override public void onAdLoaded() {
                 if (destroyed || ad != requestedAd) return;
-                loaded = true;
+                loaded = true; failures = 0;
                 bannerStatus = "Loaded";
                 updateVisibility();
             }
             @Override public void onAdFailedToLoad(LoadAdError error) {
                 if (destroyed || ad != requestedAd) return;
-                loaded = false;
+                // A failed automatic refresh keeps the creative that is already on screen.
+                if (loaded) { bannerStatus = "Showing previous ad (refresh code " + error.getCode() + ")"; return; }
                 bannerStatus = "Unavailable (Google load code " + error.getCode() + ")";
                 container.setVisibility(View.GONE);
                 requestedAd.destroy(); ad = null;
                 container.removeAllViews();
-                nextLoadAt = android.os.SystemClock.uptimeMillis() + 60_000;
+                nextLoadAt = android.os.SystemClock.uptimeMillis() + AdTiming.bannerRetryMs(failures++);
                 updateVisibility();
             }
         });
@@ -167,6 +172,8 @@ final class BannerAds {
                 + "\nConsent SDK: " + privacy + "\nAd SDK: " + (initialized ? "Ready" : "Not ready")
                 + "\nBanner: " + bannerStatus;
     }
+    /** Without mediation, ads may be requested once initialization has started. */
+    boolean canLoadFullscreen() { return started && !destroyed && !gatheringConsent && (BuildConfig.ADS_TEST_MODE || consent.canRequestAds()); }
     boolean canRequestFullscreen() { return initialized && !destroyed && !gatheringConsent && (BuildConfig.ADS_TEST_MODE || consent.canRequestAds()); }
     long consentRevision() { return consentRevision; }
     void onReadinessChanged(Runnable callback) { readinessChanged = callback; }

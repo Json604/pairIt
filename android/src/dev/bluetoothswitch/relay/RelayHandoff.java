@@ -26,15 +26,19 @@ final class RelayHandoff {
     synchronized boolean acknowledged() { return supported() && (status >>> 8) == token; }
     synchronized boolean held() { return acknowledged() && (status & 4) != 0; }
     synchronized boolean playerPaused() { return held() && (status & 8) != 0; }
+    /** The computer can pause/resume its own media player (Windows media session, Mac media keys). */
+    synchronized boolean playerControl() { return supported() && (status & 2) != 0; }
     synchronized boolean isCurrentOffer(int value) {
-        return intent == Intent.PHONE && status == value && (value >>> 8) == token && (value & 20) == 20;
+        return (intent == Intent.PHONE || intent == Intent.PAUSE) && status == value && (value >>> 8) == token && (value & 20) == 20;
     }
     synchronized int desktopRequest(int command) {
         desktopStatus=command;
         if(!acknowledged() || intent==Intent.RELEASE || (command&2)==0 || (command>>>8)!=token)return -1;
-        int key=(command & 0xFFFFFF00)|(command&16)|2;
+        int key=(command & 0xFFFFFF00)|(command&(16|64))|2;
         if(key==consumedDesktopRequest)return -1;
-        consumedDesktopRequest=key;return (command&16)!=0?1:0;
+        consumedDesktopRequest=key;
+        if((command&64)!=0)return 2; // STATS CONTROLS2: the computer disconnected this phone.
+        return (command&16)!=0?1:0;
     }
     synchronized boolean released() { return acknowledged() && (status & 32) != 0; }
     synchronized boolean readyForAudio() {
@@ -44,7 +48,8 @@ final class RelayHandoff {
         status = value; known = true;
         if (!outputSupported() || requestedOutput >= 0 && sentOutput == requestedOutput
                 && ((status & 64) != 0) == (requestedOutput == 1)) requestedOutput = sentOutput = -1;
-        if (intent != Intent.PHONE || !held() || (value & 16) == 0 || offeredToken == token) return false;
+        // PAUSE offers come only from computers that saw the listener start playback there.
+        if ((intent != Intent.PHONE && intent != Intent.PAUSE) || !held() || (value & 16) == 0 || offeredToken == token) return false;
         offeredToken = token; return true;
     }
     synchronized String nextCommand() {

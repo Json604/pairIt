@@ -53,7 +53,7 @@ final class ReleaseUpdates {
     }
     private void maybePrompt() {
         if (destroyed || availablePlayBuild <= BuildConfig.VERSION_CODE || prompt != null
-                || activity.isFinishing() || !activity.hasWindowFocus() || PairingInterstitial.isPresenting()
+                || activity.isFinishing() || !activity.hasWindowFocus() || AppOpenAds.isPresenting()
                 || cache.getLong("promptedBuild", 0) >= availablePlayBuild) return;
         prompt = new android.app.AlertDialog.Builder(activity).setTitle("PairIt update available")
                 .setMessage("A newer version is available on Google Play. Update to get the latest fixes.")

@@ -18,6 +18,21 @@ public static class Protocol
     public const uint ParkSupported = 1, PlayerControl = 2, ParkAccepted = 4,
         PlayerPaused = 8, ResumeOffer = 16, ReleaseAccepted = 32, ComputerOutput = 64,
         OutputControlSupported = 128, MaximumIntentToken = 0x00ff_ffff;
+    // 24-byte control extensions. Each goes only to a receiver that advertised it:
+    // phones reject unknown frames, while older desktops ignore every STATS line.
+    public const uint DesktopRequestMagic = 0x32435342, ComputerVolumeMagic = 0x33435342,
+        VolumeRequestMagic = 0x35435342, PlayerStateMagic = 0x36435342;
+    // DesktopRequest bit 64 (STATS CONTROLS2): the computer disconnected this phone.
+    // ComputerVolume 0x20000 (STATS VOLUME2): PCM is not attenuated; the phone owns its volume.
+    public const uint DesktopRelease = 64, PhoneOwnedVolume = 0x20000;
+
+    public static byte[] Extension(uint magic, uint value)
+    {
+        var bytes = new byte[24];
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes, magic);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(4), value);
+        return bytes;
+    }
 
     public static byte[] Pcm(uint sequence, SourcePacket packet)
     {

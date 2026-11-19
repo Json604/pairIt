@@ -7,7 +7,7 @@
   "mac_download_url": "https://pairit.kartikey.xyz/downloads.html",
   "public_name_confirmed": true,
   "version_name": "1.1.0",
-  "version_code": 35,
+  "version_code": 36,
   "application_id": "dev.bluetoothswitch.relay",
   "effective_date": "2026-11-12",
   "release_status": "owner-accepted-internal-candidate",
@@ -17,8 +17,7 @@
     "app_id": "ca-app-pub-1439264473551763~5216633154",
     "banner_id": "ca-app-pub-1439264473551763/4498447855",
     "consent_messages_confirmed": false,
-    "placement": "Full-width bottom banner remains behind ordinary dialogs. Preloaded interstitial on each verified foreground connection before audio, without a connection cooldown. App Open ads only while opening, at least 30 minutes after the last full-screen ad. Unavailable ads never block playback; no ads interrupt background audio.",
-    "interstitial_id": "ca-app-pub-1439264473551763/2765250705",
+    "placement": "Full-width bottom banner remains behind ordinary dialogs. App Open ads on a cold start after a static loading screen of up to 6 s (skipped offline), or when already loaded after at least 30 seconds away, at most once every 3 minutes, and never while this phone is playing audio. Unavailable ads never block playback; no ads interrupt background audio. No connection interstitials.",
     "app_open_id": "ca-app-pub-1439264473551763/5213188750"
   },
   "release_stage": "feature-preview"

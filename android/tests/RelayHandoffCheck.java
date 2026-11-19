@@ -35,16 +35,21 @@ public final class RelayHandoffCheck {
         require(!offered.acceptStatus(1 | 4 | 16 | (1 << 8)), "An offer is consumed only once");
         offered.request(RelayHandoff.Intent.PAUSE);
         require(!offered.isCurrentOffer(1 | 4 | 16 | (1 << 8)), "A later manual pause invalidates a queued offer");
-        for (RelayHandoff.Intent intent : new RelayHandoff.Intent[]{RelayHandoff.Intent.PAUSE, RelayHandoff.Intent.OUTPUT}) {
-            RelayHandoff protectedHold = new RelayHandoff(intent);
-            require(!protectedHold.acceptStatus(1 | 4 | 16 | (1 << 8)), "Explicit pause/output hold ignores offers");
-        }
+        RelayHandoff outputHold = new RelayHandoff(RelayHandoff.Intent.OUTPUT);
+        require(!outputHold.acceptStatus(1 | 4 | 16 | (1 << 8)), "Output hold ignores offers");
+        // Only an updated computer offers a paused phone a resume: after playback started on it.
+        RelayHandoff pausedHold = new RelayHandoff(RelayHandoff.Intent.PAUSE);
+        require(pausedHold.acceptStatus(1 | 4 | 16 | (1 << 8)) && pausedHold.isCurrentOffer(1 | 4 | 16 | (1 << 8)), "Paused phone accepts a computer playback offer");
+        require(!pausedHold.acceptStatus(1 | 4 | 16 | (1 << 8)), "A paused-phone offer is consumed once");
         RelayHandoff desktop = new RelayHandoff(RelayHandoff.Intent.PAUSE);
         desktop.acceptStatus(1|4|2|16|(1<<8));
         require(desktop.desktopRequest(1|2|16|(1<<8))==1,"Explicit desktop resume can resume a manual pause");
         require(desktop.desktopRequest(1|2|16|(1<<8))==-1,"Desktop command is consumed once");
         desktop.request(RelayHandoff.Intent.LISTEN);desktop.acceptStatus(1|2|(2<<8));
         require(desktop.desktopRequest(1|2|(2<<8))==0,"Explicit desktop pause stops listening");
+        desktop.acceptStatus(1|2|(2<<8));
+        require(desktop.desktopRequest(1|2|64|(2<<8))==2,"Computer disconnect request (CONTROLS2) is distinct from pause");
+        require(desktop.desktopRequest(1|2|64|(2<<8))==-1,"Computer disconnect request is consumed once");
         RelayHandoff legacy = new RelayHandoff(RelayHandoff.Intent.LISTEN);
         legacy.requestOutput(false);
         legacy.acceptStatus(0);
