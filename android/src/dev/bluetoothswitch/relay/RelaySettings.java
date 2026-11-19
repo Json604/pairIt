@@ -63,10 +63,8 @@ final class RelaySettings {
     void output(OutputRoute route) { prefs.edit().putString("output", route.name()).remove("output_device_id").apply(); }
     int outputDeviceId() { return prefs.getInt("output_device_id", -1); }
     void output(OutputRoute route, int deviceId) { prefs.edit().putString("output",route.name()).putInt("output_device_id",deviceId).apply(); }
-    boolean interactive() { return PresentationTiming.adaptive(platform(), output() == OutputRoute.BLUETOOTH, lowLatency()); }
-    /** Default on: game and click sounds arrive sooner. Unstable Wi-Fi falls back per session. */
-    boolean lowLatency() { return prefs.getBoolean("low_latency", true); }
-    void lowLatency(boolean value) { prefs.edit().putBoolean("low_latency", value).apply(); }
+    boolean interactive() { return PresentationTiming.adaptive(platform(), output() == OutputRoute.BLUETOOTH); }
+    void interactive(boolean value) { prefs.edit().putBoolean("interactive", value).apply(); }
     String timingRoute(String actualRoute, boolean interactive) {
         // Preserve the confirmed Bluetooth/Reliable key; isolate every new mode/transport.
         String key = actualRoute + (interactive ? ":interactive" : "");

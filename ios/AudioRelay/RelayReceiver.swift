@@ -27,7 +27,6 @@ final class RelayReceiver: ObservableObject {
     /// Increments when the computer disconnects this phone, so the UI can leave its paired view.
     @Published private(set) var computerDisconnects = 0
     /// Default on: game and click sounds arrive sooner. Unstable Wi-Fi falls back per session.
-    static var lowLatency: Bool { UserDefaults.standard.object(forKey: "lowLatency") as? Bool ?? true }
     @Published private(set) var phase = ReceiverPhase.idle
     @Published private(set) var title = "Ready to listen"
     @Published private(set) var detail = "Choose an output, then listen to your computer."
@@ -307,9 +306,7 @@ final class RelayReceiver: ObservableObject {
             publish(.headphones, "Choose \(output.title)", "Use the output picker or Control Center. PairIt won’t silently switch to another output."); return
         }
         playIntent = true; headphones = route.portName; routeUID = route.uid
-        let platform = computer.platform ?? "", bluetooth = output == .bluetooth
-        let requestedMode: RelayPlaybackMode = PresentationTiming.adaptive(platform: platform, bluetooth: bluetooth, lowLatency: Self.lowLatency) ? .interactive : .reliable
-        let floorMs = PresentationTiming.floorMs(platform: platform, bluetooth: bluetooth)
+        let requestedMode: RelayPlaybackMode = PresentationTiming.adaptive(platform: computer.platform ?? "", bluetooth: output == .bluetooth) ? .interactive : .reliable
         let volume = PhoneVolume.current
         activeMode = requestedMode; modeNote = requestedMode == .interactive ? "Learning arrival timing…" : ""
         let override = pairing.hostOverride
@@ -321,7 +318,7 @@ final class RelayReceiver: ObservableObject {
             self.generation += 1; let generation = self.generation; self.desired = true
             self.localPlaybackReady = true
             self.playback.stop(); self.reportTimer?.cancel()
-            self.playback = RelayPlayback(mode: requestedMode, floorMs: floorMs)
+            self.playback = RelayPlayback(mode: requestedMode)
             let existing = self.transport
             let transport = existing ?? RelayTransport(mac: computer, queue: self.queue, hostOverride: override); self.transport = transport
             transport.onOutput = { [weak self, weak transport] supported, onComputer in
@@ -591,12 +588,6 @@ final class RelayReceiver: ObservableObject {
         disconnect()
         computerDisconnects += 1
         publish(.idle, "Disconnected by your computer", "Choose Connect to listen again.")
-    }
-    /// Applies a Low latency change to a live session by reopening this phone's output.
-    /// The pairing and the computer connection stay as they are.
-    func lowLatencyChanged() {
-        guard playIntent, !computerOutput, !waitingForComputerOutput, phase.macSelected else { return }
-        connect(requestPhoneOutput: false)
     }
     private func parkListening(_ reason: String, phase: ReceiverPhase, title: String) {
         groupTimingStatus = "";
