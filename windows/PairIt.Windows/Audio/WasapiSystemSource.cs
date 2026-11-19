@@ -13,6 +13,9 @@ internal sealed class WasapiSystemSource(string endpointId) : ISystemAudioSource
     private bool disposed;
     private int computerVolume = -1;
     public uint? ComputerVolume => Volatile.Read(ref computerVolume) is var value && value >= 0 ? (uint)value : null;
+    // Shared-mode loopback is taken before endpoint volume, so this relay never attenuates
+    // PCM by it; a STATS VOLUME2 phone's own volume follows the computer's keys instead.
+    public bool VolumeIndependentCapture => true;
 
     public async Task StartAsync(Action<SourcePacket> received, Action<string> failed, CancellationToken cancellation)
     {

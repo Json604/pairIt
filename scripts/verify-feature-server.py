@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Exercise the real Mac fanout with synthetic PCM; no hardware audio or unit tests."""
 from pathlib import Path
-import json, os, socket, struct, subprocess, threading, time
+import base64, json, os, socket, struct, subprocess, threading, time
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / os.environ.get('PAIRIT_VERIFY_OUTPUT', 'artifacts/feature-preview/verification')
@@ -28,10 +28,11 @@ def wait_for(predicate,timeout=3):
         time.sleep(.01)
     return False
 class Client:
-    def __init__(self,number,read=True):
+    def __init__(self,number,read=True,extra=''):
         self.socket=socket.create_connection(('127.0.0.1',port),timeout=2)
         self.socket.settimeout(3);self.packets={};self.clocks=0;self.status=0;self.desktop=0;self.volume=None;self.error=None;self.running=True;self.presentation=None
-        self.send('AUTH '+gateway_token+'\nHELLO '+format(number,'032x')+'\nSTATS CONTROLS1\nSTATS VOLUME1\nACTIVE 1\n')
+        self.volume_requests=[];self.last_sample=None;self.player=None
+        self.send('AUTH '+gateway_token+'\nHELLO '+format(number,'032x')+'\nSTATS CONTROLS1\nSTATS VOLUME1\n'+extra+'ACTIVE 1\n')
         if read:
             self.reader=threading.Thread(target=self.run,daemon=True);self.reader.start()
         self.pinger=threading.Thread(target=self.ping,daemon=True);self.pinger.start()
@@ -55,10 +56,12 @@ class Client:
                 if magic==0x34435342:self.presentation=(seq,rate,frames);continue
                 if magic==0x33435342:self.volume=seq;continue
                 if magic==0x32435342:self.desktop=seq;continue
+                if magic==0x35435342:self.volume_requests.append(seq);continue
+                if magic==0x36435342:self.player=seq;continue
                 if magic==0x31435342:self.clocks+=1;self.status=seq;continue
                 assert magic==0x31415342 and rate in(44100,48000) and frames<=8192
                 if frames:
-                    pcm=self.read(frames*4);self.packets[seq]=(stamp,len(pcm))
+                    pcm=self.read(frames*4);self.packets[seq]=(stamp,len(pcm));self.last_sample=struct.unpack('<h',pcm[:2])[0]
         except (OSError,EOFError) as e:self.error=type(e).__name__
         except Exception as e:self.error=str(e)
     def close(self):
@@ -197,11 +200,11 @@ try:
     command('phone-resume')
     require(wait_for(lambda:other.desktop&18==18 and parked.desktop&18==18), 'Desktop resume explicitly requests paused phones')
     other.send('RESUME 5\n')
-    require(wait_for(lambda:other.status>>8==5 and not other.status&18), 'Receiver acknowledgment clears desktop request')
+    require(wait_for(lambda:other.status>>8==5 and not other.status&16), 'Receiver acknowledgment clears desktop request')
     command('phone-pause')
     require(wait_for(lambda:other.desktop&18==2), 'Desktop pause requests stop without implying resume')
     other.send('PARK 6 PAUSE\n')
-    require(wait_for(lambda:other.status>>8==6 and other.status&4 and not other.status&18), 'Desktop pause completes only after receiver acknowledgment')
+    require(wait_for(lambda:other.status>>8==6 and other.status&4 and not other.status&16), 'Desktop pause completes only after receiver acknowledgment')
     parked.close();other.close();clients=[];time.sleep(.5)
     require(wait_for(lambda:(lambda s:s['starts']==s['stops'])(json.loads(command('stats')))), 'Loss of all parked phones restores the original computer output')
     resumed=Client(80);clients.append(resumed);resumed.send('RESUME 1\n')
@@ -239,6 +242,81 @@ try:
     require(wait_for(lambda:not(active.status&64) and len(active.packets)>active_count),'Explicit retry resumes audio on the same connection')
     paused.send('RELEASE 2\n');active.send('RELEASE 1\n')
     require(wait_for(lambda:paused.status&32 and active.status&32),'Output-switch check releases both listeners')
+    for c in clients:c.close()
+    clients=[]
+    # Phone-owned volume, computer-side disconnect and media handoff (STATS VOLUME2/CONTROLS2).
+    def name(text):return 'NAME1 '+base64.b64encode(text.encode()).decode()+'\n'
+    def stats():return json.loads(command('stats'))
+    command('volume 0.25');command('audio-on')
+    owner=Client(101,extra=name('Owner phone')+'STATS VOLUME2\nSTATS CONTROLS2\nSTATS PVOL1 500\n');clients=[owner]
+    require(wait_for(lambda:stats()['volumeWrites']==[0.5]),'A single volume-controlled phone sets the Mac volume to its own level')
+    time.sleep(.3)
+    require(owner.volume_requests==[],'Following the phone volume is not echoed back to the phone')
+    legacy=Client(100);clients.append(legacy)
+    require(wait_for(lambda:owner.volume is not None and owner.volume&0x20000 and legacy.volume is not None and not legacy.volume&0x20000),'Only VOLUME2 phones learn the computer stopped attenuating them')
+    require(wait_for(lambda:owner.last_sample==1000 and legacy.last_sample==500),'VOLUME2 phones get full-scale PCM; older phones keep the Mac volume applied')
+    require(wait_for(lambda:any(r['name']=='Owner phone' and r['level']==500 and r['disconnect'] for r in json.loads(command('phones')))),'Mac controls list the phone, its volume and disconnect support')
+    command('volume 0.5625')
+    require(wait_for(lambda:owner.volume_requests==[563]),'A Mac volume-key step moves the phone volume by the same step')
+    require(legacy.volume_requests==[],'Older phones never receive volume requests')
+    owner.send('STATS PVOL1 533\n');time.sleep(.4)
+    require(stats()['volumeWrites']==[0.5],'With an older phone connected the Mac volume does not follow another phone')
+    legacy.close();clients.remove(legacy);time.sleep(.4)
+    owner.send('STATS PVOL1 600\n')
+    require(wait_for(lambda:stats()['volumeWrites']==[0.5,0.6]),'The Mac follows the volume a sole phone actually applied')
+    time.sleep(.3)
+    require(owner.volume_requests==[563],'Following the applied phone step is not echoed back')
+    require(command('disconnect Owner phone')=='OK' and wait_for(lambda:owner.desktop&64),'Computer disconnect request reaches an updated phone')
+    owner.send('RELEASE 1\n')
+    require(wait_for(lambda:owner.status&32),'The phone acknowledges a computer disconnect with RELEASE')
+    for c in clients:c.close()
+    clients=[];time.sleep(.5)
+    media=Client(102);clients=[media];media.send('RESUME 1\n')
+    require(wait_for(lambda:media.status>>8==1 and media.status&2 and len(media.packets)>5),'Media control availability is advertised to phones')
+    base=stats()['presses']
+    media.send('PARK 2 PAUSE\n')
+    require(wait_for(lambda:stats()['presses']==base+1),'Pausing the last listening phone presses Play/Pause on the Mac')
+    require(wait_for(lambda:stats()['presses']==base+2,timeout=4),'A press that does not silence the Mac is undone')
+    media.send('RESUME 3\n');time.sleep(.3)
+    require(stats()['presses']==base+2,'Resume does not press Play after an undone pause')
+    media.send('PARK 4 PAUSE\n')
+    require(wait_for(lambda:stats()['presses']==base+3),'A later pause presses Play/Pause again')
+    command('audio-off')
+    require(wait_for(lambda:media.status>>8==4 and media.status&8),'The phone is told the Mac player is paused')
+    time.sleep(1.6)
+    require(stats()['presses']==base+3,'A pause that silenced the Mac is kept')
+    media.send('RESUME 5\n')
+    require(wait_for(lambda:stats()['presses']==base+4),'Phone resume presses Play only after its own pause silenced the Mac')
+    media.send('STATS MEDIA1 NEXT\nSTATS MEDIA1 PREVIOUS\n')
+    require(wait_for(lambda:stats()['skips']==[True,False]),'Earphone next/previous track reach the Mac media keys')
+    time.sleep(3.2);media.send('PARK 7 PAUSE\n');time.sleep(.3)
+    require(stats()['presses']==base+4,'Pausing a silent Mac never presses Play/Pause')
+    time.sleep(2.2);media.send('RESUME 8\n')
+    require(wait_for(lambda:stats()['presses']==base+5),'Earphone play after a pause starts the Mac player even if PairIt did not pause it')
+    media.send('PARK 9 PAUSE\nSTATS MEDIA1 NEXT\nRESUME 10\n');time.sleep(.5)
+    require(stats()['presses']==base+5,'Resume right after a skip does not press Play (the skip already started playback)')
+    smart=Client(105,extra='STATS PLAYER1\n');clients.append(smart);smart.send('RESUME 1\n')
+    command('audio-on')
+    require(wait_for(lambda:smart.player==1),'Phones learn the Mac is playing')
+    command('audio-off')
+    require(wait_for(lambda:smart.player==0,timeout=4),'Phones learn the Mac paused (silence) so earphone play starts it')
+    presses=stats()['presses'];smart.send('STATS MEDIA1 PLAY\n')
+    require(wait_for(lambda:stats()['presses']==presses+1),'Earphone play while the Mac is paused presses Play on the Mac')
+    smart.send('PARK 2 PAUSE\n');time.sleep(2.3);command('audio-on')
+    require(wait_for(lambda:smart.status>>8==2 and smart.status&16,timeout=4),'Mac play/next while the phone is paused offers that phone a resume')
+    command('audio-off');smart.send('RESUME 3\n');time.sleep(.3)
+    gap=Client(106,extra='STATS PLAYER1\n');clients.append(gap);gap.send('RESUME 1\n');command('audio-on');time.sleep(.5)
+    gap.send('PARK 2 PAUSE\n');time.sleep(.3);command('audio-off');time.sleep(1);command('audio-on');time.sleep(1.2)
+    require(not gap.status&16,'A short gap between songs does not resume a paused phone')
+    command('audio-off');smart.close();gap.close();clients.remove(smart);clients.remove(gap);time.sleep(.3)
+    presses=stats()['presses']
+    reconnect=Client(104);clients.append(reconnect);reconnect.send('RESUME 1\n');time.sleep(.5)
+    require(stats()['presses']==presses,'A first connection never starts the Mac player')
+    reconnect.close();clients.remove(reconnect)
+    command('audio-on');other=Client(103);clients.append(other);time.sleep(.5)
+    media.send('PARK 11 PAUSE\n');time.sleep(.4)
+    require(media.status>>8==11 and stats()['presses']==presses,'Pausing one of several listeners leaves the Mac player alone')
+    command('audio-off')
     for c in clients:c.close()
     clients=[]
     require(command('stop')=='STOPPED','Server shutdown completes')

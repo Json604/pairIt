@@ -50,8 +50,11 @@ final class RelayComponents {
         return orbit;
     }
     static LinearLayout nearby(Context c,String name,String detail,boolean phone,Runnable action){
+        return nearby(c,name,detail,phone?"phone":"laptop",action);
+    }
+    static LinearLayout nearby(Context c,String name,String detail,String icon,Runnable action){
         LinearLayout node=new LinearLayout(c);node.setOrientation(LinearLayout.VERTICAL);node.setGravity(Gravity.CENTER);
-        ImageButton button=new ImageButton(c);button.setImageDrawable(new GlassUI.Glyph(phone?"phone":"laptop",GlassUI.INK));int p=dp(c,29);button.setPadding(p,p,p,p);button.setBackground(new GlassUI.NearbyCircle());button.setContentDescription(name+(phone?", share PairIt":", connect"));GlassUI.pressFeedback(button);button.setOnClickListener(v->action.run());
+        ImageButton button=new ImageButton(c);button.setImageDrawable(new GlassUI.Glyph(icon,GlassUI.INK));int p=dp(c,29);button.setPadding(p,p,p,p);button.setBackground(new GlassUI.NearbyCircle());button.setContentDescription(name+(icon.equals("phone")?", invite to listen":icon.equals("more")?", "+detail:", connect"));GlassUI.pressFeedback(button);button.setOnClickListener(v->action.run());
         node.addView(button,new LinearLayout.LayoutParams(dp(c,88),dp(c,88)));
         TextView label=text(c,name,12,Color.WHITE,true);label.setMaxLines(2);label.setEllipsize(android.text.TextUtils.TruncateAt.END);label.setGravity(Gravity.CENTER);node.addView(label,new LinearLayout.LayoutParams(-1,-2));
         TextView sub=text(c,detail,10,0xffcccccc,false);sub.setGravity(Gravity.CENTER);node.addView(sub);return node;

@@ -59,6 +59,7 @@ func runGateway() throws {
             pairingLock.lock(); let answer = pendingApproval; pendingApproval = nil; pairingLock.unlock()
             answer?(line == "approve")
         }
+        if line.hasPrefix("expect ") { gateway.expectConnection(from: String(line.dropFirst(7))) }
         if line == "enable" { gateway.configureMicrophone(enabled: true, uid: "synthetic") }
         if line == "disable" { gateway.configureMicrophone(enabled: false, uid: "synthetic") }
         if line == "bad-output" { gateway.configureMicrophone(enabled: true, uid: "fail") }

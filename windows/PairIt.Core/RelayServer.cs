@@ -200,16 +200,17 @@ public sealed class RelayServer(X509Certificate2 certificate, string pairingToke
                 System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(frame.AsSpan(12), alignment.Capable);
                 if (!peer.TryEnqueue(frame)) peer.Close();
             }
-            if (peer.VolumeControls && sessions.ComputerVolume is uint volume) {
+            if (sessions.ComputerVolumeFor(peer) is uint volume) {
                 var frame=Protocol.ClockReply(echoed,volume);
-                System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(frame,0x33435342);
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(frame,Protocol.ComputerVolumeMagic);
                 if(!peer.TryEnqueue(frame))peer.Close();
             }
             if(sessions.DesktopPlaybackRequest(peer) is uint request){
                 var frame=Protocol.ClockReply(echoed,request);
-                System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(frame,0x32435342);
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(frame,Protocol.DesktopRequestMagic);
                 if(!peer.TryEnqueue(frame))peer.Close();
             }
+            if (sessions.PlayerState(peer) is uint playing && !peer.TryEnqueue(Protocol.Extension(Protocol.PlayerStateMagic, playing))) peer.Close();
             return;
         }
         if (line.StartsWith("PARK ", StringComparison.Ordinal) || line.StartsWith("RESUME ", StringComparison.Ordinal) || line.StartsWith("RELEASE ", StringComparison.Ordinal))
@@ -258,6 +259,20 @@ public sealed class RelayServer(X509Certificate2 certificate, string pairingToke
         }
         if(line=="STATS VOLUME1"){peer.VolumeControls=true;return;}
         if(line=="STATS CONTROLS1"){peer.DesktopControls=true;return;}
+        if(line=="STATS VOLUME2"){peer.OwnsVolume=true;return;}
+        if(line=="STATS CONTROLS2"){peer.DesktopDisconnect=true;return;}
+        if(line=="STATS PLAYER1"){sessions.EnablePlayerUpdates(peer);return;}
+        if (line.StartsWith("STATS PVOL1 ", StringComparison.Ordinal)) {
+            // Older phones never send this; a malformed level is ignored like other STATS lines.
+            if (int.TryParse(line.AsSpan(12), NumberStyles.None, CultureInfo.InvariantCulture, out var level) && level is >= 0 and <= 1000)
+                sessions.SetPhoneLevel(peer, level);
+            return;
+        }
+        if (line.StartsWith("STATS MEDIA1 ", StringComparison.Ordinal)) {
+            MediaCommand? command = line[13..] switch { "PLAY" => MediaCommand.Play, "NEXT" => MediaCommand.Next, "PREVIOUS" => MediaCommand.Previous, _ => null };
+            if (command is { } media) sessions.RequestMedia(peer, media);
+            return;
+        }
         if (line.StartsWith("STATS ", StringComparison.Ordinal)) return;
         throw new InvalidDataException("Unsupported control line.");
     }
@@ -308,8 +323,18 @@ public sealed class RelayServer(X509Certificate2 certificate, string pairingToke
 
     private async Task HeartbeatAsync()
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
-        try { while (await timer.WaitForNextTickAsync(lifetime.Token).ConfigureAwait(false)) sessions.SendHeartbeat(); }
+        // Computer silence/volume is observed four times per heartbeat: idle loopback
+        // capture may deliver no packets, and PLAYER1 changes are sent promptly.
+        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(250));
+        var ticks = 0;
+        try
+        {
+            while (await timer.WaitForNextTickAsync(lifetime.Token).ConfigureAwait(false))
+            {
+                sessions.ObserveComputer();
+                if (++ticks % 4 == 0) sessions.SendHeartbeat();
+            }
+        }
         catch (OperationCanceledException) { }
     }
 

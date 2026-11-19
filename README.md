@@ -60,11 +60,26 @@ overwritten by those builds must be paired once again.
 Android has notification controls and a Quick Settings tile. iPhone has system
 media controls and Home/Lock Screen shortcuts. After calls or another phone app
 interrupts playback, resume through PairIt or its available system controls.
-Headphone play/pause controls this phone’s relay; the computer player may continue.
+Headphone play/pause controls this phone’s relay. On a Mac where PairIt’s headphone
+controls are allowed, pausing the last listening phone also pauses the Mac’s video or
+music, and resuming plays it again (other computers may keep playing).
 
 ## Computer setup and limits
 
 - **Mac:** complete the included audio-output setup and allow system audio capture.
+  The Mac lists each connected phone with its own pause/resume, disconnect and (for
+  updated phones) volume slider. With an updated phone, the Mac volume keys change that
+  phone’s own media volume instead of attenuating its audio; with one phone the Mac
+  volume follows the phone. **Headphone buttons** (Accessibility permission, used only
+  to send the system Play/Pause key) lets a phone pause and resume Mac media; if the
+  key does not silence the Mac, PairIt presses it again to undo. Earphone next/previous
+  skip tracks on the Mac. When the Mac player is paused, updated phones show "Paused on
+  computer" and any earphone press starts it again; play/next on the Mac resumes a phone
+  the listener paused (after a real stop, not a gap between songs).
+  **Paired phones** lists phones that connected before; **Connect** works while PairIt
+  is open on that phone. The phone verifies the request with the Mac over the pinned
+  connection before connecting. Phones advertise only daily-rotating tags that only
+  their paired computer can recognise.
   A connected, paused phone holds the relay output. When the last phone disconnects
   or times out, the Mac restores its previous output. The driver reports latency
   to compatible video players; it cannot remove Bluetooth latency for live audio.
@@ -82,6 +97,11 @@ Headphone play/pause controls this phone’s relay; the computer player may cont
   pausing an already connected phone holds the silent route. Unrelated outputs and
   manual routing choices are preserved. Closing the window stops sharing. Linux
   has no automatic player pause or video compensation.
+- **Low latency:** on by default in phone Settings. Phones learn the network’s jitter
+  instead of holding a fixed 320 ms cushion (60 ms minimum for Mac and Bluetooth,
+  40 ms for Windows/Linux local outputs), so game and click sounds arrive sooner. A
+  session with repeated dropouts switches to Reliable automatically. Bluetooth’s own
+  delay still applies.
 - **Timing:** updated companions and phones negotiate one presentation time for
   multiple active listeners, compensating for each phone’s measured output delay.
   Allow a few seconds for “Learning shared timing” to finish. Older phones retain
@@ -117,7 +137,9 @@ There is no per-phone revocation: forgetting a computer on one phone does not re
 other copies. Stop sharing if a code leaks. Do not delete identity files as routine
 troubleshooting; that invalidates existing pairings.
 
-PairIt does not record audio. Phone apps use Google ads; ad/consent requests,
+PairIt does not record audio. Phone apps show a banner ad and an occasional ad while the
+app opens (at most every 3 minutes, never while that phone plays audio, never on connect);
+ad/consent requests,
 Android scanner telemetry and update checks are separate from local audio.
 Optional **Report a problem** on Android/iOS sends the text you submit to a dedicated
 HTTPS service, which publishes it as a public issue in `Json604/pairIt-download`.

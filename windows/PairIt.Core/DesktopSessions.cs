@@ -22,6 +22,13 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
     private const long CaptureRetryDelay = 2_000_000_000;
     private long captureRetryAfter;
     private AudioOnset audioOnset = new();
+    // Computer player state for STATS PLAYER1 listeners and paused-phone offers.
+    private readonly ComputerPlayback playback = new();
+    private const long QuietBeforePlay = 1_500_000_000, QuietBeforeResume = 2_000_000_000,
+        QuietAfterOwnPause = 500_000_000, SkipSettles = 2_000_000_000, VolumeInterval = 50_000_000;
+    private long? lastSkipAt;
+    private int? observedVolume;
+    private long lastVolumeCheck;
     private string message = "Select a computer audio source to begin.";
     private bool disposed, mediaHandoffSuppressed, computerOutput;
     public event Action<DesktopStatus>? StatusChanged;
@@ -67,9 +74,86 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
             throw new TimeoutException("Phone did not respond. Try again.");
         } finally {lock(state){foreach(var p in targets)p.DesktopRequest=null;}playbackCommands.Release();}
     }
-    internal uint? ComputerVolume { get { lock(state) return source?.ComputerVolume; } }
+    internal uint? ComputerVolumeFor(ReceiverSession peer)
+    {
+        lock (state)
+        {
+            if (!peer.VolumeControls || source?.ComputerVolume is not uint volume) return null;
+            return volume | (peer.OwnsVolume && source.VolumeIndependentCapture ? Protocol.PhoneOwnedVolume : 0);
+        }
+    }
     internal uint? DesktopPlaybackRequest(ReceiverSession peer) {
-        lock(state) return peer.DesktopControls && peer.DesktopRequest is bool playing ? (peer.IntentToken<<8)|2u|(playing?16u:0u) : null;
+        lock(state) {
+            if (!peer.DesktopControls) return null;
+            // A pending disconnect outranks pause/resume; only CONTROLS2 phones receive it.
+            if (peer.DisconnectRequested) return (peer.IntentToken<<8)|2u|Protocol.DesktopRelease;
+            return peer.DesktopRequest is bool playing ? (peer.IntentToken<<8)|2u|(playing?16u:0u) : null;
+        }
+    }
+
+    /// <summary>Connected phones, in no particular order. Released phones are omitted.</summary>
+    public IReadOnlyList<DesktopPhone> Phones
+    {
+        get
+        {
+            lock (state) return receivers.Values.Where(peer => peer.LastIntent != ReceiverIntent.Release && !peer.Cancellation.IsCancellationRequested)
+                .Select(peer => new DesktopPhone(peer.Id, peer.DisplayName,
+                    peer.Active ? DesktopPhoneState.Listening : peer.Parked ? DesktopPhoneState.Paused : DesktopPhoneState.Connected,
+                    peer.OwnsVolume ? peer.PhoneLevel : null, CanStop(peer))).ToArray();
+        }
+    }
+
+    private static bool CanStop(ReceiverSession peer) => peer.DesktopDisconnect && peer.DesktopControls && peer.HandoffAdvertised;
+
+    /// <summary>Ends one phone's session. An updated phone (STATS CONTROLS2) is asked to stop
+    /// instead of reconnecting and is closed if it has not released within 5 s; an older
+    /// phone is closed and may reconnect if its own automatic reconnect is on.</summary>
+    public void DisconnectPhone(Guid phone)
+    {
+        ReceiverSession? waiting;
+        lock (state)
+        {
+            if (!receivers.TryGetValue(phone, out var peer)) return;
+            if (!CanStop(peer) || peer.LastIntent == ReceiverIntent.Release) { peer.Close(); return; }
+            peer.DisconnectRequested = true;
+            peer.DesktopRequest = null;
+            waiting = peer;
+        }
+        _ = CloseUnreleasedAsync(waiting);
+    }
+
+    private async Task CloseUnreleasedAsync(ReceiverSession peer)
+    {
+        try { await Task.Delay(TimeSpan.FromSeconds(5), peer.Cancellation).ConfigureAwait(false); }
+        catch (Exception error) when (error is OperationCanceledException or ObjectDisposedException) { return; }
+        lock (state) { if (peer.LastIntent != ReceiverIntent.Release) peer.Close(); }
+    }
+
+    internal void EnablePlayerUpdates(ReceiverSession peer)
+    {
+        lock (state)
+        {
+            peer.PlayerUpdates = true;
+            if (!peer.TryEnqueue(Protocol.Extension(Protocol.PlayerStateMagic, playback.Playing ? 1u : 0u))) peer.RequestCloseOnce();
+        }
+    }
+    internal uint? PlayerState(ReceiverSession peer) { lock (state) return peer.PlayerUpdates ? playback.Playing ? 1u : 0u : null; }
+    internal void SetPhoneLevel(ReceiverSession peer, int level) { lock (state) peer.PhoneLevel = level; }
+
+    /// <summary>STATS MEDIA1 from a listener's earphone controls, sent to the computer's current player.</summary>
+    internal void RequestMedia(ReceiverSession peer, MediaCommand command)
+    {
+        lock (state)
+        {
+            if (!receivers.ContainsKey(peer.Id) || computerOutput) return;
+            var now = MonotonicClock.Nanoseconds;
+            // Play is for "paused on computer": never while the computer is producing sound.
+            if (command == MediaCommand.Play && !playback.SilentFor(QuietBeforePlay, now)) return;
+            // A skip changes the player itself (many start playing); the phone's following
+            // resume must not press Play as well.
+            if (command != MediaCommand.Play) lastSkipAt = now;
+        }
+        handoff.Send(command);
     }
     public async Task SetComputerOutputAsync(bool value)
     {
@@ -243,6 +327,7 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
         await lifecycle.WaitAsync(peer.Cancellation).ConfigureAwait(false);
         try
         {
+            bool resumingFromPause, pausedByPairIt;
             lock (state)
             {
                 if (!receivers.ContainsKey(peer.Id)) return;
@@ -252,6 +337,10 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
                 // cannot reissue media commands or undo a later user choice.
                 if (token <= peer.IntentToken) return;
                 if (microphone != null || !settings.SharingEnabled) { peer.Close(); return; }
+                // Only a resume from an earphone/app pause or a call may start the computer
+                // player; a first connection, reconnection or output change never does.
+                resumingFromPause = intent == ReceiverIntent.Resume && peer.Parked && peer.ParkReason is ParkReason.Pause or ParkReason.Phone;
+                pausedByPairIt = resumingFromPause && handoff.PausedFor(peer.Id, peer.IntentToken);
             }
             if (intent == ReceiverIntent.Resume && !await PrepareActivationAsync(peer, peer.Cancellation).ConfigureAwait(false)) return;
             bool lastListener;
@@ -262,6 +351,7 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
                 peer.LastIntent = intent;
                 peer.ParkReason = reason;
                 peer.AudioResumeOffered = false; peer.DesktopRequest=null;
+                if (intent == ReceiverIntent.Release) peer.DisconnectRequested = false;
                 peer.Parked = intent == ReceiverIntent.Park;
                 peer.Active = intent == ReceiverIntent.Resume;
                 if (!peer.Active) peer.DiscardQueuedAudio();
@@ -277,12 +367,26 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
                 return;
             }
             if (intent == ReceiverIntent.Park) handoff.Park(peer.Id, token, reason, lastListener && !mediaHandoffSuppressed && !computerOutput);
+            if (resumingFromPause && !mediaHandoffSuppressed && !computerOutput && ShouldResumePlayer(pausedByPairIt))
+                handoff.Send(MediaCommand.Play);
             if (computerOutput) { PublishOutputStatus(); return; }
             SetMessage(Status.ActiveReceivers == 0
                 ? "Relay held. The computer player may keep playing locally."
                 : "Sharing computer audio with your phone.");
         }
         finally { lifecycle.Release(); }
+    }
+
+    private bool ShouldResumePlayer(bool pausedByPairIt)
+    {
+        lock (state)
+        {
+            var now = MonotonicClock.Nanoseconds;
+            if (lastSkipAt is long skip && now - skip <= SkipSettles) return false;
+            // After PairIt's own pause a short silence suffices; otherwise 2 s of silence
+            // means nothing is playing, and Play starts the computer's last player.
+            return playback.SilentFor(pausedByPairIt ? QuietAfterOwnPause : QuietBeforeResume, now);
+        }
     }
 
     private async Task<bool> PrepareActivationAsync(ReceiverSession peer, CancellationToken cancellation)
@@ -369,16 +473,17 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
         bool hasActive;
         lock (state) hasActive = !computerOutput && (receivers.Values.Any(peer => peer.Active) ||
             endpoints.KeepCaptureWhilePaused && source != null && receivers.Count > 0 ||
-            !handoff.IsAvailable && !mediaHandoffSuppressed && receivers.Values.Any(peer => peer.Parked && peer.ParkReason == ParkReason.Phone));
+            !handoff.IsAvailable && !mediaHandoffSuppressed && receivers.Values.Any(peer => peer.Parked && peer.ParkReason == ParkReason.Phone) ||
+            !mediaHandoffSuppressed && receivers.Values.Any(peer => peer.Parked && peer.ParkReason == ParkReason.Pause && peer.PlayerUpdates));
         if (!hasActive && source != null)
         {
             var previous = source;
-            lock (state) source = null;
+            lock (state) { source = null; observedVolume = null; }
             await previous.DisposeAsync().ConfigureAwait(false);
         }
         if (!hasActive || source != null || disposed) return;
         var next = endpoints.CreateSource(settings.SourceEndpointId!);
-        lock (state) { source = next; sequence += 2; audioOnset = new(); }
+        lock (state) { source = next; sequence += 2; audioOnset = new(); observedVolume = null; playback.SourceStarted(MonotonicClock.Nanoseconds); }
         try
         {
             await next.StartAsync(packet => Broadcast(next, packet), reason => _ = SourceFailedAsync(next, reason), cancellation).ConfigureAwait(false);
@@ -397,12 +502,65 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
         {
             if (source != expected || computerOutput) return;
             if (packet.Discontinuity) { sequence += 2; audioOnset = new(); }
-            if (!handoff.IsAvailable && !mediaHandoffSuppressed && audioOnset.Observe(packet.StereoPcm16, MonotonicClock.Nanoseconds))
+            var now = MonotonicClock.Nanoseconds;
+            if (!handoff.IsAvailable && !mediaHandoffSuppressed && audioOnset.Observe(packet.StereoPcm16, now))
                 foreach (var peer in receivers.Values)
                     if (peer.Parked && peer.ParkReason == ParkReason.Phone) peer.AudioResumeOffered = true;
+            ApplyPlayback(playback.Sound(packet.StereoPcm16, now));
+            ObserveVolume(now);
             var frame = Protocol.Pcm(sequence++, packet);
             foreach (var peer in receivers.Values)
                 if (peer.Active && !peer.TryEnqueue(frame)) peer.RequestCloseOnce();
+        }
+    }
+
+    // Called with state held. Capture threads only enqueue; a full peer is closed elsewhere.
+    private void ApplyPlayback(PlaybackChange change)
+    {
+        if (change.PlayingChanged)
+        {
+            var frame = Protocol.Extension(Protocol.PlayerStateMagic, playback.Playing ? 1u : 0u);
+            foreach (var peer in receivers.Values)
+                if (peer.PlayerUpdates && !peer.TryEnqueue(frame)) peer.RequestCloseOnce();
+        }
+        // Sustained new sound after a real stop (Play/next on the computer itself) offers
+        // return to a phone the listener paused. Phone-call offers are handled separately.
+        if (change.PauseOffer && !mediaHandoffSuppressed)
+            foreach (var peer in receivers.Values)
+                if (peer.PlayerUpdates && peer.Parked && peer.ParkReason == ParkReason.Pause) peer.AudioResumeOffered = true;
+    }
+
+    // Called with state held. A computer volume key or slider moves each VOLUME2 phone's own
+    // volume by the same amount, keeping their relative levels; their PCM is never attenuated.
+    private void ObserveVolume(long now)
+    {
+        if (now - lastVolumeCheck < VolumeInterval) return;
+        lastVolumeCheck = now;
+        if (source is not { VolumeIndependentCapture: true } current || current.ComputerVolume is not uint volume) return;
+        var level = (int)(volume & 0x3FF);
+        var previous = observedVolume;
+        observedVolume = level;
+        if (previous is not int before || level == before) return;
+        foreach (var peer in receivers.Values)
+        {
+            if (!peer.OwnsVolume || peer.PhoneLevel is not int phoneLevel || peer.LastIntent == ReceiverIntent.Release) continue;
+            var target = Math.Clamp(phoneLevel + level - before, 0, 1000);
+            if (target == phoneLevel) continue;
+            peer.PhoneLevel = target;
+            if (!peer.TryEnqueue(Protocol.Extension(Protocol.VolumeRequestMagic, (uint)target))) peer.RequestCloseOnce();
+        }
+    }
+
+    /// <summary>Observes computer silence and volume between packets: loopback capture can
+    /// deliver nothing while idle. The relay server calls this several times per second.</summary>
+    public void ObserveComputer()
+    {
+        lock (state)
+        {
+            var now = MonotonicClock.Nanoseconds;
+            var observing = source != null && !computerOutput;
+            ApplyPlayback(playback.Silence(now, observing));
+            if (observing) ObserveVolume(now);
         }
     }
 

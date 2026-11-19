@@ -15,10 +15,13 @@ final class ListeningInvitations {
         void finished(String message);
         default void progress(String message) {}
         default boolean canHost(){return true;}
+        /** A paired computer asked this phone to connect. Only a hint: the phone verifies
+         * it with that computer over the pinned, token-authenticated channel first. */
+        default void connectRequest(String computerPin,String host){}
     }
     private final Executor main;
     private static final ScheduledExecutorService deadlines=Executors.newSingleThreadScheduledExecutor(r->{Thread t=new Thread(r,"invitation-deadlines");t.setDaemon(true);return t;});
-    private long lastIncoming;
+    private long lastIncoming,lastConnectRequest;
     private final UI ui;
     private final AtomicBoolean busy=new AtomicBoolean();
     private volatile ServerSocket server;
@@ -44,10 +47,18 @@ final class ListeningInvitations {
             ServerSocket listening=new ServerSocket(0,2);server=listening;final int session=generation;
             Thread thread=new Thread(()->{
                 while(server==listening)try {
-                    Socket socket=listening.accept();socket.setSoTimeout(65000);
+                    Socket socket=listening.accept();socket.setSoTimeout(3000);
+                    String first;
+                    try{first=read(socket,1024);}catch(IOException invalid){socket.close();continue;}
+                    if(first.startsWith("CONNECT1 ")){
+                        String pin=first.substring(9);String host=socket.getInetAddress().getHostAddress();socket.close();
+                        if(!pin.matches("[a-f0-9]{64}")||System.nanoTime()-lastConnectRequest<TimeUnit.SECONDS.toNanos(2))continue;
+                        lastConnectRequest=System.nanoTime();main.execute(()->{if(session==generation)ui.connectRequest(pin,host);});continue;
+                    }
+                    socket.setSoTimeout(65000);
                     if(System.nanoTime()-lastIncoming<TimeUnit.SECONDS.toNanos(3)||!busy.compareAndSet(false,true)){socket.close();continue;}
                     lastIncoming=System.nanoTime();
-                    active=socket;hosting=false;progress(session,"Invitation received. Compare the code with your host.");exchange(socket,null,null,session);
+                    active=socket;hosting=false;progress(session,"Invitation received. Compare the code with your host.");exchange(socket,null,null,session,first);
                 }catch(IOException ignored){break;}
             },"listening-invitations");thread.setDaemon(true);thread.start();return listening.getLocalPort();
         }catch(IOException error){return 0;}
@@ -59,11 +70,11 @@ final class ListeningInvitations {
         Thread thread=new Thread(()->{
             try {
                 Socket socket=new Socket();active=socket;socket.connect(new InetSocketAddress(host,port),5000);socket.setSoTimeout(65000);
-                exchange(socket,code,computer,session);
+                exchange(socket,code,computer,session,null);
             }catch(Exception error){finish(session,"Couldn’t reach that phone. Keep PairIt open on both phones.");}
         },"send-listening-invitation");thread.setDaemon(true);thread.start();
     }
-    private void exchange(Socket socket,String code,String computer,int session){
+    private void exchange(Socket socket,String code,String computer,int session,String firstLine){
         String outcome="Invitation declined or expired. Try again.";
         ScheduledFuture<?> timeout=deadlines.schedule(()->{try{socket.close();}catch(IOException ignored){}CompletableFuture<Boolean> answer=decision;if(session==generation&&answer!=null)answer.complete(false);},65,TimeUnit.SECONDS);
         try(Socket connection=socket){
@@ -79,7 +90,7 @@ final class ListeningInvitations {
                 if(!read(connection,16).equals("RECEIVED1"))throw new IOException();
                 outcome="Invitation accepted. Your guest is connecting to the computer.";
             } else {
-                String[] offer=read(connection,1024).split(" ");
+                String[] offer=(firstLine!=null?firstLine:read(connection,1024)).split(" ");
                 if(offer.length!=3||!offer[0].equals("INVITE1"))throw new IOException();
                 String name=new String(java.util.Base64.getUrlDecoder().decode(offer[2]),StandardCharsets.UTF_8).replaceAll("[\\p{Cntrl}\\p{Cf}]","");
                 if(name.isEmpty()||name.length()>80)throw new IOException();

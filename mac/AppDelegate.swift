@@ -5,6 +5,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var server = RelayServer()
     private lazy var wifi = WiFiServer(upstreamToken: server.gatewayToken)
     private let model = MacCompanionModel()
+    private let mediaKeys = MacMediaKeys()
+    private let nearbyPhones = NearbyPhones()
+    private var connectDeadline: DispatchWorkItem?
     @MainActor private lazy var installerUpdates = MacInstallerUpdates()
     private let lifecycle = DispatchQueue(label: "relay.companion.lifecycle", qos: .userInitiated)
     private var item: NSStatusItem!
@@ -46,6 +49,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 }
             }
         }
+        model.setPlaybackFor = { [weak self] phone, playing in self?.server.requestPhonePlayback(playing, phone: phone) }
+        model.setPhoneVolume = { [weak self] phone, level in self?.server.setPhoneVolume(phone, level: level) }
+        model.disconnectPhone = { [weak self] phone in self?.server.disconnectPhone(phone) }
+        model.allowMediaKeys = { [weak self] in
+            guard let self else { return }
+            if !self.mediaKeys.requestAccess() {
+                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
+                self.model.showFeedback("Turn on PairIt in Accessibility. PairIt only sends the Play/Pause key.")
+            }
+            self.model.mediaKeysAllowed = self.mediaKeys.available
+        }
+        nearbyPhones.onChange = { [weak self] phones in if self?.model.rememberedPhones != phones { self?.model.rememberedPhones = phones } }
+        model.forgetPhone = { [weak self] id in self?.nearbyPhones.forget(id) }
+        model.connectPhone = { [weak self] id in
+            guard let self, self.model.connectingPhone == nil, self.model.sharing else { return }
+            self.model.connectingPhone = id
+            self.wifi.expectConnection(from: id)
+            self.nearbyPhones.requestConnection(id) { [weak self] sent in
+                guard let self else { return }
+                guard sent else {
+                    self.model.connectingPhone = nil
+                    self.model.showFeedback("Couldn’t reach that phone. Open PairIt on it, on the same Wi-Fi.", isError: true); return
+                }
+                let deadline = DispatchWorkItem { [weak self] in
+                    guard let self, self.model.connectingPhone == id else { return }
+                    self.model.connectingPhone = nil
+                    self.model.showFeedback("The phone didn’t connect. Keep PairIt open on it and try again.", isError: true)
+                }
+                self.connectDeadline?.cancel(); self.connectDeadline = deadline
+                DispatchQueue.main.asyncAfter(deadline: .now() + 20, execute: deadline)
+            }
+        }
+        model.mediaKeysAllowed = mediaKeys.available
+        log("MEDIA headphone controls allowed=\(model.mediaKeysAllowed)")
         model.retrySharing = { [weak self] in self?.startSharing() }
         model.installOutput = { [weak self] in self?.installOutput() }
         model.enableMicrophone = { [weak self] enabled in
@@ -104,6 +141,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         setupTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             guard let self else { return }
             self.model.volumeControlsInstalled = SyncOutput.volumeControlsInstalled
+            let allowed = self.mediaKeys.available
+            if self.model.mediaKeysAllowed != allowed { self.model.mediaKeysAllowed = allowed }
             let destinations = MicrophoneOutput.destinations()
             if destinations != self.model.microphoneDestinations { self.model.microphoneDestinations = destinations }
             if self.model.microphoneEnabled && !destinations.contains(where: { $0.id == self.model.microphoneUID }) { self.model.enableMicrophone(false) }
@@ -206,10 +245,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         lifecycle.async { [weak self] in
             // stop() can wait for capture cleanup. It must not block animation,
             // hover, navigation or the progress indicator on the main thread.
-            currentWiFi.stop(); currentServer.stop()
+            currentWiFi.stop(); currentServer.stop(); self?.nearbyPhones.stop()
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                self.model.sharing = false; self.model.microphoneEnabled = false; self.model.connected = false; self.model.receiverCount = 0; self.model.parkedCount = 0; self.model.outputHeld = false; self.model.computerOutput = false
+                self.model.sharing = false; self.model.microphoneEnabled = false; self.model.connected = false; self.model.phones = []; self.model.receiverCount = 0; self.model.parkedCount = 0; self.model.outputHeld = false; self.model.computerOutput = false
                 self.model.detail = "Sharing stopped. Your Mac is using its normal audio output."
                 self.model.network = "Paused"; self.model.sharingAction = nil
                 self.item.button?.toolTip = "PairIt - AudioRelay · Sharing stopped"
@@ -238,7 +277,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
         nextWiFi.reserveMicrophone = { [weak nextServer] in nextServer?.reserveMicrophone() ?? false }
         nextWiFi.releaseMicrophone = { [weak nextServer] in nextServer?.releaseMicrophone() }
+        nextServer.mediaControl = mediaKeys
+        nextServer.onMediaControlNeeded = { [weak self] in
+            guard let self, !self.model.mediaKeysAllowed else { return }
+            self.model.showFeedback("Your earphones tried to pause this Mac. Click Allow next to Headphone buttons, then turn on PairIt in Accessibility.", isError: true)
+        }
         server = nextServer; wifi = nextWiFi
+        nextServer.onPhones = { [weak self, weak nextServer] phones in
+            guard let self, self.server === nextServer else { return }
+            if self.model.phones != phones { self.model.phones = phones }
+            self.nearbyPhones.remember(phones)
+            if let id = self.model.connectingPhone, phones.contains(where: { $0.installation == id }) { self.model.connectingPhone = nil; self.connectDeadline?.cancel() }
+        }
         nextServer.onStatus = { [weak self, weak nextServer] value in
             guard let self, self.server === nextServer, self.model.sharingAction != .pausing else { return }
             self.item.button?.toolTip = "PairIt - AudioRelay · " + value
@@ -289,7 +339,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
         nextWiFi.onPairingConfirmed = { [weak self, weak nextWiFi] in
             DispatchQueue.main.async {
-                guard let self, self.wifi === nextWiFi else { return }
+                guard let self, self.wifi === nextWiFi, self.model.connectingPhone == nil else { return }
                 self.model.pairingConfirmed = true
                 self.model.showFeedback("Phone paired. Start audio on your phone when you’re ready.")
                 self.item.button?.toolTip = "PairIt - AudioRelay · Phone paired"
@@ -300,6 +350,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             do {
                 try nextServer.start(); try nextWiFi.start()
                 let code = nextWiFi.pairingCode
+                self?.nearbyPhones.start(token: nextWiFi.pairingToken, pin: nextWiFi.pairingPin)
                 let address = LocalIdentity.currentHost()
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }

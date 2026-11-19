@@ -68,7 +68,7 @@ run('shell', f"run-as {package} sh -c 'cat > shared_prefs/relay.xml'", input='''
 <string name="output">SPEAKER</string><boolean name="asked_controls_notifications" value="true"/>
 </map>''')
 run('shell', f"run-as {package} sh -c 'cat > shared_prefs/advertising.xml'",
-    input=f'<map><long name="lastPairingVideo" value="{int(time.time()*1000)}"/></map>')
+    input=f'<map><long name="lastFullscreenAd" value="{int(time.time()*1000)}"/></map>')
 run('logcat', '-c')
 
 with tempfile.TemporaryDirectory(prefix='pairit-output-tls-') as directory:

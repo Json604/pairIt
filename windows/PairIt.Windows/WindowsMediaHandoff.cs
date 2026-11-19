@@ -4,11 +4,14 @@ using global::Windows.Media.Control;
 namespace PairIt.Windows;
 
 // Public GSMTC only: no injected media keys, app-specific automation, output
-// routing, system-volume changes, or automatic Play commands.
+// routing or system-volume changes. Play/skip are sent only for a listener's
+// explicit phone command or its resume after a pause, never as a toggle.
 internal sealed class WindowsMediaHandoff : IMediaHandoffController
 {
     private readonly object state = new();
     private readonly SemaphoreSlim command = new(1, 1);
+    // Separate from the pause slot, which a retained pause lease holds until released.
+    private readonly SemaphoreSlim transport = new(1, 1);
     private readonly CancellationTokenSource lifetime = new();
     private GlobalSystemMediaTransportControlsSessionManager? manager;
     private SessionPauseLease? inFlight;
@@ -87,6 +90,43 @@ internal sealed class WindowsMediaHandoff : IMediaHandoffController
                 lease.CommandCompleted();
             }
         }
+    }
+
+    public Task<bool> TryPlayCurrentAsync(CancellationToken cancellation) =>
+        TransportAsync(playback => playback.PlaybackStatus != GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing && playback.Controls.IsPlayEnabled,
+            session => session.TryPlayAsync(), cancellation);
+
+    public Task<bool> TrySkipAsync(bool forward, CancellationToken cancellation) =>
+        TransportAsync(playback => forward ? playback.Controls.IsNextEnabled : playback.Controls.IsPreviousEnabled,
+            session => forward ? session.TrySkipNextAsync() : session.TrySkipPreviousAsync(), cancellation);
+
+    private async Task<bool> TransportAsync(Func<GlobalSystemMediaTransportControlsSessionPlaybackInfo, bool> allowed,
+        Func<GlobalSystemMediaTransportControlsSession, global::Windows.Foundation.IAsyncOperation<bool>> send, CancellationToken cancellation)
+    {
+        if (!IsAvailable) return false;
+        await transport.WaitAsync(cancellation).ConfigureAwait(false);
+        Task<bool>? operation = null;
+        try
+        {
+            GlobalSystemMediaTransportControlsSessionManager? currentManager;
+            lock (state) currentManager = disposed ? null : manager;
+            if (currentManager == null) return false;
+            cancellation.ThrowIfCancellationRequested();
+            // Only the current session; another app or browser is never retargeted.
+            var current = currentManager.GetCurrentSession();
+            if (current == null || !allowed(current.GetPlaybackInfo())) return false;
+            operation = send(current).AsTask();
+        }
+        catch { return false; }
+        finally
+        {
+            // Hold the slot until the actual WinRT operation ends, so a stalled app
+            // cannot accumulate native commands; the caller's wait stays bounded.
+            if (operation == null) transport.Release();
+            else _ = operation.ContinueWith(_ => transport.Release(), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        }
+        try { return await operation!.WaitAsync(cancellation).ConfigureAwait(false); }
+        catch { return false; }
     }
 
     public ValueTask DisposeAsync()

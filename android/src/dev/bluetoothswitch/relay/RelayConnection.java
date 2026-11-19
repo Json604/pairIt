@@ -18,6 +18,13 @@ final class RelayConnection {
             return "OK PAIR1".equals(readLine(connection, 64, 2500));
         }
     }
+    /** Asks the pinned computer whether it really requested this installation to connect. */
+    static boolean confirmConnectRequest(String host, String pin, String token, String installation) throws Exception {
+        if (!installation.matches("[a-f0-9]{32}")) return false;
+        try (Socket connection = open(host, 5002, pin, token, " WANT1 " + installation, socket -> { })) {
+            return "OK WANT1".equals(readLine(connection, 64, 2500));
+        }
+    }
     private static Socket open(String host, int port, String expectedPin, String token, String role,
                                java.util.function.Consumer<Socket> opened) throws Exception {
         if (!RelaySettings.validHost(host) || !expectedPin.matches("[a-f0-9]{64}") || !token.matches("[a-f0-9]{64}"))

@@ -27,7 +27,7 @@ enum RelayOutput: String, CaseIterable, Identifiable {
 enum RelayPlaybackMode: String, CaseIterable, Identifiable {
     case reliable, interactive
     var id: String { rawValue }
-    var title: String { self == .reliable ? "Reliable" : "Interactive · preview" }
+    var title: String { self == .reliable ? "Reliable" : "Low latency" }
 }
 
 enum RelayInstallation {

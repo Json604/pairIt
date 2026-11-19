@@ -15,7 +15,10 @@ final class Capture: RelayCaptureSource {
     static var failNextStart = false
     static var audible = false
     static var adjustments: [Double] = []
-    var computerVolume: ComputerVolume? { ComputerVolume(level: 0.25, muted: false) }
+    static var volumeLevel = 0.25
+    static var volumeWrites: [Double] = []
+    var computerVolume: ComputerVolume? { Self.lock.lock(); defer { Self.lock.unlock() }; return ComputerVolume(level: Self.volumeLevel, muted: false) }
+    func setComputerVolume(_ level: Double) { Self.lock.lock(); Self.volumeLevel = level; Self.volumeWrites.append(level); Self.lock.unlock() }
     private var nextTime: UInt64 = 0
     private var sequence: UInt32 = 0
     func start() throws {
@@ -51,6 +54,16 @@ final class Capture: RelayCaptureSource {
     }
 }
 
+final class FakeMedia: RelayMediaControl {
+    static let shared = FakeMedia()
+    let lock = NSLock()
+    var presses = 0
+    var available: Bool { true }
+    func togglePlayPause() { lock.lock(); presses += 1; lock.unlock() }
+    var skips: [Bool] = []
+    func skip(forward: Bool) { lock.lock(); skips.append(forward); lock.unlock() }
+}
+
 @main struct Harness {
     static func main() throws {
         #if GATEWAY
@@ -61,11 +74,22 @@ final class Capture: RelayCaptureSource {
         let preferences = UserDefaults(suiteName: suite)!
         defer { preferences.removePersistentDomain(forName: suite) }
         let server = RelayServer(port: port, preferences: preferences)
+        server.mediaControl = FakeMedia.shared
         try server.start()
         print("READY " + server.gatewayToken); fflush(stdout)
         while let line = readLine() {
             if line == "phone-resume" || line == "phone-pause" { server.requestPhonePlayback(line == "phone-resume"); print("OK"); fflush(stdout) }
             if line == "audio-on" || line == "audio-off" { Capture.lock.lock(); Capture.audible = line == "audio-on"; Capture.lock.unlock(); print("OK"); fflush(stdout) }
+            if line.hasPrefix("volume ") { Capture.lock.lock(); Capture.volumeLevel = Double(line.dropFirst(7))!; Capture.lock.unlock(); print("OK"); fflush(stdout) }
+            if line.hasPrefix("disconnect ") {
+                let name = String(line.dropFirst(11))
+                let phone = server.phones.first { $0.name == name }
+                if let phone { server.disconnectPhone(phone.id); print("OK") } else { print("MISSING") }; fflush(stdout)
+            }
+            if line == "phones" {
+                let rows = server.phones.map { ["name": $0.name, "level": $0.level ?? -1, "state": "\($0.state)", "disconnect": $0.canDisconnect] as [String: Any] }
+                print(String(data: try JSONSerialization.data(withJSONObject: rows), encoding: .utf8)!); fflush(stdout)
+            }
             if line == "computer-output" { server.setComputerOutput(true); print("OK"); fflush(stdout) }
             if line == "phone-output" { server.setComputerOutput(false); print("OK"); fflush(stdout) }
             if line == "reserve" { print(server.reserveMicrophone() ? "RESERVED" : "BUSY"); fflush(stdout) }
@@ -74,8 +98,9 @@ final class Capture: RelayCaptureSource {
             if line == "fail-next-start" { Capture.lock.lock(); Capture.failNextStart = true; Capture.lock.unlock(); print("OK"); fflush(stdout) }
             if line == "stats" {
                 Capture.lock.lock()
-                let result: [String: Any] = ["starts": Capture.starts, "stops": Capture.stops, "starting": Capture.starting, "stopping": Capture.stopping, "adjustments": Capture.adjustments]
+                var result: [String: Any] = ["starts": Capture.starts, "stops": Capture.stops, "starting": Capture.starting, "stopping": Capture.stopping, "adjustments": Capture.adjustments, "volumeWrites": Capture.volumeWrites]
                 Capture.lock.unlock()
+                FakeMedia.shared.lock.lock(); result["presses"] = FakeMedia.shared.presses; result["skips"] = FakeMedia.shared.skips; FakeMedia.shared.lock.unlock()
                 print(String(data: try JSONSerialization.data(withJSONObject: result), encoding: .utf8)!); fflush(stdout)
             }
             if line == "stop" { break }

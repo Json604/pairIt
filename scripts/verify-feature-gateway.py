@@ -76,6 +76,12 @@ with tempfile.TemporaryDirectory(prefix='pairit-synthetic-identity-') as directo
         with connect(token+' MIC2') as s:require(closed(s),'Unsupported role rejected without starting source')
         require(stats()['sourceStarts']==0,'Rejected authentication never starts capture')
         with connect('0'*64+' PAIR1') as s:require(closed(s),'Pairing confirmation requires the correct token')
+        phone='ab'*16
+        with connect(token+' WANT1 '+phone) as s:require(line(s)==b'NO WANT1\n','A phone is told when this Mac did not ask it to connect')
+        command('expect '+phone)
+        with connect('0'*64+' WANT1 '+phone) as s:require(closed(s),'Connect verification requires the pairing token')
+        with connect(token+' WANT1 '+phone) as s:require(line(s)==b'OK WANT1\n','A phone confirms a real Connect request from this Mac')
+        with connect(token+' WANT1 '+phone) as s:require(line(s)==b'NO WANT1\n','A Connect request is consumed once')
         require(stats()['pairings']==0,'Invalid pairing confirmation cannot produce desktop success')
         with connect(token+' PAIR1') as s:
             require(line(s)==b'OK PAIR1\n','Pairing confirmation reaches the computer before audio starts')

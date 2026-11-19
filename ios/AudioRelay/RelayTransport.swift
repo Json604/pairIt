@@ -86,18 +86,49 @@ final class RelayTransport {
     private var offeredToken: UInt32 = 0
     var onComputerVolume: ((ComputerVolume) -> Void)?
     var onDesktopPlayback: ((Bool) -> Void)?
+    /// The computer ended this phone's session (bit 64, only after STATS CONTROLS2).
+    var onDesktopDisconnect: (() -> Void)?
+    /// A computer volume key or slider asks for this phone's own media volume, 0...1000.
+    var onPhoneVolumeRequest: ((Int) -> Void)?
     private var desktopStatus: UInt32 = 0
     private var consumedDesktopRequest: UInt32 = 0
-    func claimDesktopRequest(_ status: UInt32) -> Bool? {
+    enum DesktopRequest: Equatable { case pause, resume, disconnect }
+    /// Each request is consumed once per intent token, like the Android receiver.
+    func claimDesktopCommand(_ status: UInt32) -> DesktopRequest? {
         guard intent != "RELEASE", status >> 8 == intentToken, status & 2 != 0 else { return nil }
-        let key = status & 0xFFFFFF12
+        let key = status & 0xFFFFFF52
         guard key != consumedDesktopRequest else { return nil }
         desktopStatus = status
         consumedDesktopRequest = key
-        return status & 16 != 0
+        return status & 64 != 0 ? .disconnect : status & 16 != 0 ? .resume : .pause
     }
+    func claimDesktopRequest(_ status: UInt32) -> Bool? {
+        switch claimDesktopCommand(status) { case .resume: return true; case .pause: return false; default: return nil }
+    }
+    /// Every authenticated control status (bit 2: the computer may control its media player).
+    var onControlStatus: ((UInt32) -> Void)?
+    /// Earphone next/previous. Updated Macs skip tracks; Windows/Linux ignore STATS lines.
+    func sendMediaKey(next: Bool) { sendMediaCommand(next ? "NEXT" : "PREVIOUS") }
+    /// NEXT, PREVIOUS or PLAY (start the computer's paused player while this phone listens).
+    func sendMediaCommand(_ name: String) {
+        guard ["NEXT", "PREVIOUS", "PLAY"].contains(name), connection?.state == .ready, capabilitiesKnown else { return }
+        send("STATS MEDIA1 " + name + "\n")
+    }
+    /// Computer player state after STATS PLAYER1: true while the computer produces sound.
+    var onPlayerState: ((Bool) -> Void)?
+    private var phoneVolume: Int?, sentPhoneVolume: Int?
+    /// Reports this phone's media volume (0...1000) so the computer's controls stay in step.
+    func setPhoneVolume(_ level: Int) {
+        phoneVolume = max(0, min(1000, level)); sendPhoneVolume()
+    }
+    private func sendPhoneVolume() {
+        guard let level = phoneVolume, level != sentPhoneVolume, connection?.state == .ready else { return }
+        sentPhoneVolume = level; send("STATS PVOL1 \(level)\n")
+    }
+    /// Updated Macs offer a resume (bit 16) after real silence then new sound, for a phone
+    /// interruption or a user pause. OUTPUT parks never accept offers.
     func claimResumeOffer(_ status: UInt32) -> Bool {
-        guard intent == "PHONE", status >> 8 == intentToken, status & 20 == 20, offeredToken != intentToken else { return false }
+        guard intent == "PHONE" || intent == "PAUSE", status >> 8 == intentToken, status & 20 == 20, offeredToken != intentToken else { return false }
         offeredToken = intentToken; return true
     }
     var onHandoff: ((UInt32) -> Void)?
@@ -225,6 +256,7 @@ final class RelayTransport {
             requestedComputerOutput = nil; outputRequestPing = nil; outputAcknowledged = true
         }
         controlStatus = status; capabilitiesKnown = true; sendIntent(); sendOutputRequest()
+        onControlStatus?(status)
         if outputChanged || outputAcknowledged { onOutput?(status & 128 != 0, status & 192 == 192) }
         if status >> 8 == intentToken {
             onHandoff?(status)
@@ -241,6 +273,7 @@ final class RelayTransport {
         clockSamples = 0; bestRTT = .max; clockWindow = 0; pingCount = 0; bytes.removeAll()
         onPresentationTarget?(0, 0, 0)
         capabilitiesKnown = false; controlStatus = 0; intentToken = 1; sentToken = 0; offeredToken = 0; consumedDesktopRequest = 0; desktopStatus = 0
+        sentPhoneVolume = nil
         outputRequestPing = nil // Retry an unacknowledged user choice on the new socket.
         var identityRejected = false
         let parameters = RelaySecurity.parameters(pin: mac.pin, queue: queue) { identityRejected = true }
@@ -251,8 +284,8 @@ final class RelayTransport {
             switch state {
             case .ready:
                 self.retry = 0; self.connections += 1; self.lastReceived = RelayClock.nanoseconds
-                self.send(self.mac.token + "\nHELLO " + RelayInstallation.identifier + "\nNAME1 " + NearbyDevices.encodedName + "\nSTATS CONTROLS1\nSTATS VOLUME1\n")
-                self.send(self.alignmentReport)
+                self.send(self.mac.token + "\nHELLO " + RelayInstallation.identifier + "\nNAME1 " + NearbyDevices.encodedName + "\nSTATS CONTROLS1\nSTATS VOLUME1\nSTATS VOLUME2\nSTATS CONTROLS2\nSTATS PLAYER1\n")
+                self.send(self.alignmentReport); self.sendPhoneVolume()
                 if let value = self.compensation { self.send("SYNC \(value)\n") }
                 self.onState?("Getting audio ready"); self.startTimer(); self.receive(current)
             case .failed:
@@ -337,8 +370,27 @@ final class RelayTransport {
             }
             if magic == 0x32435342 {
                 let command: UInt32 = integer(at: 4)
-                if let playing = claimDesktopRequest(command) { onDesktopPlayback?(playing) }
-                bytes.removeFirst(24); continue
+                let request = claimDesktopCommand(command)
+                bytes.removeFirst(24)
+                switch request {
+                case .disconnect: onDesktopDisconnect?()
+                case .resume: onDesktopPlayback?(true)
+                case .pause: onDesktopPlayback?(false)
+                case nil: break
+                }
+                continue
+            }
+            if magic == 0x36435342 {
+                // Sent only after STATS PLAYER1: bit 0 means the computer is producing sound.
+                let state: UInt32 = integer(at: 4)
+                guard state <= 1 else { return false }
+                bytes.removeFirst(24); onPlayerState?(state == 1); continue
+            }
+            if magic == 0x35435342 {
+                // Sent only after STATS VOLUME2: set this phone's own media volume.
+                let level: UInt32 = integer(at: 4)
+                guard level <= 1000 else { return false }
+                bytes.removeFirst(24); onPhoneVolumeRequest?(Int(level)); continue
             }
             if magic == 0x31435342 {
                 let status: UInt32 = integer(at: 4)

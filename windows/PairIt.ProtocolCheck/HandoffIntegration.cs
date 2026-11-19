@@ -290,6 +290,13 @@ internal sealed class SyntheticMediaController : IMediaHandoffController
     public volatile bool RejectNext;
     public TaskCompletionSource<IMediaPauseLease?>? Pending;
     public SyntheticPauseLease? LastLease;
+    public volatile int Plays, Nexts, Previouses;
+    public Task<bool> TryPlayCurrentAsync(CancellationToken cancellation) { Interlocked.Increment(ref Plays); return Task.FromResult(true); }
+    public Task<bool> TrySkipAsync(bool forward, CancellationToken cancellation)
+    {
+        if (forward) Interlocked.Increment(ref Nexts); else Interlocked.Increment(ref Previouses);
+        return Task.FromResult(true);
+    }
     public Task<IMediaPauseLease?> TryPauseCurrentAsync(CancellationToken cancellation)
     {
         Interlocked.Increment(ref Attempts);

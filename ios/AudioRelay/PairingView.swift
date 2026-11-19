@@ -4,7 +4,6 @@ import AVFoundation
 struct PairingView: View {
     @ObservedObject var receiver: RelayReceiver
     @ObservedObject var pairing: PairingStore
-    @EnvironmentObject private var ads: BannerAds
     @Environment(\.scenePhase) private var scenePhase
     var initialCode = ""
     @Environment(\.dismiss) private var dismiss
@@ -16,9 +15,7 @@ struct PairingView: View {
     @State private var savedName: String?
     @State private var confirmation: Bool?
     @State private var automaticStart = false
-    @State private var finishedAdvertisement = false
     @State private var mounted = false
-    @State private var adFlow: Int?
     @State private var actionGeneration = 0
     private var candidate: PairedMac? { try? PairedMac.parse(code) }
 
@@ -39,7 +36,7 @@ struct PairingView: View {
                                 Button("Start audio") {
                                     receiver.connect()
                                     dismiss()
-                                }.buttonStyle(RelayPrimaryButtonStyle()).disabled(!finishedAdvertisement)
+                                }.buttonStyle(RelayPrimaryButtonStyle())
                                 Button("Later") { dismiss() }.buttonStyle(RelayQuietButtonStyle())
                                 }
                             }.padding(.top, 24)
@@ -76,7 +73,7 @@ struct PairingView: View {
                                     Text(saving ? "Saving…" : "Pair computer")
                                 }
                             }.buttonStyle(RelayPrimaryButtonStyle()).disabled(saving || candidate == nil)
-                            Text("A short ad may appear after pairing is saved. Start audio separately when you’re ready.")
+                            Text("Nothing plays until you choose Start audio.")
                                 .font(.caption).foregroundStyle(RelayPalette.secondary)
                         }.padding(.vertical, 12)
                         if pairing.mac != nil {
@@ -92,22 +89,11 @@ struct PairingView: View {
                 .onAppear {
                     mounted = true
                     if code.isEmpty { code = initialCode }
-                    if savedName == nil { adFlow = ads.pairingVideo.begin(audioIdle: receiver.audioIdleForAdvertisement) }
-                }
-                .onChange(of: ads.ready) { _, ready in
-                    if ready, let adFlow { ads.pairingVideo.prepare(flow: adFlow, audioIdle: receiver.audioIdleForAdvertisement) }
                 }
                 .onChange(of: scenePhase) { _, phase in
-                    if phase != .active {
-                        if automaticStart { actionGeneration += 1; automaticStart = false; saving = false; finishedAdvertisement = true }
-                        if let adFlow { ads.pairingVideo.cancelUnshown(flow: adFlow) }
-                        if !ads.fullscreenActive { finishedAdvertisement = true }
-                    } else if mounted, savedName == nil { adFlow = ads.pairingVideo.begin(audioIdle: receiver.audioIdleForAdvertisement) }
+                    if phase != .active, automaticStart { actionGeneration += 1; automaticStart = false; saving = false }
                 }
-                .onDisappear {
-                    mounted = false; actionGeneration += 1
-                    if let adFlow { ads.pairingVideo.cancelUnshown(flow: adFlow) }
-                }
+                .onDisappear { mounted = false; actionGeneration += 1 }
                 .onChange(of: code) { _, _ in error = "" }
                 .sheet(isPresented: $scanning) {
                     ScannerSheet { result in
@@ -130,8 +116,8 @@ struct PairingView: View {
         guard !saving else { return }
         do {
             let mac = try PairedMac.parse(code)
-            let action = actionGeneration, flow = adFlow
-            saving = true; finishedAdvertisement = false; automaticStart = immediate
+            let action = actionGeneration
+            saving = true; automaticStart = immediate
             Task { @MainActor in
                 if immediate {
                     // Verify scanned credentials before replacing a working saved pairing.
@@ -149,28 +135,14 @@ struct PairingView: View {
                     try pairing.save(mac); receiver.disconnect()
                     savedName = mac.displayName; saving = false; code = ""; confirmation = immediate ? true : nil
                     if immediate {
-                        let start = {
-                            guard mounted, action == actionGeneration, pairing.mac?.pin == mac.pin, scenePhase == .active, !scanning else { return }
-                            finishedAdvertisement = true; receiver.connect(); dismiss()
-                        }
-                        if let flow {
-                            ads.pairingVideo.showAfterConnection(flow: flow, eligible: {
-                                mounted && action == actionGeneration && scenePhase == .active && !scanning && receiver.audioIdleForAdvertisement
-                            }, next: start)
-                        } else { start() }
+                        // A verified scan continues straight to listening.
+                        guard mounted, action == actionGeneration, pairing.mac?.pin == mac.pin, scenePhase == .active, !scanning else { return }
+                        receiver.connect(); dismiss()
                     } else {
                         Task { @MainActor in
                             let confirmed = await PairingConfirmation.confirm(mac, hostOverride: pairing.hostOverride)
                             guard mounted, action == actionGeneration, pairing.mac?.pin == mac.pin else { return }
                             confirmation = confirmed
-                        }
-                        guard let flow else { finishedAdvertisement = true; return }
-                        ads.pairingVideo.showAfterPairing(flow: flow, eligible: {
-                            mounted && action == actionGeneration && adFlow == flow && savedName != nil
-                                && scenePhase == .active && !scanning && receiver.audioIdleForAdvertisement
-                        }) {
-                            guard mounted, action == actionGeneration, savedName != nil else { return }
-                            finishedAdvertisement = true
                         }
                     }
                 } catch { automaticStart = false; showError(error) }

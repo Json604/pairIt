@@ -15,13 +15,16 @@ final class BannerAds: ObservableObject {
     @Published var privacyMessage: String?
     @Published var fullscreenActive = false
     @Published var openingScreen = false
-    @Published private(set) var pairingAdStatus = "Waiting for an explicit connection"
+    /// A cold launch is waiting for its app-open ad behind a static loading view.
+    @Published var launchLoading = false
     private(set) var bannerStatus = "Not requested"
     private(set) var bannerVisible = false
     private(set) var consentRevision = 0
-    lazy var pairingVideo = PairingInterstitial(ads: self)
     lazy var appOpen = AppOpeningAds(ads: self)
+    /// Presenting needs initialization to have completed.
     var canRequestFullscreen: Bool { initialized && !gatheringConsent && permitted }
+    /// Loading only needs MobileAds.start to have been called with valid consent (no mediation).
+    var canLoadFullscreen: Bool { (initializing || initialized) && !gatheringConsent && permitted }
     @Published var muted = UserDefaults.standard.object(forKey: "adSoundMuted") as? Bool ?? true {
         didSet {
             UserDefaults.standard.set(muted, forKey: "adSoundMuted")
@@ -40,19 +43,20 @@ final class BannerAds: ObservableObject {
         let privacy = gatheringConsent ? "Checking" : Self.testMode ? "Test mode" : permitted ? "Requests allowed" : "Requests blocked"
         return "Ad mode: \(Self.testMode ? "Google test units" : "Live")\nConsent SDK: \(privacy)"
             + "\nAd SDK: \(initialized ? "Ready" : "Not ready")\nLast banner request: \(bannerStatus)"
-            + "\nBanner visibility: \(bannerVisible ? "Visible" : "Hidden")\nConnection ad: \(pairingAdStatus)"
+            + "\nBanner visibility: \(bannerVisible ? "Visible" : "Hidden")\n" + appOpen.diagnostics
     }
-    func updatePairingAdStatus(_ value: String) { if pairingAdStatus != value { pairingAdStatus = value } }
     fileprivate func updateBannerStatus(_ value: String) { bannerStatus = value }
     fileprivate func updateBannerVisibility(_ value: Bool) { bannerVisible = value }
 
+    /// Starts consent and the SDK from the foreground window, without waiting for the banner slot.
+    func start() { if let presenter = Self.presenter { begin(from: presenter) } }
     func begin(from presenter: UIViewController) {
         guard UIApplication.shared.applicationState == .active, presenter.viewIfLoaded?.window != nil else { return }
         // Only Google's dedicated test unit bypasses publisher consent configuration.
         if Self.testMode { initializeIfPermitted(); return }
         guard !requestedConsent else { initializeIfPermitted(); return }
         requestedConsent = true; gatheringConsent = true
-        consentRevision += 1; pairingVideo.consentChanged(); appOpen.consentChanged()
+        consentRevision += 1; appOpen.consentChanged()
         ConsentInformation.shared.requestConsentInfoUpdate(with: RequestParameters()) { [weak self, weak presenter] error in
             Task { @MainActor in
                 guard let self else { return }
@@ -114,7 +118,7 @@ final class BannerAds: ObservableObject {
             return
         }
         setReady(false); gatheringConsent = true
-        consentRevision += 1; pairingVideo.consentChanged(); appOpen.consentChanged()
+        consentRevision += 1; appOpen.consentChanged()
         ConsentForm.presentPrivacyOptionsForm(from: presenter) { [weak self] error in
             Task { @MainActor in
                 guard let self else { return }
@@ -133,8 +137,9 @@ final class BannerAds: ObservableObject {
     }
 }
 
-/// The slot remains mounted at zero height until an ad actually loads. Failure
-/// collapses it; a bounded foreground retry recovers without leaving the screen.
+/// The slot remains mounted at zero height until an ad actually loads. A first-load
+/// failure collapses it and retries after 15, 30, then 60 seconds; a failed refresh
+/// keeps the ad already shown.
 struct BannerAdSlot: View {
     @ObservedObject var ads: BannerAds
     let active: Bool
@@ -181,6 +186,8 @@ private final class BannerHostController: UIViewController, BannerViewDelegate {
     private var refreshScheduled = false
     private var retryWork: DispatchWorkItem?
     private var nextLoadAt = Date.distantPast
+    private var failures = 0
+    private var loaded = false // The current BannerView has shown an ad.
     private var dismantled = false
     var heightChanged: (CGFloat) -> Void = { _ in }
     init(ads: BannerAds) { self.ads = ads; super.init(nibName: nil, bundle: nil) }
@@ -240,7 +247,7 @@ private final class BannerHostController: UIViewController, BannerViewDelegate {
     func stop() {
         retryWork?.cancel(); retryWork = nil
         refreshRevision += 1; refreshScheduled = false
-        banner?.delegate = nil; banner?.rootViewController = nil; banner?.removeFromSuperview(); banner = nil
+        banner?.delegate = nil; banner?.rootViewController = nil; banner?.removeFromSuperview(); banner = nil; loaded = false
         attemptedWidth = 0; publishHeight(0)
     }
     func dismantle() { dismantled = true; active = false; stop() }
@@ -256,14 +263,17 @@ private final class BannerHostController: UIViewController, BannerViewDelegate {
     }
     func bannerViewDidReceiveAd(_ bannerView: BannerView) {
         guard banner === bannerView, active else { return }
+        loaded = true; failures = 0
         ads.updateBannerStatus("Loaded")
         publishHeight(bannerView.adSize.size.height)
     }
     func bannerView(_ bannerView: BannerView, didFailToReceiveAdWithError error: Error) {
         guard banner === bannerView else { return }
+        // A failed automatic refresh keeps the creative that is already on screen.
+        if loaded { ads.updateBannerStatus("Showing previous ad (refresh code \((error as NSError).code))"); return }
         ads.updateBannerStatus("Unavailable (Google load code \((error as NSError).code))")
         bannerView.removeFromSuperview(); bannerView.delegate = nil; banner = nil
-        attemptedWidth = 0; nextLoadAt = Date().addingTimeInterval(60)
+        attemptedWidth = 0; nextLoadAt = Date().addingTimeInterval(AdTiming.bannerRetry(failures: failures)); failures += 1
         publishHeight(0)
         scheduleRetry()
     }

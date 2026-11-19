@@ -11,6 +11,23 @@ enum ReceiverPhase {
 
 final class RelayReceiver: ObservableObject {
     @Published private(set) var computerVolumeText = "";
+    /// The computer's volume keys move this phone's own volume (ComputerVolume.phoneOwned).
+    @Published private(set) var computerVolumeLinked = false
+    /// Shown when an updated Mac has not been allowed to control its media player.
+    @Published private(set) var mediaControlHint = ""
+    /// The computer's player is silent while this phone listens (STATS PLAYER1). Per session.
+    @Published private(set) var computerPlayerPaused = false
+    private var pausedByUser = false // Main thread; a user pause may accept a Mac resume offer.
+    private var controlStatusBits: UInt32 = 0 // Main thread; latest authenticated control status.
+    private func updateMediaControlHint() {
+        let hint = computerVolumeLinked && controlStatusBits & 1 != 0 && controlStatusBits & 2 == 0
+            ? "On your Mac, open PairIt and choose Allow next to Headphone buttons so earphones can pause Mac videos." : ""
+        if mediaControlHint != hint { mediaControlHint = hint }
+    }
+    /// Increments when the computer disconnects this phone, so the UI can leave its paired view.
+    @Published private(set) var computerDisconnects = 0
+    /// Default on: game and click sounds arrive sooner. Unstable Wi-Fi falls back per session.
+    static var lowLatency: Bool { UserDefaults.standard.object(forKey: "lowLatency") as? Bool ?? true }
     @Published private(set) var phase = ReceiverPhase.idle
     @Published private(set) var title = "Ready to listen"
     @Published private(set) var detail = "Choose an output, then listen to your computer."
@@ -32,6 +49,7 @@ final class RelayReceiver: ObservableObject {
     private var transport: RelayTransport?
     private var playback = RelayPlayback()
     private var observers: [NSObjectProtocol] = []
+    private var volumeObservation: NSKeyValueObservation?
     private var remoteTargets: [(MPRemoteCommand, Any)] = []
     private var hasRemoteSession = false
     private var desired = false // Playback queue.
@@ -165,6 +183,12 @@ final class RelayReceiver: ObservableObject {
                 self.queue.sync { self.localPlaybackReady = false; self.playback.stop() }
             }
         })
+        // Report this phone's media volume promptly so the computer's controls stay in step.
+        volumeObservation = AVAudioSession.sharedInstance().observe(\.outputVolume, options: [.new]) { [weak self] _, change in
+            guard let self, let value = change.newValue else { return }
+            let level = PhoneVolume.level(value)
+            self.queue.async { self.transport?.setPhoneVolume(level) }
+        }
         let commands = MPRemoteCommandCenter.shared()
         for (command, intent) in [(commands.playCommand, RemotePlaybackCommand.play),
                                   (commands.pauseCommand, .pause),
@@ -176,8 +200,16 @@ final class RelayReceiver: ObservableObject {
             }
             remoteTargets.append((command, target))
         }
-        // A live relay has no track queue. Do not reinterpret next/previous as source switches.
-        commands.nextTrackCommand.isEnabled = false; commands.previousTrackCommand.isEnabled = false
+        // Earphone next/previous skip tracks in the computer's player while a session is active.
+        // They never switch the source or output.
+        for (command, next) in [(commands.nextTrackCommand, true), (commands.previousTrackCommand, false)] {
+            let target = command.addTarget { [weak self] _ in
+                let perform = { self?.sendMediaKey(next: next) ?? .commandFailed }
+                return Thread.isMainThread ? perform() : DispatchQueue.main.sync(execute: perform)
+            }
+            remoteTargets.append((command, target))
+            command.isEnabled = false
+        }
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--preview-connected") {
             phase = .playing; title = "Listening to computer"; detail = "Your headphones · Local network"; headphones = "Bluetooth headphones"
@@ -187,7 +219,21 @@ final class RelayReceiver: ObservableObject {
     }
     deinit {
         observers.forEach(NotificationCenter.default.removeObserver)
+        volumeObservation?.invalidate()
         remoteTargets.forEach { $0.0.removeTarget($0.1) }
+    }
+    private func sendMediaKey(next: Bool) -> MPRemoteCommandHandlerStatus {
+        // The transport belongs to the playback queue; it sends only when connected.
+        guard hasRemoteSession, !computerOutput else { return .noSuchContent }
+        queue.async { self.transport?.sendMediaKey(next: next) }
+        // A skip while paused is a request to hear the new track: resume this phone too.
+        // The key is queued first, so the computer sees the skip before the resume.
+        if phase == .paused { _ = performRemoteCommand(.play) }
+        return .success
+    }
+    private func setTrackCommands(_ enabled: Bool) {
+        let commands = MPRemoteCommandCenter.shared()
+        commands.nextTrackCommand.isEnabled = enabled; commands.previousTrackCommand.isEnabled = enabled
     }
     private func performRemoteCommand(_ command: RemotePlaybackCommand) -> MPRemoteCommandHandlerStatus {
         if command == .pause && outputRecovery.waiting {
@@ -195,6 +241,12 @@ final class RelayReceiver: ObservableObject {
             return .success
         }
         let listening = playIntent && !computerOutput && !waitingForComputerOutput
+        if listening, computerPlayerPaused, [.playing, .buffering].contains(phase) {
+            // Paused on the computer while this phone still listens: start the computer's player.
+            // Earbuds still receive (silent) audio and so send an explicit Pause: treat any press as Play.
+            queue.async { self.transport?.sendMediaCommand("PLAY") }
+            return .success
+        }
         switch command.action(paired: pairing.mac != nil, listening: listening) {
         case .unavailable: return .noSuchContent
         case .none: return .success
@@ -202,7 +254,7 @@ final class RelayReceiver: ObservableObject {
             pauseComputer()
             return .success
         case .connect:
-            // Direct service action: no pairing interstitial or app-open ad is requested.
+            // Direct service action: no app-open ad is requested.
             guard !AudioPresentationGate.isPresenting, !calls.calls.contains(where: { !$0.hasEnded }) else { return .commandFailed }
             connect(requestPhoneOutput: true)
             return playIntent || outputRecovery.waiting ? .success : .commandFailed
@@ -224,12 +276,13 @@ final class RelayReceiver: ObservableObject {
     private func resetDisplayedTiming() { groupTimingStatus = ""; estimatedMs = nil; correction = 0; routeUID = ""; activeMode = playbackMode; modeNote = "" }
     func connect(requestPhoneOutput: Bool = true, useCurrentOutput: Bool = true) {
         cancelOutputRecovery()
+        pausedByUser = false
         DispatchQueue.main.async { ConnectionAcknowledgment.shared.stopSound() }
         guard !AudioPresentationGate.isPresenting else {
             publish(.idle, "Ready to listen", "Close the advertisement, then choose Computer to start audio."); return
         }
         guard let computer = pairing.mac else { publish(.idle, "Connect your computer", "Open PairIt on your computer and scan its pairing code."); return }
-        hasRemoteSession = true
+        hasRemoteSession = true; setTrackCommands(true)
         waitingForComputerOutput = false
         stopPlayback(keepTransport: true)
         let intentTicket = intentGeneration
@@ -254,7 +307,10 @@ final class RelayReceiver: ObservableObject {
             publish(.headphones, "Choose \(output.title)", "Use the output picker or Control Center. PairIt won’t silently switch to another output."); return
         }
         playIntent = true; headphones = route.portName; routeUID = route.uid
-        let requestedMode: RelayPlaybackMode = PresentationTiming.adaptive(platform: computer.platform ?? "", bluetooth: output == .bluetooth) ? .interactive : .reliable
+        let platform = computer.platform ?? "", bluetooth = output == .bluetooth
+        let requestedMode: RelayPlaybackMode = PresentationTiming.adaptive(platform: platform, bluetooth: bluetooth, lowLatency: Self.lowLatency) ? .interactive : .reliable
+        let floorMs = PresentationTiming.floorMs(platform: platform, bluetooth: bluetooth)
+        let volume = PhoneVolume.current
         activeMode = requestedMode; modeNote = requestedMode == .interactive ? "Learning arrival timing…" : ""
         let override = pairing.hostOverride
         let timing = RouteTiming(pin: computer.pin, route: route.uid, mode: requestedMode, hostOverride: override)
@@ -265,7 +321,7 @@ final class RelayReceiver: ObservableObject {
             self.generation += 1; let generation = self.generation; self.desired = true
             self.localPlaybackReady = true
             self.playback.stop(); self.reportTimer?.cancel()
-            self.playback = RelayPlayback(mode: requestedMode)
+            self.playback = RelayPlayback(mode: requestedMode, floorMs: floorMs)
             let existing = self.transport
             let transport = existing ?? RelayTransport(mac: computer, queue: self.queue, hostOverride: override); self.transport = transport
             transport.onOutput = { [weak self, weak transport] supported, onComputer in
@@ -310,9 +366,37 @@ final class RelayReceiver: ObservableObject {
             transport.onComputerVolume = { [weak self, weak transport] volume in
                 DispatchQueue.main.async {
                     guard let self, let transport, self.transport === transport else { return }
-                    self.computerVolumeText = volume.description
+                    self.computerVolumeText = volume.description; self.computerVolumeLinked = volume.phoneOwned
+                    self.updateMediaControlHint()
                 }
             }
+            transport.onPlayerState = { [weak self, weak transport] playing in
+                DispatchQueue.main.async {
+                    guard let self, let transport, self.transport === transport, self.connectionGeneration == connectionTicket,
+                          self.computerPlayerPaused == playing else { return }
+                    self.computerPlayerPaused = !playing
+                    if self.playIntent { self.setNowPlaying() }
+                }
+            }
+            transport.onControlStatus = { [weak self, weak transport] status in
+                DispatchQueue.main.async {
+                    guard let self, let transport, self.transport === transport, self.connectionGeneration == connectionTicket else { return }
+                    self.controlStatusBits = status; self.updateMediaControlHint()
+                }
+            }
+            transport.onPhoneVolumeRequest = { [weak self, weak transport] level in
+                DispatchQueue.main.async {
+                    guard let self, let transport, self.transport === transport, self.connectionGeneration == connectionTicket else { return }
+                    PhoneVolume.set(level: level)
+                }
+            }
+            transport.onDesktopDisconnect = { [weak self] in
+                DispatchQueue.main.async {
+                    guard let self, self.connectionGeneration == connectionTicket else { return }
+                    self.computerDisconnected()
+                }
+            }
+            transport.setPhoneVolume(volume)
             transport.onDesktopPlayback = { [weak self] playing in
                 guard let self else { return }
                     DispatchQueue.main.async {
@@ -331,11 +415,14 @@ final class RelayReceiver: ObservableObject {
                 let offered = transport.claimResumeOffer(status)
                 if offered || (transport.connections > max(1, configuredConnection) && status & 4 != 0) {
                     DispatchQueue.main.async {
-                        guard self.connectionGeneration == connectionTicket, self.interruptedByPhoneAudio,
-                              self.phase == .phone, !self.playIntent, !self.computerOutput,
-                              offered || !AVAudioSession.sharedInstance().isOtherAudioPlaying,
+                        let phoneReturn = self.interruptedByPhoneAudio && self.phase == .phone
+                            && (offered || !AVAudioSession.sharedInstance().isOtherAudioPlaying)
+                        // Updated Macs also offer a resume after a user pause, once new sound starts.
+                        let pauseReturn = offered && self.pausedByUser && self.phase == .paused
+                        guard self.connectionGeneration == connectionTicket, phoneReturn || pauseReturn,
+                              !self.playIntent, !self.computerOutput,
                               !self.calls.calls.contains(where: { !$0.hasEnded }), !AudioPresentationGate.isPresenting else { return }
-                        self.interruptedByPhoneAudio = false
+                        self.interruptedByPhoneAudio = false; self.pausedByUser = false
                         self.connect(requestPhoneOutput: false)
                     }
                 }
@@ -492,18 +579,31 @@ final class RelayReceiver: ObservableObject {
     func disconnect(completion: (() -> Void)? = nil) {
         UserDefaults.standard.removeObject(forKey: "groupGuestPin")
         groupTimingStatus = "";
-        hasRemoteSession = false
-        computerVolumeText = ""
+        hasRemoteSession = false; setTrackCommands(false)
+        computerVolumeText = ""; computerVolumeLinked = false; controlStatusBits = 0; mediaControlHint = ""
         cancelOutputRecovery(); interruptedByPhoneAudio = false
         DispatchQueue.main.async { ConnectionAcknowledgment.shared.disconnected(output: self.output) }
         stopPlayback(completion: completion)
         publish(.idle, "Ready when you are", "Choose an output, then listen to your computer.")
+    }
+    /// The computer's Disconnect: the same as this phone's Disconnect, including leaving a group.
+    private func computerDisconnected() {
+        disconnect()
+        computerDisconnects += 1
+        publish(.idle, "Disconnected by your computer", "Choose Connect to listen again.")
+    }
+    /// Applies a Low latency change to a live session by reopening this phone's output.
+    /// The pairing and the computer connection stay as they are.
+    func lowLatencyChanged() {
+        guard playIntent, !computerOutput, !waitingForComputerOutput, phase.macSelected else { return }
+        connect(requestPhoneOutput: false)
     }
     private func parkListening(_ reason: String, phase: ReceiverPhase, title: String) {
         groupTimingStatus = "";
         cancelOutputRecovery()
         endHoldBackgroundTask()
         interruptedByPhoneAudio = reason == "PHONE"
+        pausedByUser = reason == "PAUSE" && phase == .paused
         playIntent = false; intentGeneration += 1
         queue.sync {
             desired = false; localPlaybackReady = false; generation += 1; playback.stop()
@@ -559,7 +659,11 @@ final class RelayReceiver: ObservableObject {
         }
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
-        if !keepTransport { supportsOutputControl = false; computerOutput = false; waitingForComputerOutput = false }
+        if !keepTransport {
+            supportsOutputControl = false; computerOutput = false; waitingForComputerOutput = false
+            controlStatusBits = 0; mediaControlHint = "" // A new session learns the computer's controls again.
+            computerPlayerPaused = false; pausedByUser = false
+        }
     }
     func adjustCorrection(_ delta: Int) {
         guard !routeUID.isEmpty, let profile else { return }
@@ -593,6 +697,8 @@ final class RelayReceiver: ObservableObject {
     }
     private func setNowPlaying(paused: Bool = false) {
         guard hasRemoteSession, !computerOutput, !waitingForComputerOutput, paused || playIntent else { return }
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = [MPMediaItemPropertyTitle: title, MPMediaItemPropertyArtist: pairing.mac?.displayName ?? "PairIt", MPNowPlayingInfoPropertyIsLiveStream: true, MPNowPlayingInfoPropertyPlaybackRate: paused ? 0 : 1]
+        // Paused on the computer: report paused so the earphone's next press is Play.
+        let rate = paused || (computerPlayerPaused && phase == .playing) ? 0 : 1
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = [MPMediaItemPropertyTitle: title, MPMediaItemPropertyArtist: pairing.mac?.displayName ?? "PairIt", MPNowPlayingInfoPropertyIsLiveStream: true, MPNowPlayingInfoPropertyPlaybackRate: rate]
     }
 }

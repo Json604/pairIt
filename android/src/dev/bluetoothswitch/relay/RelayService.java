@@ -38,6 +38,12 @@ public class RelayService extends Service {
     private volatile OutputRoute selectedOutput = OutputRoute.BLUETOOTH;
     private volatile boolean interactiveMode, profileReady;
     static volatile String groupTimingStatus = "";
+    /** Shown when an updated Mac has not been allowed to pause its media from earphones. */
+    static volatile String mediaControlHint = "";
+    /** The computer is silent (its player paused) while this phone keeps listening. */
+    static volatile boolean computerPlayerPaused;
+    private volatile boolean computerVolumeLinked;
+    private final java.util.concurrent.ConcurrentLinkedQueue<String> mediaCommands = new java.util.concurrent.ConcurrentLinkedQueue<>();
     private volatile String alignmentReport = "STATS ALIGN1 320 -1\n";
     private volatile int selectedDeviceId = -1;
     private volatile String activeProfileKey = "";
@@ -45,6 +51,8 @@ public class RelayService extends Service {
     private int manualResyncs, connections;
     private volatile long lastTrafficAt;
     private final ListeningFeedback listeningFeedback = new ListeningFeedback();
+    private final Object controlWake = new Object();
+    private android.database.ContentObserver volumeObserver;
     private final Runnable connectionWatchdog = new Runnable() {
         public void run() {
             if (!running || userStopped) return;
@@ -216,6 +224,12 @@ public class RelayService extends Service {
                     }
                 }, main).build();
         audio.registerAudioDeviceCallback(devices, main);
+        // Report this phone's media volume promptly so the computer's controls stay in step.
+        volumeObserver = new android.database.ContentObserver(main) {
+            @Override public void onChange(boolean self) { synchronized (controlWake) { controlWake.notifyAll(); } }
+        };
+        try { getContentResolver().registerContentObserver(android.provider.Settings.System.CONTENT_URI, true, volumeObserver); }
+        catch (SecurityException error) { volumeObserver = null; }
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(noisy, new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY), RECEIVER_NOT_EXPORTED);
         else registerReceiver(noisy, new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY));
         getSystemService(NotificationManager.class).createNotificationChannel(new NotificationChannel("relay",getString(R.string.app_name),NotificationManager.IMPORTANCE_LOW));
@@ -226,9 +240,18 @@ public class RelayService extends Service {
         else setLegacyMediaReceiver();
         mediaSession.setSessionActivity(PendingIntent.getActivity(this,0,new Intent(this,MainActivity.class),PendingIntent.FLAG_IMMUTABLE));
         mediaSession.setCallback(new MediaSession.Callback(){
-            @Override public void onPlay(){if(state.macSelected())mediaAction("PLAY");}
-            @Override public void onPause(){pauseComputer();}
-            @Override public void onStop(){pauseComputer();}
+            @Override public void onPlay(){
+                if(playComputerWhilePaused())return;
+                if(state.macSelected())mediaAction("PLAY");
+            }
+            // Bluetooth earbuds still receive (silent) audio, so they send an explicit Pause
+            // even though the computer is paused. In that state every press means "play".
+            @Override public void onPause(){if(!playComputerWhilePaused())pauseComputer();}
+            @Override public void onStop(){if(!playComputerWhilePaused())pauseComputer();}
+            // Earphone double/triple taps: next/previous track in the computer's player.
+            // A skip while paused is a request to hear the new track: resume this phone too.
+            @Override public void onSkipToNext(){sendMediaKey("NEXT");if(state.phase==RelayState.Phase.PAUSED)mediaAction("PLAY");}
+            @Override public void onSkipToPrevious(){sendMediaKey("PREVIOUS");if(state.phase==RelayState.Phase.PAUSED)mediaAction("PLAY");}
             @Override public void onCustomAction(String action,Bundle extras){
                 if("disconnect".equals(action)){settings.groupGuest(false);requestStop();}
                 else if("use_phone".equals(action))mediaAction("USE_PHONE");
@@ -463,6 +486,9 @@ public class RelayService extends Service {
         main.post(() -> {
             if (socket != connection || handoff != control) return;
             outputControlSupported = control.outputSupported();
+            // Only an updated Mac (it links volume keys) can be asked to allow media control.
+            mediaControlHint = computerVolumeLinked && control.supported() && !control.playerControl()
+                    ? "On your Mac, open PairIt and choose Allow next to Headphone buttons so earphones can pause Mac videos." : "";
             if (userStopped) { if (control.released()) finishStop(); return; }
             if (!control.outputSupported() && pendingOutputOnConnect == 1) {
                 pendingOutputOnConnect = -1; computerOutputSelected = false;
@@ -494,7 +520,8 @@ public class RelayService extends Service {
                         : "Relay is held. Pause unsupported computer players yourself; choose Computer to return.";
                 if (!state.detail.equals(detail)) publish(state.phase, state.title, detail);
             }
-            if ((resumeOffer && control.isCurrentOffer(value) || resumeWhenQuietAfterReconnect && control.held() && !audio.isMusicActive()) && state.phase == RelayState.Phase.PHONE
+            if ((resumeOffer && control.isCurrentOffer(value) || resumeWhenQuietAfterReconnect && control.held() && !audio.isMusicActive())
+                    && (state.phase == RelayState.Phase.PHONE || state.phase == RelayState.Phase.PAUSED && control.intent() == RelayHandoff.Intent.PAUSE && resumeOffer)
                     && audio.getMode() == AudioManager.MODE_NORMAL && PhoneAudioSession.availableTo(this)
                     && selectedOutput == settings.output()) {
                 AudioDeviceInfo route = selectedOutput.find(audio,settings.outputDeviceId());
@@ -505,6 +532,7 @@ public class RelayService extends Service {
     private void desktopPlaybackRequest(Socket connection,RelayHandoff control,int value){
         main.post(()->{if(socket!=connection||handoff!=control||userStopped)return;
             int desktopRequest=control.desktopRequest(value);
+            if(desktopRequest==2){settings.groupGuest(false);requestStop();return;}
             if(desktopRequest==0){park(RelayHandoff.Intent.PAUSE,RelayState.Phase.PAUSED,"Listening paused");return;}
             if(desktopRequest==1) {
                 if(audio.getMode()==AudioManager.MODE_NORMAL && PhoneAudioSession.availableTo(this))startListening(true);
@@ -512,6 +540,28 @@ public class RelayService extends Service {
                 return;
             }
         });
+    }
+    private int phoneVolumeLevel() {
+        return PhoneVolume.level(audio.getStreamVolume(AudioManager.STREAM_MUSIC), audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC));
+    }
+    /** A computer volume key or slider. The phone's own volume moves; nothing is attenuated. */
+    private void setPhoneVolume(int level) {
+        int max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+        int current = audio.getStreamVolume(AudioManager.STREAM_MUSIC);
+        int index = PhoneVolume.index(level, current, max);
+        if (index == current) return;
+        try { audio.setStreamVolume(AudioManager.STREAM_MUSIC, index, 0); }
+        catch (SecurityException error) { Log.w(TAG, "Phone volume change refused"); }
+    }
+    /** Paused on the computer while this phone is still listening: start the computer's player. */
+    private boolean playComputerWhilePaused() {
+        if (!requestedMac || !computerPlayerPaused || (state.phase != RelayState.Phase.PLAYING && state.phase != RelayState.Phase.BUFFERING)) return false;
+        sendMediaKey("PLAY"); return true;
+    }
+    private void sendMediaKey(String key) {
+        if (socket == null || handoff == null) return;
+        mediaCommands.add("STATS MEDIA1 " + key + "\n");
+        synchronized (controlWake) { controlWake.notifyAll(); }
     }
     static boolean awaitingPlaybackAcknowledgment(){RelayService s=liveInstance;return s!=null&&s.handoff!=null&&!s.handoff.acknowledged();}
     private static final class OutputUnavailable extends IOException {
@@ -611,8 +661,8 @@ public class RelayService extends Service {
     }
 
     private void playSession(Socket connection) throws Exception {
-        computerVolume = "";
-        groupTimingStatus = "";
+        computerVolume = ""; computerPlayerPaused = false;
+        groupTimingStatus = ""; mediaControlHint = ""; computerVolumeLinked = false; mediaCommands.clear();
         PcmInbox inbox = new PcmInbox();
         RelayHandoff control = handoff;
         inbox.onHeartbeat = () -> lastTrafficAt=SystemClock.elapsedRealtime();
@@ -620,8 +670,17 @@ public class RelayService extends Service {
         inbox.onDesktopRequest = value -> desktopPlaybackRequest(connection,control,value);
         inbox.onComputerVolume = value -> main.post(() -> {
             if (socket != connection) return;
-            computerVolume = (value & 0x10000) != 0 ? "Computer muted" : "Computer volume · " + Math.round((value & 0x3FF) / 10f) + "%";
+            computerVolumeLinked = (value & 0x20000) != 0;
+            computerVolume = (value & 0x10000) != 0 ? "Computer muted"
+                    : (value & 0x20000) != 0 ? "Computer volume keys linked"
+                    : "Computer volume · " + Math.round((value & 0x3FF) / 10f) + "%";
         });
+        inbox.onPlayerState = playing -> main.post(() -> {
+            if (socket != connection || computerPlayerPaused == ((playing & 1) == 0)) return;
+            computerPlayerPaused = (playing & 1) == 0;
+            updateMediaState(); getSystemService(NotificationManager.class).notify(1, notification());
+        });
+        inbox.onVolumeSet = level -> main.post(() -> { if (socket == connection) setPhoneVolume(level); });
         InputStream input = connection.getInputStream();
         Thread reader = new Thread(() -> inbox.read(input), "relay-network"); reader.start();
         AudioTrack track = null;
@@ -629,7 +688,7 @@ public class RelayService extends Service {
         int rate = 0, seenGeneration = -1, underruns = 0, primedFrames = 0, leadFrames = 0;
         int cushionMs = PlayoutTiming.CUSHION_MS, minimumCushionMs = cushionMs, outputDelayMs = -1;
         alignmentReport = "STATS ALIGN1 " + minimumCushionMs + " -1\n";
-        InteractivePlayback interactive = interactiveMode ? new InteractivePlayback() : null;
+        InteractivePlayback interactive = interactiveMode ? new InteractivePlayback(PresentationTiming.floorMs(settings.platform(), selectedOutput == OutputRoute.BLUETOOTH)) : null;
         boolean learning = interactive != null;
         long previousSequence = -1, writtenFrames = 0, lastReport = 0, started = 0;
         boolean playing = false, routeConfigured = false;
@@ -645,7 +704,7 @@ public class RelayService extends Service {
                     if (track != null) { activeTrack = null; releaseTrack(track); track = null; }
                     seenOutputRevision = outputRevision; inbox.clear();
                     interactiveMode = settings.interactive();
-                    interactive = interactiveMode ? new InteractivePlayback() : null;
+                    interactive = interactiveMode ? new InteractivePlayback(PresentationTiming.floorMs(settings.platform(), selectedOutput == OutputRoute.BLUETOOTH)) : null;
                     learning = interactive != null;
                     cushionMs = minimumCushionMs = PlayoutTiming.CUSHION_MS;
                     timing = new PlayoutTiming();
@@ -847,11 +906,12 @@ public class RelayService extends Service {
     private void startControl(Socket connection) {
         RelayHandoff control = handoff;
         new Thread(() -> {
-            int sentSync = -1, pings = 0;
+            int sentSync = -1, pings = 0, sentVolume = -1;
             String sentAlignment = "";
             try {
                 OutputStream output = connection.getOutputStream();
-                output.write(("HELLO " + settings.installationId() + "\nNAME1 " + PhoneDisplayName.encoded(this) + "\nSTATS CONTROLS1\nSTATS VOLUME1\n").getBytes(StandardCharsets.US_ASCII)); output.flush();
+                // STATS lines are ignored by older desktops; VOLUME2/CONTROLS2 are opt-in extensions.
+                output.write(("HELLO " + settings.installationId() + "\nNAME1 " + PhoneDisplayName.encoded(this) + "\nSTATS CONTROLS1\nSTATS VOLUME1\nSTATS VOLUME2\nSTATS CONTROLS2\nSTATS PLAYER1\n").getBytes(StandardCharsets.US_ASCII)); output.flush();
                 while (running && socket == connection) {
                     int sync = profileReady ? settings.profileCompensation(activeProfileKey) : -1;
                     String message = control.nextCommand() + "PING " + System.nanoTime() + "\n";
@@ -859,8 +919,12 @@ public class RelayService extends Service {
                     String alignment = alignmentReport;
                     if (!alignment.equals(sentAlignment)) { message = alignment + message; sentAlignment = alignment; }
                     if (sync >= 0 && sync != sentSync) { message = "SYNC " + sync + "\n" + message; sentSync = sync; }
+                    for (String media; (media = mediaCommands.poll()) != null; ) message = media + message;
+                    int volume = phoneVolumeLevel();
+                    if (volume != sentVolume) { message = "STATS PVOL1 " + volume + "\n" + message; sentVolume = volume; }
                     output.write(message.getBytes(StandardCharsets.UTF_8)); output.flush();
-                    Thread.sleep(++pings < 10 || !canPlay() && !control.acknowledged() ? 250 : 1000);
+                    long wait = ++pings < 10 || !canPlay() && !control.acknowledged() ? 250 : 1000;
+                    synchronized (controlWake) { if (phoneVolumeLevel() == sentVolume && mediaCommands.isEmpty()) controlWake.wait(wait); }
                 }
             } catch (IOException | InterruptedException ignored) { }
         }, "relay-control").start();
@@ -952,12 +1016,13 @@ public class RelayService extends Service {
     private void finishStop() { if (!userStopped) return; running = false; closeConnection(); stopSelf(); }
     private void updateMediaState() {
         if(mediaSession==null)return;
-        int playback=state.phase==RelayState.Phase.PLAYING?PlaybackState.STATE_PLAYING:
+        int playback=state.phase==RelayState.Phase.PLAYING&&computerPlayerPaused?PlaybackState.STATE_PAUSED:
+                state.phase==RelayState.Phase.PLAYING?PlaybackState.STATE_PLAYING:
                 state.phase==RelayState.Phase.CONNECTING || state.phase==RelayState.Phase.RECONNECTING?PlaybackState.STATE_CONNECTING:
                 state.phase==RelayState.Phase.BUFFERING?PlaybackState.STATE_BUFFERING:
                 state.phase==RelayState.Phase.ERROR?PlaybackState.STATE_ERROR:
                 state.phase==RelayState.Phase.IDLE?PlaybackState.STATE_STOPPED:PlaybackState.STATE_PAUSED;
-        mediaSession.setPlaybackState(new PlaybackState.Builder().setActions(PlaybackState.ACTION_PLAY|PlaybackState.ACTION_PAUSE|PlaybackState.ACTION_STOP|PlaybackState.ACTION_PLAY_PAUSE)
+        mediaSession.setPlaybackState(new PlaybackState.Builder().setActions(PlaybackState.ACTION_PLAY|PlaybackState.ACTION_PAUSE|PlaybackState.ACTION_STOP|PlaybackState.ACTION_PLAY_PAUSE|PlaybackState.ACTION_SKIP_TO_NEXT|PlaybackState.ACTION_SKIP_TO_PREVIOUS)
                 .setState(playback,PlaybackState.PLAYBACK_POSITION_UNKNOWN,playback==PlaybackState.STATE_PLAYING?1:0,SystemClock.elapsedRealtime()).build());
     }
     private int prepareInteractiveTrack(AudioTrack track, int rate) throws IOException {
@@ -993,7 +1058,8 @@ public class RelayService extends Service {
         if (worker != null) worker.interrupt();
         try { connectivity.unregisterNetworkCallback(networkCallback); } catch(IllegalArgumentException ignored) { }
         main.removeCallbacksAndMessages(null); locks.release(); discovery.stop();
-        audio.unregisterAudioDeviceCallback(devices); unregisterReceiver(noisy); audio.abandonAudioFocusRequest(focus);
+        audio.unregisterAudioDeviceCallback(devices); unregisterReceiver(noisy);
+        if (volumeObserver != null) getContentResolver().unregisterContentObserver(volumeObserver); audio.abandonAudioFocusRequest(focus);
         if (worker == null || !worker.isAlive()) PhoneAudioSession.release(this);
         ++startTicket;
         if (userStopped || (state.phase != RelayState.Phase.ERROR && state.phase != RelayState.Phase.HEADPHONES && state.phase != RelayState.Phase.PHONE && state.phase != RelayState.Phase.PAUSED))

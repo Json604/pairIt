@@ -52,6 +52,14 @@ final class SyncOutput {
         guard AudioObjectGetPropertyData(output, &property, 0, nil, &size, &muted) == noErr else { return nil }
         return ComputerVolume(level: Double(volume), muted: muted != 0)
     }
+    /// Follows the listening phone's volume so the Mac's HUD and volume keys match it.
+    func setComputerVolume(_ level: Double) {
+        guard output != 0, level.isFinite else { return }
+        var property = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyVolumeScalar, mScope: kAudioObjectPropertyScopeOutput, mElement: kAudioObjectPropertyElementMain)
+        var value = Float32(min(1, max(0, level)))
+        let status = AudioObjectSetPropertyData(output, &property, 0, nil, UInt32(MemoryLayout<Float32>.size), &value)
+        if status != noErr { log("VOLUME follow phone failed status=\(status)") }
+    }
 
 
     static func recoverAfterCrash() {

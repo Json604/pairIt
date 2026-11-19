@@ -9,6 +9,10 @@ final class ListeningInvitations: ObservableObject {
     @Published private(set) var notice = ""
     @Published private(set) var busy = false
     var received: ((String) -> Void)?
+    /// A paired computer asks this phone to connect (CONNECT1 <pin>). The hint carries no
+    /// credentials; the phone confirms it over the pinned channel before doing anything.
+    var connectRequest: ((_ pin: String, _ host: String) -> Void)?
+    private var lastConnectRequest = Date.distantPast
     var canHost: () -> Bool = { true }
     private var listener: NWListener?
     private var exchange: InvitationExchange?
@@ -22,9 +26,20 @@ final class ListeningInvitations: ObservableObject {
                 if case .ready = state { ready(Int(current.port?.rawValue ?? 0)) }
                 if case .failed = state { self.notice = "Invitations unavailable. Reopen Together to retry." }
             }
-            current.newConnectionHandler = { [weak self] connection in
-                guard let self, !self.busy, Date().timeIntervalSince(self.lastIncoming) >= 3 else { connection.cancel(); return }
-                self.lastIncoming = Date(); self.begin(connection, code: nil, computer: nil)
+            current.newConnectionHandler = { [weak self, weak current] connection in
+                guard let self else { connection.cancel(); return }
+                FirstLine.read(connection) { [weak self, weak current] first in
+                    guard let self, let current, self.listener === current, let first else { connection.cancel(); return }
+                    if let line = String(data: first.prefix(while: { $0 != 10 }), encoding: .ascii), line.hasPrefix("CONNECT1 ") {
+                        let pin = String(line.dropFirst(9)), host = FirstLine.host(connection)
+                        connection.cancel()
+                        guard pin.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil, let host,
+                              Date().timeIntervalSince(self.lastConnectRequest) >= 2 else { return }
+                        self.lastConnectRequest = Date(); self.connectRequest?(pin, host); return
+                    }
+                    guard !self.busy, Date().timeIntervalSince(self.lastIncoming) >= 3 else { connection.cancel(); return }
+                    self.lastIncoming = Date(); self.begin(connection, code: nil, computer: nil, received: first)
+                }
             }
             current.start(queue: .main)
         } catch { notice = "Invitations unavailable. Reopen Together to retry." }
@@ -36,9 +51,9 @@ final class ListeningInvitations: ObservableObject {
         }
         begin(NWConnection(host: .init(host), port: port, using: .tcp), code: code, computer: computer)
     }
-    private func begin(_ connection: NWConnection, code: String?, computer: String?) {
+    private func begin(_ connection: NWConnection, code: String?, computer: String?, received: Data? = nil) {
         notice = code == nil ? "Invitation received. Compare the code with your host." : "Inviting listener… Keep PairIt open on both phones."; busy = true
-        let session = InvitationExchange(connection: connection, code: code, computer: computer)
+        let session = InvitationExchange(connection: connection, code: code, computer: computer, received: received)
         exchange = session
         session.canHost = { [weak self] in self?.canHost() == true }
         session.ask = { [weak self, weak session] title, comparison in
@@ -66,6 +81,45 @@ final class ListeningInvitations: ObservableObject {
     }
 }
 
+/// Reads an incoming connection's first line (3 s, at most 1024 bytes) on the main queue.
+/// Returns every byte received so far (the line and anything after it), or nil.
+private enum FirstLine {
+    static func read(_ connection: NWConnection, completion: @escaping (Data?) -> Void) {
+        var buffer = Data(), done = false
+        func finish(_ value: Data?) {
+            guard !done else { return }; done = true
+            connection.stateUpdateHandler = nil; completion(value)
+        }
+        func receive() {
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 1025 - buffer.count) { data, _, complete, error in
+                guard !done else { return }
+                if let data { buffer.append(data) }
+                if let newline = buffer.firstIndex(of: 10) { finish(newline <= 1024 ? buffer : nil); return }
+                if buffer.count > 1024 || complete || error != nil { finish(nil); return }
+                receive()
+            }
+        }
+        connection.stateUpdateHandler = { state in
+            switch state {
+            case .ready: receive()
+            case .failed, .cancelled: finish(nil)
+            default: break
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { if !done { finish(nil); connection.cancel() } }
+        connection.start(queue: .main)
+    }
+    static func host(_ connection: NWConnection) -> String? {
+        guard case .hostPort(let host, _) = connection.endpoint else { return nil }
+        switch host {
+        case .ipv4(let address): return "\(address)"
+        case .ipv6(let address): return "\(address)"
+        case .name(let name, _): return name
+        @unknown default: return nil
+        }
+    }
+}
+
 private final class InvitationExchange {
     var ask: ((String, String) -> Void)?
     var canHost: () -> Bool = { true }
@@ -78,10 +132,24 @@ private final class InvitationExchange {
     private var deadline: DispatchWorkItem?
     private var waiting: ((Bool) -> Void)?
     private var ended = false
-    init(connection: NWConnection, code: String?, computer: String?) { self.connection = connection; self.code = code; self.computer = computer }
+    /// `received`: bytes already read (the first line) from an incoming, started connection.
+    private let started: Bool
+    init(connection: NWConnection, code: String?, computer: String?, received: Data? = nil) {
+        self.connection = connection; self.code = code; self.computer = computer
+        started = received != nil; pending = received ?? Data()
+    }
     func start() {
         let timeout = DispatchWorkItem { [weak self] in self?.end(nil, "Invitation expired. Keep PairIt open on both phones and try again.") }
         deadline = timeout; DispatchQueue.main.asyncAfter(deadline: .now() + 65, execute: timeout)
+        if started {
+            // The listener already read the first line; continue the existing exchange.
+            connection.stateUpdateHandler = { [weak self] state in
+                guard let self, !self.ended else { return }
+                if case .failed = state { self.end(nil, "Couldn’t reach that phone. Keep PairIt open on both phones.") }
+                if case .cancelled = state { self.end(nil, "Couldn’t reach that phone. Keep PairIt open on both phones.") }
+            }
+            receiveOffer(); return
+        }
         connection.stateUpdateHandler = { [weak self] state in
             guard let self, !self.ended else { return }
             switch state {

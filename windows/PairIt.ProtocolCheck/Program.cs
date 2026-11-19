@@ -36,6 +36,7 @@ internal static class Integration
         await OutputSwitchIntegration.RunAsync(certificate, token);
         await RoutedPauseIntegration.RunAsync(certificate, token);
         await PresentationIntegration.RunAsync(certificate, token);
+        await ExtensionIntegration.RunAsync(certificate, token);
         var audio = new SyntheticEndpoints();
         var sessions = new DesktopSessions(audio);
         await using var server = new RelayServer(certificate, token, sessions);
@@ -374,6 +375,11 @@ internal sealed class Receiver : IAsyncDisposable
     public volatile uint DesktopRequest;
     public volatile uint PresentationTarget, PresentationListeners, PresentationCapable;
     public int AlignmentReplies;
+    // Negotiated extension frames; a receiver that never advertised one must see none.
+    public ConcurrentQueue<uint> PlayerStates { get; } = new();
+    public ConcurrentQueue<uint> VolumeRequests { get; } = new();
+    public volatile uint ComputerVolume;
+    public int ComputerVolumeFrames;
 
     public Receiver(Connection connection, bool readFrames)
     {
@@ -411,6 +417,12 @@ internal sealed class Receiver : IAsyncDisposable
                     Interlocked.Increment(ref AlignmentReplies); continue;
                 }
                 if(magic==0x32435342){DesktopRequest=BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(4));continue;}
+                if (magic == Protocol.ComputerVolumeMagic) {
+                    ComputerVolume = BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(4));
+                    Interlocked.Increment(ref ComputerVolumeFrames); continue;
+                }
+                if (magic == Protocol.VolumeRequestMagic) { VolumeRequests.Enqueue(BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(4))); continue; }
+                if (magic == Protocol.PlayerStateMagic) { PlayerStates.Enqueue(BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(4))); continue; }
                 if (magic == Protocol.ClockMagic)
                 {
                     var echo = BinaryPrimitives.ReadInt64LittleEndian(header.AsSpan(8));
@@ -449,6 +461,9 @@ internal sealed class SyntheticEndpoints : IAudioEndpoints
     public bool FailSourceStartup;
     public Action<string>? SourceFailure;
     public bool KeepCaptureWhilePaused { get; init; }
+    // Synthetic computer volume wire value (-1: unavailable) and whether PCM precedes it.
+    public volatile int VolumeWire = -1;
+    public volatile bool VolumeIndependent;
     public SyntheticSink? LastSink;
     public ISystemAudioSource CreateSource(string endpointId) => new SyntheticSource(this);
     public Task<IMicrophoneSink> OpenMicrophoneSinkAsync(string endpointId, CancellationToken cancellation)
@@ -467,6 +482,8 @@ internal sealed class SyntheticEndpoints : IAudioEndpoints
     {
         public Action<SourcePacket>? Received;
         private bool disposed, started;
+        public uint? ComputerVolume => owner.VolumeWire is var value && value >= 0 ? (uint)value : null;
+        public bool VolumeIndependentCapture => owner.VolumeIndependent;
         public Task StartAsync(Action<SourcePacket> received, Action<string> failed, CancellationToken cancellation)
         {
             owner.SourceAttempts++;
