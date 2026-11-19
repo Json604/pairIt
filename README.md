@@ -222,10 +222,12 @@ Real calls, Bluetooth routing, background recovery and audio quality need device
 
 ## Current release and validation
 
-Current published builds are Linux/Windows **28**, Mac **26**, and Android/iOS **35**.
-Phone store availability depends on the testing track and review status. Recent
-changes include desktop update prompts and installation, capture-failure retry,
-multiple saved computers, disconnect progress and four-phone group listening.
+Current published builds are Mac/Windows/Linux **29**, Android **36** (GitHub APK) /
+**37** (Google Play) and iOS **36**. Phone store availability depends on the testing
+track and review status. Recent changes include per-phone Mac controls, earphone
+media keys, phone volume from the Mac’s volume keys, Connect from the Mac, Low latency
+playback, and banner plus app-open ads only. In-app update feeds still point at the
+previous builds until they are advanced.
 PairIt is free with ads; there is no paid tier.
 
 Mac and Ubuntu have owner testing. Physical Windows and iPhone acceptance remain

@@ -1,0 +1,43 @@
+{
+  "source": "1e82164 (merged to main in 49e59fc); Android 37 in d0163f6",
+  "release": "https://github.com/Json604/pairIt-download/releases/tag/v1.1.0-preview.29",
+  "versions": {
+    "mac": 29,
+    "windows": 29,
+    "linux": 29,
+    "android_github_apk": 36,
+    "android_play": 37,
+    "ios": 36
+  },
+  "ci": {
+    "pull_requests": [
+      8,
+      9,
+      10
+    ],
+    "all_six_jobs": "passed on each"
+  },
+  "assets": "12 published (Mac DMG/ZIP, Windows ZIP, Linux deb/tar.gz/zip x64+arm64, Android release + Preview APK, SHA256SUMS); every GitHub digest and size verified against the local package",
+  "mac": "Developer ID signed, notarized and stapled via Xcode account; first submission rejected for an unsigned development driver installer, resubmitted with build 26's signed/notarized installer (driver unchanged). spctl accepted inside DMG and ZIP",
+  "ios": "Build 36 uploaded to App Store Connect; owner handles review submission",
+  "android": "Build 36 AAB built; Play flagged android.hardware.wifi (implied by ACCESS_WIFI_STATE). Build 37 declares it optional; owner uploaded 37 and it passed Play checks",
+  "website": {
+    "host": "Vercel project pairit-site (root directory site/), Git-connected to Json604/pairIt main",
+    "domain": "pairit.kartikey.xyz ALIAS cname.vercel-dns-017.com (Vercel DNS); old OpenAI hosting CNAME and verification TXT records removed",
+    "pages": [
+      "/",
+      "/downloads",
+      "/privacy",
+      "/support",
+      "/app-ads.txt"
+    ],
+    "legacy": "/downloads/* redirect to the Preview 29 release assets"
+  },
+  "update_feeds": "Not advanced: updates.json, installers.json and mac-appcast.xml still point at previous builds (owner decision)",
+  "not_tested": [
+    "Physical iPhone",
+    "Windows media sessions and play/skip",
+    "Linux volume linking",
+    "Mac Connect round trip with an iPhone"
+  ]
+}
