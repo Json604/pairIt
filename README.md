@@ -243,6 +243,7 @@ for platform-specific changes and limitations.
 | `windows/PairIt.Core/` | Shared Windows/Linux sessions, protocol and updater |
 | `windows/PairIt.Windows/`, `linux/` | Desktop UI and platform audio backends |
 | `reports/` | Optional server for account-free public issue reports |
+| `site/` | Website (pairit.kartikey.xyz); downloads link to GitHub Releases |
 | `scripts/`, `.github/workflows/` | Builds, packaging and automated checks |
 | `release/` | App configuration and published update metadata |
 

@@ -53,6 +53,7 @@ handoffs, machine-specific paths, credentials or deployment/account records.
 | Windows UI/audio | `windows/PairIt.Windows/` |
 | Linux UI/audio/routing | `linux/PairIt.Linux/`, `linux/PairIt.Linux.Core/` |
 | Optional public-report server | `reports/`; read its README before touching request/quota/privacy behaviour |
+| Website (pairit.kartikey.xyz) | `site/` (static, own Vercel project; no binaries — downloads redirect to releases) |
 | Builds and CI | `scripts/`, `.github/workflows/ci.yml` |
 
 ## Build and validation
