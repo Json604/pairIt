@@ -77,3 +77,6 @@ id_rsa
 id_ed25519
 id_ecdsa
 id_dsa
+
+# Vercel project link (local)
+.vercel
