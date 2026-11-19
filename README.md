@@ -97,11 +97,10 @@ music, and resuming plays it again (other computers may keep playing).
   pausing an already connected phone holds the silent route. Unrelated outputs and
   manual routing choices are preserved. Closing the window stops sharing. Linux
   has no automatic player pause or video compensation.
-- **Low latency:** on by default in phone Settings. Phones learn the network’s jitter
-  instead of holding a fixed 320 ms cushion (60 ms minimum for Mac and Bluetooth,
-  40 ms for Windows/Linux local outputs), so game and click sounds arrive sooner. A
-  session with repeated dropouts switches to Reliable automatically. Bluetooth’s own
-  delay still applies.
+- **Low latency:** optional, off by default in phone Settings. Phones learn the network’s
+  jitter instead of holding a fixed 320 ms cushion (60 ms minimum for Mac and Bluetooth),
+  so game and click sounds arrive sooner, but busy Wi-Fi can cause audio drops. Windows/
+  Linux local outputs keep their existing learned buffer. Bluetooth’s own delay applies.
 - **Timing:** updated companions and phones negotiate one presentation time for
   multiple active listeners, compensating for each phone’s measured output delay.
   Allow a few seconds for “Learning shared timing” to finish. Older phones retain

@@ -14,7 +14,7 @@ struct ReceiverView: View {
     @AppStorage("soundFeedback") private var soundFeedback = true
     @AppStorage("trustedAutoReconnect") private var autoReconnect = true
     @AppStorage("groupGuestPin") private var groupGuestPin = ""
-    @AppStorage("lowLatency") private var lowLatency = true
+    @AppStorage("lowLatency") private var lowLatency = false
     private var isGroupGuest: Bool { !groupGuestPin.isEmpty && groupGuestPin == pairing.mac?.pin }
     @State private var computerToForget: PairedMac?
     @State private var disconnecting = false

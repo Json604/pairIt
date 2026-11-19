@@ -27,7 +27,7 @@ final class RelayReceiver: ObservableObject {
     /// Increments when the computer disconnects this phone, so the UI can leave its paired view.
     @Published private(set) var computerDisconnects = 0
     /// Default on: game and click sounds arrive sooner. Unstable Wi-Fi falls back per session.
-    static var lowLatency: Bool { UserDefaults.standard.object(forKey: "lowLatency") as? Bool ?? true }
+    static var lowLatency: Bool { UserDefaults.standard.object(forKey: "lowLatency") as? Bool ?? false } // Opt-in
     @Published private(set) var phase = ReceiverPhase.idle
     @Published private(set) var title = "Ready to listen"
     @Published private(set) var detail = "Choose an output, then listen to your computer."
