@@ -26,7 +26,10 @@ cp "$ROOT/windows/licenses/dotnet-10.0.15-LICENSE.txt" "$OUTPUT/licenses/"
 python3 "$ROOT/scripts/package-linux-licenses.py" "$NUGET_PACKAGES" "$OUTPUT/licenses"
 chmod +x "$OUTPUT/PairIt" "$OUTPUT/install-desktop.sh"
 python3 "$ROOT/scripts/write-install-inventory.py" "$OUTPUT"
-python3 "$ROOT/scripts/package-update-zip.py" "$OUTPUT" "$ROOT/artifacts/linux/PairIt-1.1.0-preview.28-$RID.zip"
-COPYFILE_DISABLE=1 tar -czf "$ROOT/artifacts/linux/PairIt-1.1.0-preview.28-$RID.tar.gz" -C "$OUTPUT" .
+# Archive names follow the project version; never hand-edit them per release.
+VERSION="$(sed -n 's:.*<Version>\([^<]*\)</Version>.*:\1:p' "$ROOT/linux/PairIt.Linux/PairIt.Linux.csproj" | head -1)"
+[ -n "$VERSION" ] || { echo "Could not read the Linux version" >&2; exit 1; }
+python3 "$ROOT/scripts/package-update-zip.py" "$OUTPUT" "$ROOT/artifacts/linux/PairIt-$VERSION-$RID.zip"
+COPYFILE_DISABLE=1 tar -czf "$ROOT/artifacts/linux/PairIt-$VERSION-$RID.tar.gz" -C "$OUTPUT" .
 python3 "$ROOT/scripts/package-linux-deb.py" "$OUTPUT" --rid "$RID"
 echo "Linux preview: $OUTPUT/PairIt"
