@@ -1,4 +1,4 @@
-plugins { id 'com.android.application' version '8.13.0' }
+plugins { id 'com.android.application' version '9.5.2' }
 
 def releaseInfo = new groovy.json.JsonSlurper().parse(file('../release/google-play/release.json'))
 def adsInfo = releaseInfo.admob ?: [:]
