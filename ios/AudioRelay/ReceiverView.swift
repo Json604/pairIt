@@ -680,6 +680,12 @@ struct ReceiverView: View {
                 Divider()
                 Toggle("Auto-reconnect", isOn: $autoReconnect)
                 Divider()
+                Toggle("Bluetooth receiver (Mac preview)", isOn: Binding(get: { pairing.bluetoothEnabled }, set: { enabled in
+                    if receiver.phase != .idle { receiver.disconnect() }
+                    pairing.setBluetoothEnabled(enabled)
+                }))
+                .disabled(pairing.mac?.supportsBluetoothReceiver != true)
+                Divider()
                 Toggle("Sound feedback", isOn: $soundFeedback)
                 Divider()
                 Button { incomingCode = ""; sheet = .pair } label: {
@@ -771,6 +777,12 @@ struct ReceiverSettings: View {
                             RelaySettingRow(icon: "qrcode", title: pairing.mac == nil ? "Connect your computer" : "Pair another computer", detail: pairing.mac?.displayName ?? "Scan a code from the desktop app") { sheet = .pair }
                             Divider()
                             RelaySettingRow(icon: "network", title: "Computer address", detail: pairing.hostOverride ?? "Automatic discovery") { sheet = .address }
+                            Divider()
+                            Toggle("Bluetooth receiver (Mac preview)", isOn: Binding(get: { pairing.bluetoothEnabled }, set: { enabled in
+                                receiver.disconnect(); pairing.setBluetoothEnabled(enabled)
+                            }))
+                            .disabled(pairing.mac?.supportsBluetoothReceiver != true)
+                            .padding(.vertical, 14)
                             Divider()
                             RelaySettingRow(icon: "waveform.path", title: "Video sync", detail: "Automatic timing and saved correction") { sheet = .sync }
                             Divider()

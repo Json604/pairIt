@@ -33,6 +33,30 @@ validation; a successful build is not evidence of identical behavior on every OS
    Choose a local phone output from the output picker. **Refresh audio** clears the
    playback buffer if timing drifts.
 
+### Bluetooth audio (development builds)
+
+Wi-Fi is the default on all platforms. First save the computer in PairIt using
+the normal pairing flow. The phone's Bluetooth choice applies to that computer.
+The phone speaker, wired headphones and Bluetooth earbuds are separate output
+choices. The computer-to-phone stream uses the same certificate pin, pairing
+token, controls and capture timestamps as the local-network stream.
+
+| Computer | Android | iPhone |
+| --- | --- | --- |
+| Mac | Enable **Allow phones over Bluetooth** in the Mac companion, pair the devices in system Bluetooth settings, then select the bonded Mac under the phone's computer connection settings. | Enable **Allow phones over Bluetooth** in the Mac companion and select Bluetooth for the saved Mac in PairIt. Allow Bluetooth access on both devices. The app discovers the Mac over Bluetooth LE. |
+| Windows or Linux | Start the desktop companion and its optional Bluetooth helper, pair the devices in system settings, then select the bonded computer in PairIt. | Use Wi-Fi. |
+
+The Windows and Linux preview folders include `pairit-bluetooth.py`. With the
+companion running, start the helper from that folder and keep its terminal open.
+On Windows use `py -3 pairit-bluetooth.py` with Python 3.9+.
+On Debian/Ubuntu use `/usr/bin/python3 pairit-bluetooth.py` with BlueZ,
+`python3-dbus` and `python3-gi` installed. The .deb installs the helper in
+`/opt/pairit`. Ctrl+C ends Bluetooth forwarding. Wi-Fi works without the helper.
+
+The Mac accepts one Bluetooth phone at a time. Other listeners can use Wi-Fi.
+Bluetooth audio uses independently decodable stereo IMA ADPCM packets. Wi-Fi
+continues to use PCM. Nearby phone invitations still require the local network.
+
 **Connect** lists computers advertising PairIt, not all Wi-Fi devices.
 **Together** lists nearby phones with PairIt open in the foreground, including phones
 on Connect or Settings. Simply installing PairIt does not make a device visible.

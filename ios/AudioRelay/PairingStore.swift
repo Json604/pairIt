@@ -14,6 +14,12 @@ struct PairedMac: Codable {
         let clean = name?.filter { !$0.isNewline && !$0.isASCIIControl }.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return clean.isEmpty ? (platform == "windows" ? "Your Windows PC" : "Your computer") : String(clean.prefix(80))
     }
+    /// Older pairing archives may not carry a platform. The pinned TLS identity
+    /// remains authoritative, so keep the Mac preview available for those entries.
+    var supportsBluetoothReceiver: Bool {
+        guard let platform = platform?.lowercased(), !platform.isEmpty else { return true }
+        return platform == "macos" || platform == "mac"
+    }
     static func validHost(_ host: String) -> Bool {
         !host.isEmpty && host.count <= 253 && host.rangeOfCharacter(from: .whitespacesAndNewlines) == nil && !host.contains("/")
     }
@@ -56,6 +62,15 @@ final class PairingStore: ObservableObject {
         let value = UserDefaults.standard.string(forKey: "hostOverride:" + mac.pin) ?? ""
         return value.isEmpty ? nil : value
     }
+    var bluetoothEnabled: Bool {
+        guard let mac else { return false }
+        return mac.supportsBluetoothReceiver && UserDefaults.standard.bool(forKey: "bluetoothReceiver:" + mac.pin)
+    }
+    func setBluetoothEnabled(_ enabled: Bool) {
+        guard let mac, mac.supportsBluetoothReceiver else { return }
+        UserDefaults.standard.set(enabled, forKey: "bluetoothReceiver:" + mac.pin)
+        objectWillChange.send()
+    }
     func setHostOverride(_ value: String) throws {
         guard let mac else { return }
         let host = value.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -97,15 +112,17 @@ final class PairingStore: ObservableObject {
         guard let pin = pin ?? mac?.pin else { return }
         try persist(computers.filter { $0.pin != pin }, selectedPin: mac?.pin == pin ? nil : mac?.pin)
         UserDefaults.standard.removeObject(forKey: "hostOverride:" + pin)
+        UserDefaults.standard.removeObject(forKey: "bluetoothReceiver:" + pin)
+        UserDefaults.standard.removeObject(forKey: "bluetoothPeripheral:" + pin)
     }
 
 }
 
 struct RouteTiming {
     let key: String
-    init(pin: String, route: String, mode: RelayPlaybackMode = .reliable, hostOverride: String? = nil) {
+    init(pin: String, route: String, mode: RelayPlaybackMode = .reliable, hostOverride: String? = nil, bluetooth: Bool = false) {
         // The original Reliable key is deliberately retained for existing routes.
-        key = "timing:\(pin):\(route)" + (mode == .reliable ? "" : ":interactive") + (hostOverride.map { ":manual:\($0)" } ?? "")
+        key = "timing:\(pin):\(route)" + (mode == .reliable ? "" : ":interactive") + (hostOverride.map { ":manual:\($0)" } ?? "") + (bluetooth ? ":bluetooth" : "")
     }
     var estimate: Int? { UserDefaults.standard.object(forKey: key + ":estimate") as? Int }
     var correction: Int { UserDefaults.standard.integer(forKey: key + ":correction") }

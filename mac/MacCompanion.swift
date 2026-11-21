@@ -18,10 +18,13 @@ final class MacCompanionModel: ObservableObject {
     @Published var outputInstalled = SyncOutput.installed
     @Published var volumeControlsInstalled = SyncOutput.volumeControlsInstalled
     @Published var microphoneEnabled = false
+    @Published var bluetoothEnabled = UserDefaults.standard.bool(forKey: "bluetoothSharingEnabled")
+    @Published var bluetoothStatus = "Bluetooth is off"
     @Published var microphoneStatus = "Microphone mode is off"
     @Published var microphoneDestinations = MicrophoneOutput.destinations()
     @Published var microphoneUID = UserDefaults.standard.string(forKey: "microphoneDestinationUID") ?? ""
     var enableMicrophone: (Bool) -> Void = { _ in }
+    var enableBluetooth: (Bool) -> Void = { _ in }
     var selectMicrophone: (String) -> Void = { _ in }
     @Published var detail = "Getting your Mac ready."
     @Published var network = "Starting local Wi-Fi…"
@@ -483,6 +486,15 @@ struct MacCompanionView: View {
                 Divider().opacity(0.4)
                 RelaySettingRow(icon: "arrow.clockwise", title: "Check for updates", detail: "Download, verify and install in PairIt") { installerUpdates.downloadAndInstall() }
                     .disabled(!installerUpdates.canCheck)
+            }
+            Divider().opacity(0.4)
+            VStack(alignment: .leading, spacing: 10) {
+                Text("BLUETOOTH CONNECTION").font(.system(size: 10, weight: .medium)).tracking(0.8).foregroundStyle(RelayPalette.secondary)
+                Toggle("Allow phones over Bluetooth", isOn: Binding(get: { model.bluetoothEnabled }, set: model.enableBluetooth))
+                    .font(.system(size: 12))
+                Text(model.bluetoothStatus).font(.system(size: 11)).foregroundStyle(RelayPalette.secondary)
+                Text("Wi-Fi stays available. Phones still verify this Mac over TLS before audio or controls are accepted.")
+                    .font(.system(size: 10)).foregroundStyle(RelayPalette.secondary)
             }
             Divider().opacity(0.4)
             VStack(alignment: .leading, spacing: 10) {

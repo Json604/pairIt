@@ -78,6 +78,17 @@ final class FakeMedia: RelayMediaControl {
         try server.start()
         print("READY " + server.gatewayToken); fflush(stdout)
         while let line = readLine() {
+            if line == "ima-vector" {
+                let samples: [Int16] = [1000,-1000, 0,-500, 600,2000, -32000,32000, 32767,-32768]
+                var packet = Data(count: 24)
+                packet.withUnsafeMutableBytes { header in
+                    header.storeBytes(of: UInt32(0x31415342).littleEndian, as: UInt32.self)
+                    header.storeBytes(of: UInt32(5).littleEndian, toByteOffset: 12, as: UInt32.self)
+                }
+                for sample in samples { withUnsafeBytes(of: sample.littleEndian) { packet.append(contentsOf: $0) } }
+                print(ImaAudio.encode(packet).dropFirst(24).map { String(format: "%02x", $0) }.joined())
+                fflush(stdout)
+            }
             if line == "phone-resume" || line == "phone-pause" { server.requestPhonePlayback(line == "phone-resume"); print("OK"); fflush(stdout) }
             if line == "audio-on" || line == "audio-off" { Capture.lock.lock(); Capture.audible = line == "audio-on"; Capture.lock.unlock(); print("OK"); fflush(stdout) }
             if line.hasPrefix("volume ") { Capture.lock.lock(); Capture.volumeLevel = Double(line.dropFirst(7))!; Capture.lock.unlock(); print("OK"); fflush(stdout) }

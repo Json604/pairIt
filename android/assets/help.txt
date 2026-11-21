@@ -32,7 +32,7 @@ On iPhone, background audio and system media controls support listening with the
 
 Playback uses the Reliable path. Mac video timing is estimated from the selected output; leave correction at zero initially. Some players need playback reopened after timing changes. Windows and Linux do not provide the Mac driver’s system video compensation. Bluetooth retains physical delay, especially for live audio and games.
 
-Guest Wi-Fi isolation, VPNs and firewalls can block local connections. Connection settings accept a manual computer address while still verifying its paired certificate; clear it to restore discovery. Supported OS network links can also carry the same connection, but a USB cable alone is not a connection. Android-to-Mac USB networking is not generally supported.
+Guest Wi-Fi isolation, VPNs and firewalls can block local connections. Connection settings accept a manual computer address while still verifying its paired certificate; clear it to restore discovery. Supported OS network links can also carry the same connection, but a USB cable alone is not a connection. Android-to-Mac USB networking is not generally supported. Android can instead use an explicit per-computer Bluetooth connection with an updated companion; Wi-Fi remains the default. Pair the computer in Android's Bluetooth settings, then choose it under Computer connection. Bluetooth is encrypted and certificate-pinned like Wi-Fi, but has less bandwidth and can add latency.
 
 ## Requirements and downloads
 

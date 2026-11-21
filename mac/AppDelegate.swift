@@ -4,6 +4,7 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var server = RelayServer()
     private lazy var wifi = WiFiServer(upstreamToken: server.gatewayToken)
+    private let bluetooth = PairItBluetoothGateway(port: 5002)
     private let model = MacCompanionModel()
     private let mediaKeys = MacMediaKeys()
     private let nearbyPhones = NearbyPhones()
@@ -32,6 +33,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
         if !interfacePreview { SyncOutput.recoverAfterCrash(); installerUpdates.start() }
         model.toggleSharing = { [weak self] in self?.toggleSharing() }
+        bluetooth.statusChanged = { [weak self] status in self?.model.bluetoothStatus = status }
+        model.enableBluetooth = { [weak self] enabled in
+            guard let self else { return }
+            self.model.bluetoothEnabled = enabled
+            UserDefaults.standard.set(enabled, forKey: "bluetoothSharingEnabled")
+            if enabled && self.model.sharing {
+                self.bluetooth.start(withName: "AudioRelay-" + String(self.wifi.pairingPin.prefix(8)))
+            } else { self.bluetooth.stop() }
+        }
         model.selectOutput = { [weak self] speakers in
             guard let self, self.model.sharing, self.model.sharingAction == nil else { return }
             self.server.setComputerOutput(speakers)
@@ -245,7 +255,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         lifecycle.async { [weak self] in
             // stop() can wait for capture cleanup. It must not block animation,
             // hover, navigation or the progress indicator on the main thread.
-            currentWiFi.stop(); currentServer.stop(); self?.nearbyPhones.stop()
+            self?.bluetooth.stop(); currentWiFi.stop(); currentServer.stop(); self?.nearbyPhones.stop()
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.model.sharing = false; self.model.microphoneEnabled = false; self.model.connected = false; self.model.phones = []; self.model.receiverCount = 0; self.model.parkedCount = 0; self.model.outputHeld = false; self.model.computerOutput = false
@@ -349,6 +359,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             previousWiFi.stop(); previousServer.stop()
             do {
                 try nextServer.start(); try nextWiFi.start()
+                if self?.model.bluetoothEnabled == true {
+                    self?.bluetooth.start(withName: "AudioRelay-" + String(nextWiFi.pairingPin.prefix(8)))
+                }
                 let code = nextWiFi.pairingCode
                 self?.nearbyPhones.start(token: nextWiFi.pairingToken, pin: nextWiFi.pairingPin)
                 let address = LocalIdentity.currentHost()
@@ -360,7 +373,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                         if announceCompletion { self.model.announce("Sharing is on.") }
                 }
             } catch {
-                nextWiFi.stop(); nextServer.stop()
+                self?.bluetooth.stop(); nextWiFi.stop(); nextServer.stop()
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
                     self.model.sharing = false; self.model.connected = false; self.model.sharingAction = nil
@@ -386,6 +399,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         setupTimer?.invalidate(); cancelPresentationRetry(); removeClickMonitors()
         if let escapeMonitor { NSEvent.removeMonitor(escapeMonitor) }
         let currentServer = server, currentWiFi = wifi
-        lifecycle.sync { currentWiFi.stop(); currentServer.stop() }
+        bluetooth.stop(); lifecycle.sync { currentWiFi.stop(); currentServer.stop() }
     }
 }

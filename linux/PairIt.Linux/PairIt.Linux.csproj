@@ -1,8 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework>
-    <Product>PairIt - AudioRelay</Product><AssemblyTitle>PairIt - AudioRelay</AssemblyTitle><AssemblyName>PairIt</AssemblyName><Version>1.1.0-preview.29</Version>
-    <FileVersion>1.1.0.29</FileVersion><RuntimeIdentifiers>linux-x64;linux-arm64</RuntimeIdentifiers>
+    <Product>PairIt - AudioRelay</Product><AssemblyTitle>PairIt - AudioRelay</AssemblyTitle><AssemblyName>PairIt</AssemblyName><Version>1.1.0-preview.30</Version>
+    <FileVersion>1.1.0.30</FileVersion><RuntimeIdentifiers>linux-x64;linux-arm64</RuntimeIdentifiers>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../PairIt.Linux.Core/PairIt.Linux.Core.csproj" />
@@ -10,6 +10,7 @@
     <PackageReference Include="Avalonia.Themes.Fluent" Version="[12.1.6]" />
     <PackageReference Include="QRCoder" Version="[1.8.1]" />
     <AvaloniaResource Include="../../windows/PairIt.Windows/PairIt.ico" Link="PairIt.ico" />
+    <None Include="../../desktop/pairit-bluetooth.py" Link="pairit-bluetooth.py" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="../../LICENSE" Link="LICENSE" CopyToPublishDirectory="PreserveNewest" />
     <None Include="../../README.md" Link="README.md" CopyToPublishDirectory="PreserveNewest" />
     <None Include="../START-HERE.txt" Link="START-HERE.txt" CopyToPublishDirectory="PreserveNewest" />
