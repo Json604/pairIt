@@ -13,11 +13,11 @@
     }
   ],
   "redirects": [
-    { "source": "/downloads/Pairit-Android-preview.apk", "destination": "https://github.com/Json604/pairIt-download/releases/download/v1.1.0-preview.30/PairIt-Android-Preview-1.1.0-39.apk", "permanent": false },
-    { "source": "/downloads/pairit-android-preview.apk", "destination": "https://github.com/Json604/pairIt-download/releases/download/v1.1.0-preview.30/PairIt-Android-Preview-1.1.0-39.apk", "permanent": false },
-    { "source": "/downloads/Pairit-Mac-preview.zip", "destination": "https://github.com/Json604/pairIt-download/releases/download/v1.1.0-preview.30/PairIt-Mac-1.1.0-build-30.zip", "permanent": false },
-    { "source": "/downloads/pairit-mac-preview.zip", "destination": "https://github.com/Json604/pairIt-download/releases/download/v1.1.0-preview.30/PairIt-Mac-1.1.0-build-30.zip", "permanent": false },
-    { "source": "/downloads/pairit-mac-1.1.0.zip", "destination": "https://github.com/Json604/pairIt-download/releases/download/v1.1.0-preview.30/PairIt-Mac-1.1.0-build-30.zip", "permanent": false },
-    { "source": "/downloads/checksums.txt", "destination": "https://github.com/Json604/pairIt-download/releases/download/v1.1.0-preview.30/SHA256SUMS.txt", "permanent": false }
+    { "source": "/downloads/Pairit-Android-preview.apk", "destination": "https://github.com/Json604/pairIt-download/releases/download/v1.1.0-preview.29/PairIt-Android-Preview-1.1.0-36.apk", "permanent": false },
+    { "source": "/downloads/pairit-android-preview.apk", "destination": "https://github.com/Json604/pairIt-download/releases/download/v1.1.0-preview.29/PairIt-Android-Preview-1.1.0-36.apk", "permanent": false },
+    { "source": "/downloads/Pairit-Mac-preview.zip", "destination": "https://github.com/Json604/pairIt-download/releases/download/v1.1.0-preview.29/PairIt-Mac-1.1.0-build-29.zip", "permanent": false },
+    { "source": "/downloads/pairit-mac-preview.zip", "destination": "https://github.com/Json604/pairIt-download/releases/download/v1.1.0-preview.29/PairIt-Mac-1.1.0-build-29.zip", "permanent": false },
+    { "source": "/downloads/pairit-mac-1.1.0.zip", "destination": "https://github.com/Json604/pairIt-download/releases/download/v1.1.0-preview.29/PairIt-Mac-1.1.0-build-29.zip", "permanent": false },
+    { "source": "/downloads/checksums.txt", "destination": "https://github.com/Json604/pairIt-download/releases/download/v1.1.0-preview.29/SHA256SUMS.txt", "permanent": false }
   ]
 }

@@ -6,12 +6,6 @@ import java.util.concurrent.*;
 
 /** Network reception must keep draining while Android initializes or blocks in AudioTrack. */
 final class PcmInbox {
-    private final boolean allowIma;
-    volatile boolean receivingIma;
-
-    PcmInbox() { this(false); }
-    PcmInbox(boolean allowIma) { this.allowIma = allowIma; }
-
     static final class GroupFull extends IOException { GroupFull(){super("Listening group is full");} }
     static final class Packet {
         final int rate, frames;
@@ -93,17 +87,13 @@ final class PcmInbox {
                     if (onControlStatus != null) onControlStatus.accept(controlStatus);
                     clockSample(sent, server, System.nanoTime()); continue;
                 }
-                boolean ima = allowIma && magic == ImaStereo.MAGIC;
-                if (!ima && magic != 0x31415342) throw new IOException("Bad stream header");
+                if (magic != 0x31415342) throw new IOException("Bad stream header");
                 long sequence = Integer.toUnsignedLong(h.getInt());
                 int rate = h.getInt(), frames = h.getInt();
                 long capturedAt = h.getLong();
-                if (!ima && frames == 0 && capturedAt == 0 && rate == 48000) { if(onHeartbeat!=null)onHeartbeat.run(); continue; } // Idle sender heartbeat.
+                if (frames == 0 && capturedAt == 0 && rate == 48000) { if(onHeartbeat!=null)onHeartbeat.run(); continue; } // Idle sender heartbeat.
                 if ((rate != 48000 && rate != 44100) || frames < 1 || frames > 8192 || capturedAt < 0) throw new IOException("Unsupported packet format");
-                byte[] pcm;
-                if (ima) pcm = ImaStereo.read(input, frames);
-                else { pcm = new byte[frames * 4]; input.readFully(pcm); }
-                receivingIma = ima;
+                byte[] pcm = new byte[frames * 4]; input.readFully(pcm);
                 if (previous >= 0) sequenceGaps += (sequence - previous - 1) & 0xffffffffL;
                 previous = sequence; framesReceived += frames;
                 Packet packet = new Packet(rate, frames, capturedAt, sequence, pcm);

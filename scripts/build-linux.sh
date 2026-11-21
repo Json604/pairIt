@@ -14,12 +14,10 @@ LOCKED=--locked-mode
 if [ "${1:-}" = --update-lock ]; then LOCKED=--force-evaluate; fi
 "$DOTNET" restore PairIt.Linux/PairIt.Linux.csproj -p:RuntimeIdentifier="$RID" -p:SelfContained=true "$LOCKED"
 "$DOTNET" publish PairIt.Linux/PairIt.Linux.csproj --no-restore -c Release -r "$RID" --self-contained true -o "$OUTPUT" -p:DebugType=None -p:DebugSymbols=false
-if [ "${1:-}" != "--build-only" ]; then
-  "$DOTNET" restore PairIt.Linux.Checks/PairIt.Linux.Checks.csproj "$LOCKED"
-  "$DOTNET" run --project PairIt.Linux.Checks/PairIt.Linux.Checks.csproj --no-restore -c Release
-  "$DOTNET" restore PairIt.UpdateChecks/PairIt.UpdateChecks.csproj "$LOCKED"
-  "$DOTNET" run --project PairIt.UpdateChecks/PairIt.UpdateChecks.csproj --no-restore -c Release
-fi
+"$DOTNET" restore PairIt.Linux.Checks/PairIt.Linux.Checks.csproj "$LOCKED"
+"$DOTNET" run --project PairIt.Linux.Checks/PairIt.Linux.Checks.csproj --no-restore -c Release
+"$DOTNET" restore PairIt.UpdateChecks/PairIt.UpdateChecks.csproj "$LOCKED"
+"$DOTNET" run --project PairIt.UpdateChecks/PairIt.UpdateChecks.csproj --no-restore -c Release
 cp "$ROOT/linux/install-desktop.sh" "$OUTPUT/"
 cp "$ROOT/windows/PairIt.Windows/PairIt.ico" "$OUTPUT/PairIt.ico"
 mkdir -p "$OUTPUT/licenses"

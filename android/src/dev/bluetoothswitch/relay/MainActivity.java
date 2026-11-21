@@ -167,7 +167,7 @@ public class MainActivity extends Activity {
         nearby=new NearbyDevices(this,()->{confirmTrustedNearby();renderedKey="";render();});selectTab(0);acceptPairing(getIntent());bannerAds.start();
     }
     private void confirmTrustedNearby(){
-        if(!settings.bluetoothAddress().isEmpty()||tab!=0||!visible||(appOpenAds!=null&&appOpenAds.isOpening())||AppOpenAds.isPresenting()||pairingDialog!=null||!settings.autoReconnect()||!settings.paired()||automaticConfirmation!=null||confirmedPin.equals(settings.pin()))return;
+        if(tab!=0||!visible||(appOpenAds!=null&&appOpenAds.isOpening())||AppOpenAds.isPresenting()||pairingDialog!=null||!settings.autoReconnect()||!settings.paired()||automaticConfirmation!=null||confirmedPin.equals(settings.pin()))return;
         for(NearbyDevices.Device device:nearby.snapshot())if(device.pin.equals(settings.pin())){
             final String savedPin=settings.pin();confirmedPin=savedPin;
             automaticConfirmation=new PairingConfirmation(PairingCode.saved(settings,settings.connectionHost(device.host)),confirmed->{
@@ -194,7 +194,7 @@ public class MainActivity extends Activity {
         if(settings.groupGuest()&&device.pin.equals(settings.pin())){connectVerifiedCode(PairingCode.saved(settings,settings.connectionHost(device.host)),false);return;}
         if(RelayService.hasControlConnection()&&device.pin.equals(settings.pin())){selectTab(0);return;}
         checkingComputer=true;showFeedback("Checking computer…");
-        ComputerOccupancy.check(device,settings.bluetoothAddress(device.pin),count->{
+        ComputerOccupancy.check(device,count->{
             checkingComputer=false;device.occupancySupported=count>=0;if(!visible||tab!=0||isFinishing()||isDestroyed())return;
             if(count>0){new GlassDialogBuilder(this).setTitle("Already connected")
                 .setMessage(device.name+" is connected to "+(device.connectedNames.isEmpty()?"another phone":device.connectedNames)+". Want to join their group? Ask that person to open Listen Together and send you an invitation. Keep PairIt open on this phone.")
@@ -335,11 +335,8 @@ public class MainActivity extends Activity {
         discoveryAnchor=null;devicesArea.removeAllViews();devicesArea.setGravity(Gravity.TOP);space(devicesArea,18);
         TextView connection=text("CONNECTION",10,0xffcccccc,false);connection.setLetterSpacing(.12f);devicesArea.addView(connection);space(devicesArea,9);
         LinearLayout connectionCard=column();connectionCard.setPadding(dp(16),dp(2),dp(16),dp(2));connectionCard.setBackground(shape(0xfff6f6f8,27,Color.TRANSPARENT));
-        connectionCard.addView(preference("Auto-reconnect","Previously paired computers over the selected connection.",settings.autoReconnect(),on->settings.autoReconnect(on)));
+        connectionCard.addView(preference("Auto-reconnect","Previously paired computers on this Wi-Fi.",settings.autoReconnect(),on->settings.autoReconnect(on)));
         connectionCard.addView(preference("Sound feedback","A short sound when connected.",settings.soundFeedback(),on->settings.soundFeedback(on)));
-        if (settings.paired())
-            connectionCard.addView(settingRow("Computer connection",
-                    settings.bluetoothAddress().isEmpty() ? "Wi-Fi" : "Bluetooth", this::transportDialog));
         connectionCard.addView(settingRow("Paired computers",settings.savedComputers().size()+" saved",this::connectionDialog));devicesArea.addView(connectionCard,new LinearLayout.LayoutParams(-1,-2));space(devicesArea,18);
         TextView general=text("GENERAL",10,0xffcccccc,false);general.setLetterSpacing(.12f);devicesArea.addView(general);space(devicesArea,9);
         LinearLayout generalCard=column();generalCard.setPadding(dp(16),dp(2),dp(16),dp(2));generalCard.setBackground(shape(0xfff6f6f8,27,Color.TRANSPARENT));
@@ -363,49 +360,6 @@ public class MainActivity extends Activity {
         try { startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse("https://pairit.kartikey.xyz/downloads.html#"+platform))); }
         catch (android.content.ActivityNotFoundException error) { showFeedback("Open pairit.kartikey.xyz/downloads.html on your computer."); }
     }
-    private void transportDialog() {
-        new GlassDialogBuilder(this).setTitle("Computer connection")
-                .setItems(new String[]{"Wi-Fi (recommended)", "Bluetooth (updated companion)"}, (dialog, choice) -> {
-                    if (choice == 0) setComputerTransport("");
-                    else chooseBluetoothComputer();
-                }).setNegativeButton("Cancel", null).show();
-    }
-
-    private void chooseBluetoothComputer() {
-        if (Build.VERSION.SDK_INT >= 31 && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)
-                != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT}, 5);
-            return;
-        }
-        android.bluetooth.BluetoothAdapter adapter = getSystemService(android.bluetooth.BluetoothManager.class).getAdapter();
-        java.util.List<android.bluetooth.BluetoothDevice> devices = new java.util.ArrayList<>();
-        if (adapter != null && adapter.isEnabled()) devices.addAll(adapter.getBondedDevices());
-        String[] names = new String[devices.size()];
-        for (int i = 0; i < names.length; i++) {
-            String name = devices.get(i).getName();
-            names[i] = name == null ? devices.get(i).getAddress() : name;
-        }
-        GlassDialogBuilder picker = new GlassDialogBuilder(this);
-        picker.setTitle("Choose your paired computer");
-        if (devices.isEmpty()) picker.setMessage("Pair your computer in Bluetooth settings, then return here. Bluetooth audio requires an updated PairIt companion on that computer.");
-        else picker.setItems(names, (dialog, index) -> setComputerTransport(devices.get(index).getAddress()));
-        picker.setNeutralButton("Bluetooth settings", (dialog, which) ->
-                startActivity(new Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS)))
-                .setNegativeButton("Cancel", null).show();
-    }
-
-    private void setComputerTransport(String address) {
-        if (address.equals(settings.bluetoothAddress())) return;
-        cancelExplicitConnection();
-        if (automaticConfirmation != null) { automaticConfirmation.cancel(); automaticConfirmation = null; }
-        stopAudioForSettings();
-        settings.bluetoothAddressForCurrentComputer(address);
-        confirmedPin = ""; trustedNearby = false;
-        renderedKey = ""; render();
-        showFeedback(address.isEmpty() ? "Wi-Fi selected. Tap Connect to listen."
-                : "Bluetooth selected for this computer. Keep the updated PairIt companion open, then tap Connect.");
-    }
-
     private void settingsDialog() {
         new GlassDialogBuilder(this).setTitle("Settings")
             .setItems(new String[]{"Connection & pairing","Audio output","Listen together","Video sync","Background controls","Add Quick Settings tile","Help & desktop companion","Privacy policy","Ad privacy choices","Ad sound","Report an ad","Contact support","About"},(dialog,which)->{
@@ -545,11 +499,6 @@ public class MainActivity extends Activity {
     }
     @Override public void onRequestPermissionsResult(int request, String[] permissions, int[] grants) {
         super.onRequestPermissionsResult(request, permissions, grants);
-        if (request == 5) {
-            if (grants.length > 0 && grants[0] == PackageManager.PERMISSION_GRANTED) chooseBluetoothComputer();
-            else showFeedback("Allow Nearby devices to connect to your computer over Bluetooth.");
-            return;
-        }
         if(request==4){if(grants.length>0&&grants[0]==PackageManager.PERMISSION_GRANTED)outputDialog();else showFeedback("Allow Nearby devices to select Bluetooth headphones.");return;}
         if (request == 3 && (grants.length == 0 || grants[0] != PackageManager.PERMISSION_GRANTED))
             showFeedback("Playback still works. Allow notifications in Settings to keep the audio controls available while idle.");
@@ -922,11 +871,11 @@ public class MainActivity extends Activity {
         if(!guest&&RelayService.state.phase==RelayState.Phase.PLAYING&&code.pin.equals(settings.pin())){selectTab(0);return;}
         final long flow=++pairingFlow;explicitIntent.begin(flow);
         if(pairingConfirmation!=null)pairingConfirmation.cancel();pendingPairingCompletion=null;verifyingConnection=true;renderedKey="";render();
-        pairingConfirmation=new PairingConfirmation(code,settings.bluetoothAddress(code.pin),confirmed->{
+        pairingConfirmation=new PairingConfirmation(code,confirmed->{
             if(flow!=pairingFlow||!explicitIntent.matches(flow)||isFinishing()||isDestroyed())return;
             if(!visible||!hasWindowFocus()){cancelExplicitConnection();return;}
             pairingConfirmation=null;verifyingConnection=false;
-            if(!confirmed){explicitIntent.cancel();renderedKey="";render();if(visible)showFeedback(settings.bluetoothAddress(code.pin).isEmpty() ? "Couldn’t verify this computer. Keep PairIt open on the same Wi-Fi and try again." : "Couldn’t verify the computer over Bluetooth. Keep Bluetooth on and open PairIt on the paired computer.");return;}
+            if(!confirmed){explicitIntent.cancel();renderedKey="";render();if(visible)showFeedback("Couldn’t verify this computer. Keep PairIt open on the same Wi-Fi and try again.");return;}
             if(save){waitingStopFlow=flow;stopAudioForSettings();settings.pair(code);settings.groupGuest(guest);}settings.discovered(code.host,code.pin);trustedNearby=true;confirmedPin=code.pin;tab=0;nearby.invitationPort=invitations.start();nearby.start(false);renderedKey="";render();
             pendingPairingCompletion=()->startVerifiedAudio(flow,0);showPairingCompletion();
         });

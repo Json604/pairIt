@@ -14,12 +14,7 @@ final class VideoTiming {
     private long nextSample, previousFrame = -1;
     private boolean locked;
 
-    void restartSampling(boolean keepCalibration) {
-        count = 0;
-        nextSample = 0;
-        previousFrame = -1;
-        if (!keepCalibration) locked = false;
-    }
+    void reset() { count = 0; nextSample = 0; previousFrame = -1; locked = false; }
     Integer observe(AudioTrack track, PcmInbox inbox, PcmInbox.Packet packet, long writtenFrames, long startedMs) {
         long now = android.os.SystemClock.elapsedRealtime();
         if (locked || inbox.clockSamples < 3 || now - startedMs < 2500 || now < nextSample) return null;

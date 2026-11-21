@@ -29,10 +29,6 @@ final class RelayTransport {
     private let mac: PairedMac
     private let hostOverride: String?
     private let port: NWEndpoint.Port
-    private let useBluetooth: Bool
-    private var bluetoothLink: BluetoothRelayLink?
-    private var rejectedBluetoothPeripherals = Set<UUID>()
-    private var currentBluetoothPeripheral: UUID?
     private var connection: NWConnection?
     private var browser: NWBrowser?
     private var pathMonitor: NWPathMonitor?
@@ -143,16 +139,14 @@ final class RelayTransport {
     var diagnostics: () -> String = { "" }
     var roundTripMs: Double { bestRTT == .max ? 0 : Double(bestRTT) / 1e6 }
 
-    init(mac: PairedMac, queue: DispatchQueue, hostOverride: String? = nil, port: UInt16 = 5002, useBluetooth: Bool = false) {
+    init(mac: PairedMac, queue: DispatchQueue, hostOverride: String? = nil, port: UInt16 = 5002) {
         self.mac = mac; self.queue = queue; self.hostOverride = hostOverride
-        self.useBluetooth = useBluetooth
         self.port = NWEndpoint.Port(rawValue: port) ?? 5002
     }
     func start() {
         if running && connection != nil { return }
         running = true
         browser?.cancel(); pathMonitor?.cancel()
-        if useBluetooth { watchConnection(); connect(); return }
         let monitor = NWPathMonitor()
         var receivedInitialPath = false
         monitor.pathUpdateHandler = { [weak self, weak monitor] path in
@@ -203,7 +197,6 @@ final class RelayTransport {
         healthTimer?.cancel(); healthTimer = nil
         timer?.cancel(); timer = nil; browser?.cancel(); browser = nil
         pathMonitor?.cancel(); pathMonitor = nil
-        bluetoothLink?.stop(); bluetoothLink = nil
         let old = connection; connection = nil; old?.cancel(); bytes.removeAll()
         let completed = stopCompletion; stopCompletion = nil; completed?()
     }
@@ -282,54 +275,21 @@ final class RelayTransport {
         capabilitiesKnown = false; controlStatus = 0; intentToken = 1; sentToken = 0; offeredToken = 0; consumedDesktopRequest = 0; desktopStatus = 0
         sentPhoneVolume = nil
         outputRequestPing = nil // Retry an unacknowledged user choice on the new socket.
-        if useBluetooth {
-            let savedIdentifier = UserDefaults.standard.string(forKey: "bluetoothPeripheral:" + mac.pin).flatMap(UUID.init(uuidString:))
-            let link = BluetoothRelayLink(pin: mac.pin, callbackQueue: queue, preferredIdentifier: savedIdentifier,
-                                          excludedIdentifiers: rejectedBluetoothPeripherals)
-            bluetoothLink?.stop(); bluetoothLink = link
-            link.onReady = { [weak self, weak link] endpoint, identifier in
-                guard let self, let link, self.bluetoothLink === link, self.running else { return }
-                self.currentBluetoothPeripheral = identifier
-                self.connectTLS(to: endpoint)
-            }
-            link.onFailure = { [weak self, weak link] _ in
-                guard let self, let link, self.bluetoothLink === link, self.running else { return }
-                self.reconnectBluetooth()
-            }
-            link.start(); return
-        }
-        let endpoint = hostOverride.map { NWEndpoint.hostPort(host: .init($0), port: port) } ?? discovered ?? .hostPort(host: .init(mac.host), port: port)
-        connectTLS(to: endpoint)
-    }
-    private func connectTLS(to endpoint: NWEndpoint) {
-        guard running else { return }
         var identityRejected = false
         let parameters = RelaySecurity.parameters(pin: mac.pin, queue: queue) { identityRejected = true }
+        let endpoint = hostOverride.map { NWEndpoint.hostPort(host: .init($0), port: port) } ?? discovered ?? .hostPort(host: .init(mac.host), port: port)
         let current = NWConnection(to: endpoint, using: parameters); connection = current
         current.stateUpdateHandler = { [weak self, weak current] state in
             guard let self, let current, self.connection === current, self.running else { return }
             switch state {
             case .ready:
                 self.retry = 0; self.connections += 1; self.lastReceived = RelayClock.nanoseconds
-                if self.useBluetooth, let identifier = self.currentBluetoothPeripheral {
-                    self.rejectedBluetoothPeripherals.removeAll()
-                    UserDefaults.standard.set(identifier.uuidString, forKey: "bluetoothPeripheral:" + self.mac.pin)
-                }
-                self.send(self.mac.token + "\nHELLO " + RelayInstallation.identifier + "\nNAME1 " + NearbyDevices.encodedName + "\nSTATS CONTROLS1\nSTATS VOLUME1\nSTATS VOLUME2\nSTATS CONTROLS2\nSTATS PLAYER1\n" + (self.useBluetooth ? "STATS IMA1\n" : ""))
+                self.send(self.mac.token + "\nHELLO " + RelayInstallation.identifier + "\nNAME1 " + NearbyDevices.encodedName + "\nSTATS CONTROLS1\nSTATS VOLUME1\nSTATS VOLUME2\nSTATS CONTROLS2\nSTATS PLAYER1\n")
                 self.send(self.alignmentReport); self.sendPhoneVolume()
                 if let value = self.compensation { self.send("SYNC \(value)\n") }
                 self.onState?("Getting audio ready"); self.startTimer(); self.receive(current)
             case .failed:
-                if identityRejected, self.useBluetooth, let identifier = self.currentBluetoothPeripheral {
-                    // TLS rejected this candidate before .ready, so no pairing token was sent.
-                    // Rotate to another advertising Mac instead of retrying the strongest one.
-                    self.rejectedBluetoothPeripherals.insert(identifier)
-                    UserDefaults.standard.removeObject(forKey: "bluetoothPeripheral:" + self.mac.pin)
-                    let old = self.connection; self.connection = nil; old?.cancel()
-                    self.bluetoothLink?.stop(); self.bluetoothLink = nil
-                    self.retryTicket += 1; self.connect()
-                }
-                else if identityRejected { self.suspend(); self.onUnavailable?() }
+                if identityRejected { self.suspend(); self.onUnavailable?() }
                 else { self.reconnect() }
             case .waiting: self.onState?("Waiting for your computer and local network")
             default: break
@@ -348,22 +308,7 @@ final class RelayTransport {
             suspend(); onUnavailable?(); return
         }
         let old = connection; connection = nil; old?.cancel(); timer?.cancel(); timer = nil
-        if useBluetooth { bluetoothLink?.stop(); bluetoothLink = nil }
         bytes.removeAll(); onReset?(); onState?("Reconnecting to your computer")
-        retry += 1; retryTicket += 1; let ticket = retryTicket
-        queue.asyncAfter(deadline: .now() + min(4, 0.5 * Double(retry))) { [weak self] in
-            guard let self, self.running, self.retryTicket == ticket else { return }; self.connect()
-        }
-    }
-    private func reconnectBluetooth() {
-        guard running else { return }
-        if !["RESUME", "PHONE"].contains(intent) || UserDefaults.standard.object(forKey: "trustedAutoReconnect") as? Bool == false {
-            suspend(); onUnavailable?(); return
-        }
-        let old = connection; connection = nil; old?.cancel()
-        timer?.cancel(); timer = nil
-        bluetoothLink?.stop(); bluetoothLink = nil; bytes.removeAll(); onReset?()
-        onState?("Reconnecting to your computer over Bluetooth")
         retry += 1; retryTicket += 1; let ticket = retryTicket
         queue.asyncAfter(deadline: .now() + min(4, 0.5 * Double(retry))) { [weak self] in
             guard let self, self.running, self.retryTicket == ticket else { return }; self.connect()
@@ -446,22 +391,6 @@ final class RelayTransport {
                 let level: UInt32 = integer(at: 4)
                 guard level <= 1000 else { return false }
                 bytes.removeFirst(24); onPhoneVolumeRequest?(Int(level)); continue
-            }
-            if magic == 0x314D4441 {
-                let sequence: UInt32 = integer(at: 4), rate: UInt32 = integer(at: 8), frames: UInt32 = integer(at: 12)
-                let captured: UInt64 = integer(at: 16)
-                guard useBluetooth, (rate == 48000 || rate == 44100), frames > 0, frames <= 8192,
-                      captured <= UInt64(Int64.max) else { return false }
-                let length = 24 + Int(frames) + 5
-                guard bytes.count >= length else { return true }
-                guard let pcm = ImaStereo.decode(Data(bytes.dropFirst(24).prefix(Int(frames) + 5)), frames: Int(frames)) else { return false }
-                bytes.removeFirst(length)
-                if clockSamples >= 3, intent == "RESUME", capabilitiesKnown, requestedComputerOutput != true, controlStatus & 192 != 192,
-                   controlStatus & 1 == 0 || (controlStatus >> 8 == intentToken && controlStatus & 4 == 0) {
-                    lastTrafficAt = RelayClock.nanoseconds
-                    onPacket?(RelayPacket(sequence: sequence, rate: rate, frames: frames, capturedAt: Int64(captured), pcm: pcm), clockOffset)
-                }
-                continue
             }
             if magic == 0x31435342 {
                 let status: UInt32 = integer(at: 4)

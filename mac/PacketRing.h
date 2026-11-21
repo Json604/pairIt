@@ -1,7 +1,4 @@
 #include <stdint.h>
-#ifdef __OBJC__
-#import "BluetoothGateway.h"
-#endif
 typedef struct ARPacketRing ARPacketRing;
 ARPacketRing *ARCreate(void);
 void ARDestroy(ARPacketRing *ring);

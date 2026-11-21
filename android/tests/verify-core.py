@@ -6,20 +6,10 @@ import tempfile
 
 android = Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory(prefix="pairit-android-check-") as temporary:
-    # Stub the Android clock and track. The timing estimator and network parser run unchanged.
+    # Only the platform scheduling hook is stubbed; the network parser runs unchanged.
     process_stub = Path(temporary) / "Process.java"
     process_stub.write_text("package android.os; public final class Process { public static final int THREAD_PRIORITY_AUDIO=-16; public static void setThreadPriority(int priority) {} }")
-    timing_stubs = {
-        "SystemClock.java": "package android.os; public class SystemClock { public static long now; public static long elapsedRealtime() { return now; } }",
-        "AudioTimestamp.java": "package android.media; public class AudioTimestamp { public long framePosition, nanoTime; }",
-        "AudioTrack.java": "package android.media; public class AudioTrack { public long frame; public boolean getTimestamp(AudioTimestamp t) { t.framePosition = ++frame; t.nanoTime = System.nanoTime(); return true; } public int getPlaybackRate() { return 48000; } }",
-    }
-    for name, source in timing_stubs.items():
-        (Path(temporary) / name).write_text(source)
     subprocess.run(["javac", "-d", temporary, str(process_stub),
-                    *[str(Path(temporary) / name) for name in timing_stubs],
-                    str(android / "src/dev/bluetoothswitch/relay/VideoTiming.java"),
-                    str(android / "tests/VideoTimingCheck.java"),
                     str(android / "src/dev/bluetoothswitch/relay/ReleaseDownloadLink.java"),
                     str(android / "src/dev/bluetoothswitch/relay/RadialMotion.java"),
                     str(android / "tests/RadialMotionCheck.java"),
@@ -29,15 +19,9 @@ with tempfile.TemporaryDirectory(prefix="pairit-android-check-") as temporary:
                     str(android / "tests/ConnectionHealthCheck.java"),
                     str(android / "src/dev/bluetoothswitch/relay/ListeningFeedback.java"),
                     str(android / "tests/ListeningFeedbackCheck.java"),
-                    str(android / "src/dev/bluetoothswitch/relay/ImaStereo.java"),
                     str(android / "src/dev/bluetoothswitch/relay/PcmInbox.java"),
                     str(android / "src/dev/bluetoothswitch/relay/PlayoutTiming.java"),
                     str(android / "src/dev/bluetoothswitch/relay/PresentationTiming.java"),
-                    str(android / "src/dev/bluetoothswitch/relay/BluetoothRelayBridge.java"),
-                    str(android / "tests/BluetoothRelayBridgeCheck.java"),
-                    str(android / "src/dev/bluetoothswitch/relay/PcmGap.java"),
-                    str(android / "tests/PcmGapCheck.java"),
-                    str(android / "tests/ImaPacketCheck.java"),
                     str(android / "tests/HeartbeatCheck.java"),
                     str(android / "tests/PresentationWireCheck.java"),
                     str(android / "tests/ConnectionToneCheck.java"),
@@ -49,7 +33,6 @@ with tempfile.TemporaryDirectory(prefix="pairit-android-check-") as temporary:
                     str(android / "tests/ReleaseDownloadLinkCheck.java"),
                     str(android / "tests/RelayHandoffCheck.java"),
                     ], check=True)
-    subprocess.run(["java", "-cp", temporary, "dev.bluetoothswitch.relay.VideoTimingCheck"], check=True)
     subprocess.run(["java", "-cp", temporary,
                     "dev.bluetoothswitch.relay.ReleaseDownloadLinkCheck"], check=True)
     subprocess.run(["java", "-cp", temporary,
@@ -67,9 +50,6 @@ with tempfile.TemporaryDirectory(prefix="pairit-android-check-") as temporary:
 
     subprocess.run(["java", "-cp", temporary, "dev.bluetoothswitch.relay.ListeningFeedbackCheck"], check=True)
 
-    subprocess.run(["java", "-cp", temporary, "dev.bluetoothswitch.relay.BluetoothRelayBridgeCheck"], check=True)
-    subprocess.run(["java", "-cp", temporary, "dev.bluetoothswitch.relay.PcmGapCheck"], check=True)
-    subprocess.run(["java", "-cp", temporary, "dev.bluetoothswitch.relay.ImaPacketCheck"], check=True)
     subprocess.run(["java", "-cp", temporary, "dev.bluetoothswitch.relay.HeartbeatCheck"], check=True)
     subprocess.run(["java", "-cp", temporary, "dev.bluetoothswitch.relay.PresentationWireCheck"], check=True)
 

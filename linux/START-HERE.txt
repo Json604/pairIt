@@ -103,11 +103,3 @@ Ubuntu/Debian installations request your system password to install the .deb.
 Portable installations must be in their own writable folder; their previous
 folder is retained for recovery. Pairing/settings stay in your user profile.
 Older builds require one manual upgrade to gain this feature.
-
-Optional Bluetooth audio to Android
------------------------------------
-Run /usr/bin/python3 pairit-bluetooth.py from the extracted folder (or /opt/pairit).
-This optional helper requires BlueZ, python3-dbus and python3-gi.
-Keep PairIt and the helper running. Pair the phone and computer in system Bluetooth
-settings. In the Android app, save the computer with the usual QR/link, choose
-Bluetooth for that computer and select its bonded device. Ctrl+C stops the helper.

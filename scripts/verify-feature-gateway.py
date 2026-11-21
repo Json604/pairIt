@@ -6,7 +6,7 @@ import os, base64, hashlib, json, secrets, socket, ssl, struct, subprocess, temp
 ROOT=Path(__file__).resolve().parent.parent
 OUT=ROOT/os.environ.get('PAIRIT_VERIFY_OUTPUT','artifacts/feature-preview/verification');OUT.mkdir(parents=True,exist_ok=True)
 binary=OUT/'feature-gateway-harness'
-sources=['apple/ComputerVolume.swift', 'mac/ImaAudio.swift','mac/RelayServer.swift','mac/WiFiServer.swift','mac/LocalIdentity.swift','mac/MicrophoneOutput.swift','mac/SyncOutput.swift','scripts/FeatureServerHarness.swift','scripts/FeatureGatewayHarness.swift']
+sources=['apple/ComputerVolume.swift', 'mac/RelayServer.swift','mac/WiFiServer.swift','mac/LocalIdentity.swift','mac/MicrophoneOutput.swift','mac/SyncOutput.swift','scripts/FeatureServerHarness.swift','scripts/FeatureGatewayHarness.swift']
 subprocess.run(['xcrun','swiftc','-O','-swift-version','5','-D','GATEWAY','-framework','CoreAudio','-framework','AVFAudio','-framework','AudioToolbox','-framework','Network','-framework','Security',*[str(ROOT/s) for s in sources],'-o',str(binary)],check=True)
 checks=[]
 def require(value,name):

@@ -65,10 +65,3 @@ presentation time. OS estimates do not guarantee acoustically identical outputs.
 Older phone apps keep their existing timing. Updating all listeners enables the
 shared timing feature. A fifth phone receives a clear group-full message.
 Phone volume and pause are independent; computer output selection applies to all.
-
-Optional Bluetooth audio to Android
------------------------------------
-With Python 3.9+ installed, run py -3 pairit-bluetooth.py from the extracted folder.
-Keep PairIt and the helper running. Pair the phone and computer in system Bluetooth
-settings. In the Android app, save the computer with the usual QR/link, choose
-Bluetooth for that computer and select its bonded device. Ctrl+C stops the helper.

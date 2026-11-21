@@ -29,8 +29,6 @@ handoffs, machine-specific paths, credentials or deployment/account records.
   to phones that advertised a capability (phones reject unknown frames). Current
   extensions: `STATS VOLUME2`/`STATS PVOL1 n` (phone-owned volume, frame `0x35435342`,
   volume flag `0x20000`) and `STATS CONTROLS2` (computer disconnect, request bit 64).
-  Bluetooth receivers negotiate `STATS IMA1` for timestamped stereo IMA ADPCM
-  (frame `0x314D4441`); use ordinary PCM for peers that have not opted in.
 - Preserve TLS certificate pinning, token authentication and comparison-code approval.
   Discovery is not authentication; pairing QR codes contain credentials and are private.
 - Respect explicit Pause, Disconnect and Stop sharing. Temporary capture/network failures
@@ -49,7 +47,6 @@ handoffs, machine-specific paths, credentials or deployment/account records.
 | --- | --- |
 | Android | `android/src/dev/bluetoothswitch/relay/` — `MainActivity`, `RelayService`, `RelayConnection`, `RelaySettings` |
 | iPhone | `ios/AudioRelay/` — `ReceiverView`, `RelayReceiver`, `RelayTransport`, `PairingStore` |
-| Bluetooth computer link | Mac Bluetooth listener, iOS CoreBluetooth, Android RFCOMM, optional Windows/Linux `desktop/pairit-bluetooth.py`; see [Bluetooth audio](README.md#bluetooth-audio-development-builds) |
 | Shared Apple code | `apple/` |
 | Mac companion/audio driver | `mac/` — `RelayServer.swift`, `WiFiServer.swift`, `SyncOutput.swift`, `driver/` |
 | Shared Windows/Linux logic | `windows/PairIt.Core/` — `DesktopSessions`, `RelayServer`, updater and protocol code |

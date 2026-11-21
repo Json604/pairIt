@@ -21,10 +21,8 @@ if [ "${1:-}" = "--update-lock" ]; then LOCKED=--force-evaluate; fi
 "$DOTNET" restore PairIt.Windows/PairIt.Windows.csproj -p:RuntimeIdentifier=win-x64 -p:SelfContained=true "$LOCKED"
 "$DOTNET" publish PairIt.Windows/PairIt.Windows.csproj --no-restore -c Release -r win-x64 --self-contained true \
   -o "$OUTPUT" -p:DebugType=None -p:DebugSymbols=false
-if [ "${1:-}" != "--build-only" ]; then
-  "$DOTNET" restore PairIt.ProtocolCheck/PairIt.ProtocolCheck.csproj "$LOCKED"
-  "$DOTNET" run --project PairIt.ProtocolCheck/PairIt.ProtocolCheck.csproj --no-restore -c Release
-fi
+"$DOTNET" restore PairIt.ProtocolCheck/PairIt.ProtocolCheck.csproj "$LOCKED"
+"$DOTNET" run --project PairIt.ProtocolCheck/PairIt.ProtocolCheck.csproj --no-restore -c Release
 python3 "$ROOT/scripts/write-install-inventory.py" "$OUTPUT"
 echo "Windows x64 preview: $OUTPUT/PairIt.exe"
 echo "Cross-compilation and synthetic protocol checks do not verify Windows audio/UI runtime behavior."

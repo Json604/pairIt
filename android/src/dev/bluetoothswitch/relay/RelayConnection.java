@@ -12,21 +12,6 @@ final class RelayConnection {
         if (!settings.paired() || !RelaySettings.validHost(host)) throw new IOException("Pair a computer first");
         return open(host, 5002, settings.pin(), settings.token(), microphone ? " MIC1" : "", socket -> { });
     }
-    static Socket openPlayback(String host, RelaySettings settings, String bluetoothAddress,
-                               java.util.function.Consumer<Socket> opened) throws Exception {
-        if (bluetoothAddress.isEmpty()) return open(host, 5002, settings.pin(), settings.token(), "", opened);
-        if (!settings.pin().matches("[a-f0-9]{64}") || !settings.token().matches("[a-f0-9]{64}"))
-            throw new IOException("Invalid pairing credentials");
-        return openBluetoothPinned(bluetoothAddress, settings.pin(), settings.token(), opened);
-    }
-
-    static Socket openBluetoothPinned(String address, String expectedPin, String message,
-                                      java.util.function.Consumer<Socket> opened) throws Exception {
-        if (!expectedPin.matches("[a-f0-9]{64}")) throw new IOException("Invalid computer identity");
-        Socket raw = BluetoothRelaySocket.open(address, opened);
-        // The host argument supplies TLS peer metadata only. The socket is already connected.
-        return authenticate(raw, "localhost", 5002, expectedPin, message);
-    }
     static boolean confirmPairing(String host, int port, String pin, String token,
                                   java.util.function.Consumer<Socket> opened) throws Exception {
         try (Socket connection = open(host, port, pin, token, " PAIR1", opened)) {
@@ -54,14 +39,8 @@ final class RelayConnection {
         try {
             raw.setTcpNoDelay(true);
             raw.connect(new InetSocketAddress(host, port), 4000);
-            raw.setKeepAlive(true);
-        } catch (Exception e) { raw.close(); throw e; }
-        return authenticate(raw, host, port, expectedPin, message);
-    }
-
-    private static Socket authenticate(Socket raw, String host, int port, String expectedPin, String message) throws Exception {
-        try {
             raw.setSoTimeout(4000);
+            raw.setKeepAlive(true);
             X509TrustManager pinned = new X509TrustManager() {
                 public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
                 public void checkClientTrusted(X509Certificate[] chain, String authType) throws CertificateException { throw new CertificateException("Client certificates unsupported"); }

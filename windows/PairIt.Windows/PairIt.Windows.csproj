@@ -8,9 +8,9 @@
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
     <AssemblyName>PairIt</AssemblyName>
-    <Version>1.1.0-preview.30</Version>
+    <Version>1.1.0-preview.29</Version>
     <AssemblyVersion>1.1.0.0</AssemblyVersion>
-    <FileVersion>1.1.0.30</FileVersion>
+    <FileVersion>1.1.0.29</FileVersion>
     <Company>PairIt</Company>
     <Product>PairIt - AudioRelay</Product><AssemblyTitle>PairIt - AudioRelay</AssemblyTitle>
     <ApplicationManifest>app.manifest</ApplicationManifest>
@@ -24,7 +24,6 @@
     <PackageReference Include="QRCoder" Version="[1.8.1]" />
     <None Include="../licenses/*" Link="licenses/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="../../design/fonts/*" Link="Fonts/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <None Include="../../desktop/pairit-bluetooth.py" Link="pairit-bluetooth.py" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="../../LICENSE" Link="LICENSE" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="../START-HERE.txt" Link="START-HERE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>

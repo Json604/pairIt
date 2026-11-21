@@ -2,8 +2,6 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>NSBluetoothAlwaysUsageDescription</key>
-    <string>PairIt uses Bluetooth only when you choose the Bluetooth receiver for a paired Mac.</string>
 	<key>CFBundleDisplayName</key>
 	<string>PairIt - AudioRelay</string>
 	<key>CFBundleExecutable</key>
@@ -266,7 +264,6 @@
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
-		<string>bluetooth-central</string>
 	</array>
 	<key>UILaunchScreen</key>
 	<dict/>

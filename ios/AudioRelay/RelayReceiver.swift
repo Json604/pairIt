@@ -111,7 +111,7 @@ final class RelayReceiver: ObservableObject {
     private var reportTimer: DispatchSourceTimer?
     private var holdBackgroundTask: UIBackgroundTaskIdentifier = .invalid
     private var profile: RouteTiming? {
-        pairing.mac.map { RouteTiming(pin: $0.pin, route: routeUID, mode: activeMode, hostOverride: pairing.hostOverride, bluetooth: pairing.bluetoothEnabled) }
+        pairing.mac.map { RouteTiming(pin: $0.pin, route: routeUID, mode: activeMode, hostOverride: pairing.hostOverride) }
     }
 
     init() {
@@ -310,8 +310,7 @@ final class RelayReceiver: ObservableObject {
         let volume = PhoneVolume.current
         activeMode = requestedMode; modeNote = requestedMode == .interactive ? "Learning arrival timing…" : ""
         let override = pairing.hostOverride
-        let bluetoothEnabled = pairing.bluetoothEnabled
-        let timing = RouteTiming(pin: computer.pin, route: route.uid, mode: requestedMode, hostOverride: override, bluetooth: bluetoothEnabled)
+        let timing = RouteTiming(pin: computer.pin, route: route.uid, mode: requestedMode, hostOverride: override)
         estimatedMs = timing.estimate; correction = timing.correction
         publish(.connecting, "Connecting to \(computer.displayName)", "Output: \(currentOutputName). Keep PairIt open on your computer.")
         queue.async { [weak self] in
@@ -321,7 +320,7 @@ final class RelayReceiver: ObservableObject {
             self.playback.stop(); self.reportTimer?.cancel()
             self.playback = RelayPlayback(mode: requestedMode)
             let existing = self.transport
-            let transport = existing ?? RelayTransport(mac: computer, queue: self.queue, hostOverride: override, useBluetooth: bluetoothEnabled); self.transport = transport
+            let transport = existing ?? RelayTransport(mac: computer, queue: self.queue, hostOverride: override); self.transport = transport
             transport.onOutput = { [weak self, weak transport] supported, onComputer in
                 guard let self, let transport, self.transport === transport else { return }
                 let needsPhonePreparation = !self.localPlaybackReady
@@ -474,14 +473,14 @@ final class RelayReceiver: ObservableObject {
             transport.setOutputTiming(minimum: 320, output: nil)
             self.playback.onEstimate = { [weak self, weak transport] value in
                 guard let self, self.desired, self.generation == generation else { return }
-                let profile = RouteTiming(pin: computer.pin, route: route.uid, mode: self.playback.mode, hostOverride: override, bluetooth: bluetoothEnabled)
+                let profile = RouteTiming(pin: computer.pin, route: route.uid, mode: self.playback.mode, hostOverride: override)
                 profile.saveEstimate(value); transport?.setCompensation(profile.effective)
                 self.playback.setLocalCorrection(["linux", "windows"].contains(computer.platform) ? profile.correction : 0)
                 DispatchQueue.main.async { self.estimatedMs = value; self.correction = profile.correction }
             }
             self.playback.onModeChange = { [weak self, weak transport] mode, message in
                 guard let self, self.desired, self.generation == generation else { return }
-                let profile = RouteTiming(pin: computer.pin, route: route.uid, mode: mode, hostOverride: override, bluetooth: bluetoothEnabled)
+                let profile = RouteTiming(pin: computer.pin, route: route.uid, mode: mode, hostOverride: override)
                 transport?.setCompensation(profile.effective)
                 self.playback.setLocalCorrection(["linux", "windows"].contains(computer.platform) ? profile.correction : 0)
                 DispatchQueue.main.async { self.activeMode = mode; self.modeNote = message; self.estimatedMs = profile.estimate; self.correction = profile.correction }

@@ -46,10 +46,7 @@ android {
     buildTypes {
         debug {
             manifestPlaceholders = [admobAppId: testAppId, appLabel: '@string/app_name']
-            if (project.hasProperty('pairitUiPreview')) {
-                applicationIdSuffix '.preview'
-                manifestPlaceholders.appLabel = 'PairIt Testing'
-            }
+            if (project.hasProperty('pairitUiPreview')) applicationIdSuffix '.preview'
             buildConfigField 'String', 'BANNER_AD_UNIT_ID', '"' + testBannerId + '"'
             buildConfigField 'boolean', 'ADS_TEST_MODE', 'true'
             buildConfigField 'String', 'APP_OPEN_AD_UNIT_ID', '"' + testAppOpenId + '"'
