@@ -257,6 +257,7 @@ public sealed class RelayServer(X509Certificate2 certificate, string pairingToke
             sessions.SetPresentationTiming(peer, minimum, output < 0 ? null : output);
             return;
         }
+        if (line == "STATS IMA1") { peer.AcceptsImaAudio = true; return; }
         if(line=="STATS VOLUME1"){peer.VolumeControls=true;return;}
         if(line=="STATS CONTROLS1"){peer.DesktopControls=true;return;}
         if(line=="STATS VOLUME2"){peer.OwnsVolume=true;return;}

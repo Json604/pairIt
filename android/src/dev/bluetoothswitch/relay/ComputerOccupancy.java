@@ -7,11 +7,13 @@ import java.util.function.IntConsumer;
 
 /** Pinned, bounded display-only query. Unknown/older companions return -1. */
 final class ComputerOccupancy {
-    static void check(NearbyDevices.Device device, IntConsumer completed) {
+    static void check(NearbyDevices.Device device, String bluetoothAddress, IntConsumer completed) {
         Handler main = new Handler(Looper.getMainLooper());
         Thread worker = new Thread(() -> {
             int count = -1; String names="";
-            try(Socket socket = RelayConnection.openPinned(device.host,5002,device.pin,"STATUS1",s -> {})) {
+            try(Socket socket = bluetoothAddress.isEmpty()
+                    ? RelayConnection.openPinned(device.host,5002,device.pin,"STATUS1",s -> {})
+                    : RelayConnection.openBluetoothPinned(bluetoothAddress,device.pin,"STATUS1",s -> {})) {
                 String line = RelayConnection.readLine(socket,1536,4000);
                 String[] parts=line.split(" ",4);
                 if(parts.length>=3 && parts[0].equals("OK") && parts[1].equals("STATUS1") && parts[2].matches("[0-4]")) {

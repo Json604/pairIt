@@ -17,15 +17,25 @@ final class PairingConfirmation {
     private final Runnable timeout = () -> finish(false);
 
     PairingConfirmation(PairingCode code, Consumer<Boolean> completion) {
+        this(code, "", completion);
+    }
+    PairingConfirmation(PairingCode code, String bluetoothAddress, Consumer<Boolean> completion) {
         this.completion = completion;
         main.postDelayed(timeout, 12000);
         Thread worker = new Thread(() -> {
             boolean confirmed = false;
             try {
-                confirmed = RelayConnection.confirmPairing(code.host, 5002, code.pin, code.token, socket -> {
+                Consumer<Socket> opened = socket -> {
                     connection.set(socket);
                     if (finished.get()) closeConnection();
-                });
+                };
+                if (bluetoothAddress.isEmpty()) {
+                    confirmed = RelayConnection.confirmPairing(code.host, 5002, code.pin, code.token, opened);
+                } else {
+                    try (Socket socket = RelayConnection.openBluetoothPinned(bluetoothAddress, code.pin, code.token + " PAIR1", opened)) {
+                        confirmed = "OK PAIR1".equals(RelayConnection.readLine(socket, 64, 2500));
+                    }
+                }
             } catch (Exception ignored) { } // Offline/older companions keep the saved pairing.
             final boolean result = confirmed;
             main.post(() -> finish(result));

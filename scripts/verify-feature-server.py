@@ -8,7 +8,7 @@ OUT = ROOT / os.environ.get('PAIRIT_VERIFY_OUTPUT', 'artifacts/feature-preview/v
 OUT.mkdir(parents=True, exist_ok=True)
 binary = OUT / 'feature-server-harness'
 subprocess.run(['xcrun','swiftc','-O','-swift-version','5','-framework','CoreAudio',
-                str(ROOT/'apple/ComputerVolume.swift'),str(ROOT/'mac/RelayServer.swift'),str(ROOT/'scripts/FeatureServerHarness.swift'),'-o',str(binary)],check=True)
+                str(ROOT/'apple/ComputerVolume.swift'),str(ROOT/'mac/ImaAudio.swift'),str(ROOT/'mac/RelayServer.swift'),str(ROOT/'scripts/FeatureServerHarness.swift'),'-o',str(binary)],check=True)
 with socket.socket() as reserve:
     reserve.bind(('127.0.0.1',0)); port=reserve.getsockname()[1]
 process=subprocess.Popen([str(binary),str(port)],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,bufsize=1)
@@ -31,7 +31,7 @@ class Client:
     def __init__(self,number,read=True,extra=''):
         self.socket=socket.create_connection(('127.0.0.1',port),timeout=2)
         self.socket.settimeout(3);self.packets={};self.clocks=0;self.status=0;self.desktop=0;self.volume=None;self.error=None;self.running=True;self.presentation=None
-        self.volume_requests=[];self.last_sample=None;self.player=None
+        self.volume_requests=[];self.last_sample=None;self.player=None;self.ima_packets=set();self.accept_ima="STATS IMA1\n" in extra
         self.send('AUTH '+gateway_token+'\nHELLO '+format(number,'032x')+'\nSTATS CONTROLS1\nSTATS VOLUME1\n'+extra+'ACTIVE 1\n')
         if read:
             self.reader=threading.Thread(target=self.run,daemon=True);self.reader.start()
@@ -59,6 +59,14 @@ class Client:
                 if magic==0x35435342:self.volume_requests.append(seq);continue
                 if magic==0x36435342:self.player=seq;continue
                 if magic==0x31435342:self.clocks+=1;self.status=seq;continue
+                if magic==0x314D4441:
+                    assert self.accept_ima and rate in (44100,48000) and 1<=frames<=8192
+                    payload=self.read(6+frames-1)
+                    assert max(payload[4:6])<=88
+                    self.ima_packets.add(seq)
+                    self.last_sample=struct.unpack_from('<h',payload)[0]
+                    self.packets[seq]=(stamp,frames*4)
+                    continue
                 assert magic==0x31415342 and rate in(44100,48000) and frames<=8192
                 if frames:
                     pcm=self.read(frames*4);self.packets[seq]=(stamp,len(pcm));self.last_sample=struct.unpack('<h',pcm[:2])[0]
@@ -71,6 +79,7 @@ class Client:
         self.socket.close()
 clients=[]
 try:
+    require(command('ima-vector')=='e80318fc342d3b727ff7','Stereo IMA predictors, initial indices and packed nibbles match Android decoder vector')
     pending=socket.create_connection(('127.0.0.1',port),timeout=2)
     pending.settimeout(.15)
     try:
@@ -248,7 +257,7 @@ try:
     def name(text):return 'NAME1 '+base64.b64encode(text.encode()).decode()+'\n'
     def stats():return json.loads(command('stats'))
     command('volume 0.25');command('audio-on')
-    owner=Client(101,extra=name('Owner phone')+'STATS VOLUME2\nSTATS CONTROLS2\nSTATS PVOL1 500\n');clients=[owner]
+    owner=Client(101,extra=name('Owner phone')+'STATS IMA1\nSTATS VOLUME2\nSTATS CONTROLS2\nSTATS PVOL1 500\n');clients=[owner]
     require(wait_for(lambda:stats()['volumeWrites']==[0.5]),'A single volume-controlled phone sets the Mac volume to its own level')
     time.sleep(.3)
     require(owner.volume_requests==[],'Following the phone volume is not echoed back to the phone')
@@ -256,6 +265,8 @@ try:
     require(wait_for(lambda:owner.volume is not None and owner.volume&0x20000 and legacy.volume is not None and not legacy.volume&0x20000),'Only VOLUME2 phones learn the computer stopped attenuating them')
     require(wait_for(lambda:owner.last_sample==1000 and legacy.last_sample==500),'VOLUME2 phones get full-scale PCM; older phones keep the Mac volume applied')
     require(wait_for(lambda:any(r['name']=='Owner phone' and r['level']==500 and r['disconnect'] for r in json.loads(command('phones')))),'Mac controls list the phone, its volume and disconnect support')
+    require(wait_for(lambda:any(owner.packets[seq]==legacy.packets[seq] for seq in owner.ima_packets.copy() & legacy.packets.keys())),
+            'Negotiated IMA and legacy PCM peers retain matching capture timestamps and frame counts')
     command('volume 0.5625')
     require(wait_for(lambda:owner.volume_requests==[563]),'A Mac volume-key step moves the phone volume by the same step')
     require(legacy.volume_requests==[],'Older phones never receive volume requests')

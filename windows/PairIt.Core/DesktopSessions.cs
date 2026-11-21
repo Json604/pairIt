@@ -509,8 +509,13 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
             ApplyPlayback(playback.Sound(packet.StereoPcm16, now));
             ObserveVolume(now);
             var frame = Protocol.Pcm(sequence++, packet);
+            byte[]? compressed = null;
             foreach (var peer in receivers.Values)
-                if (peer.Active && !peer.TryEnqueue(frame)) peer.RequestCloseOnce();
+            {
+                if (!peer.Active) continue;
+                var audio = peer.AcceptsImaAudio ? (compressed ??= ImaAudio.Encode(frame)) : frame;
+                if (!peer.TryEnqueue(audio)) peer.RequestCloseOnce();
+            }
         }
     }
 

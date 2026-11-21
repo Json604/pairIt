@@ -23,6 +23,22 @@
   precondition(PresentationTiming.rateCorrection(errorMs:40)==0.001)
   precondition(PresentationTiming.rateCorrection(errorMs:-40) == -0.001)
   precondition(PresentationTiming.rateCorrection(errorMs:0.5)==0)
+  // A burst arriving at t=10 contains 100 ms of expired packets followed
+  // by packets that can still play at their original 320 ms deadline.
+  let burst = [9.580, 9.630, 9.675, 9.685, 9.690]
+  precondition(burst.first { PresentationTiming.canAnchor(capture: $0, now: 10, cushion: 0.320) } == 9.685)
+  func padding(_ sequence: UInt32, _ elapsed: Int64, after previous: UInt32 = 10) -> Int? {
+    PresentationTiming.gapPadding(previous: previous, sequence: sequence, elapsedNs: elapsed,
+                                  previousFrames: 480, rate: 48_000)
+  }
+  precondition(padding(12, 20_000_000) == 480)
+  precondition(padding(1, 20_000_000, after: .max) == 480)
+  precondition(padding(15, 30_000_000) == 960)
+  precondition(padding(16, 30_000_000) == nil)
+  precondition(padding(13, 30_020_834) == nil)
+  precondition(padding(9, 20_000_000) == nil)
+  precondition(padding(10, 20_000_000) == nil)
+  precondition(padding(12, 1_000_000) == nil)
   print("PASS: presentation timing, mixed outputs, late join and solo fallback")
  }
 }

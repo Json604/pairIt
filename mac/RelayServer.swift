@@ -212,6 +212,7 @@ final class RelayServer {
             let player = peer.player1 ? Self.playerState(macPlaying) : nil
             lock.unlock(); peer.enqueue(reply); if let command { peer.enqueue(command) }; if let volume { peer.enqueue(volume) }; if let alignment { peer.enqueue(alignment) }; if let player { peer.enqueue(player) }; return
         }
+        if line == "STATS IMA1" { peer.imaAudio = true; lock.unlock(); return }
         if line == "STATS VOLUME1" { peer.volumeControls = true; lock.unlock(); return }
         if line == "STATS CONTROLS1" { peer.desktopControls=true;lock.unlock();return }
         if line == "STATS VOLUME2" { peer.volume2 = true; lock.unlock(); publishPhones(); return }
@@ -612,15 +613,13 @@ final class RelayServer {
                 // Volume-controlled phones receive full-scale PCM (mute still applies);
                 // older phones keep the Mac volume applied to their audio.
                 let volume = packet.count > 24 ? source?.computerVolume : nil
-                var attenuated: Data?, muteOnly: Data?
+                var attenuated = ListenerAudio(packet, volume: volume)
+                var muteOnly = ListenerAudio(packet, volume: volume.map { ComputerVolume(level: 1, muted: $0.muted) })
                 for peer in peers.values where peer.authenticated && (peer.active || source == nil) {
-                    guard let volume else { peer.enqueue(packet); continue }
                     if peer.volume2 {
-                        if muteOnly == nil { var copy = packet; ComputerVolume(level: 1, muted: volume.muted).apply(to: &copy); muteOnly = copy }
-                        peer.enqueue(muteOnly!)
+                        peer.enqueue(muteOnly.packet(compressed: peer.imaAudio))
                     } else {
-                        if attenuated == nil { var copy = packet; volume.apply(to: &copy); attenuated = copy }
-                        peer.enqueue(attenuated!)
+                        peer.enqueue(attenuated.packet(compressed: peer.imaAudio))
                     }
                 }
             }
@@ -694,6 +693,7 @@ private final class RelayPeer {
     var desktopRelease = false
     var parkReason: String?
     var player1 = false
+    var imaAudio = false
     var volume2 = false
     var controls2 = false
     var phoneLevel: Int?

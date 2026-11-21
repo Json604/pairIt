@@ -17,13 +17,15 @@
 	<key>CFBundleShortVersionString</key>
 	<string>1.1.0</string>
 	<key>CFBundleVersion</key>
-	<string>29</string>
+	<string>30</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.2</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>Send your Mac audio locally to your phone and connected headphones.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Connect directly to your phone for local audio streaming.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_audiorelay._tcp</string>

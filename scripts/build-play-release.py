@@ -4,7 +4,7 @@ import argparse, hashlib, importlib.util, json, os, secrets, shutil, subprocess,
 from pathlib import Path
 from release_tools import verified_download
 ROOT=Path(__file__).resolve().parent.parent
-parser=argparse.ArgumentParser();parser.add_argument('--internal',action='store_true',help='Allow documented configuration/acceptance blockers; does not submit or force test ads');parser.add_argument('--output-dir',type=Path,help='Isolated candidate directory');args=parser.parse_args()
+parser=argparse.ArgumentParser();parser.add_argument('--internal',action='store_true',help='Allow documented configuration/acceptance blockers; does not submit or force test ads');parser.add_argument('--output-dir',type=Path,help='Isolated candidate directory');parser.add_argument('--skip-lint',action='store_true',help='Build and validate artifacts without running Android lint');args=parser.parse_args()
 p=json.loads((ROOT/'release/google-play/release.json').read_text())
 spec=importlib.util.spec_from_file_location('content',ROOT/'scripts/prepare-play-content.py');content=importlib.util.module_from_spec(spec);spec.loader.exec_module(content);content.main()
 errors=content.validate(p)
@@ -22,7 +22,9 @@ if not key.exists():raise SystemExit('Existing upload key is missing. Restore it
 c=json.loads(credentials.read_text());env.update(RELAY_KEYSTORE=str(key),RELAY_STORE_PASSWORD=c['password'],RELAY_KEY_ALIAS=c['alias'],RELAY_KEY_PASSWORD=c['password'],PAIR_UPLOAD_PASSWORD=c['password'])
 name='PairIt-'+p['version_name']
 out=args.output_dir or ROOT/'artifacts'/(name+'-Google-Play');out=out.resolve();out.mkdir(parents=True,exist_ok=True)
-with (ROOT/'artifacts/pairit-release-build.log').open('w') as log:run([str(ROOT/'android/gradlew'),'bundleRelease','assembleRelease','lintRelease','--console=plain'],cwd=ROOT/'android',stdout=log,stderr=subprocess.STDOUT)
+gradle_tasks=['bundleRelease','assembleRelease']
+if not args.skip_lint:gradle_tasks.append('lintRelease')
+with (ROOT/'artifacts/pairit-release-build.log').open('w') as log:run([str(ROOT/'android/gradlew'),*gradle_tasks,'--console=plain'],cwd=ROOT/'android',stdout=log,stderr=subprocess.STDOUT)
 aab=out/(name+'.aab');shutil.copy2(ROOT/'android/build/outputs/bundle/release/AudioRelay-release.aab',aab)
 run([keytool,'-exportcert','-rfc','-keystore',str(key),'-storepass:env','PAIR_UPLOAD_PASSWORD','-alias',c['alias'],'-file',str(out/'upload-certificate.pem')])
 with (out/'bundle-signature.txt').open('w') as log:run([str(Path(java_home)/'bin/jarsigner'),'-verify','-verbose','-certs',str(aab)],stdout=log,stderr=subprocess.STDOUT)

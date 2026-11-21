@@ -33,7 +33,15 @@ public class RelayService extends Service {
     private volatile RelayHandoff handoff;
     private volatile int pendingOutputOnConnect = -1;
     private volatile RelayHandoff.Intent parkedIntent = RelayHandoff.Intent.PAUSE;
-    private final boolean useWifi = true;
+    private volatile String bluetoothAddress = "";
+    private final Object connectionLock = new Object();
+    private Socket openingSocket;
+    private volatile int connectionRevision;
+    private boolean bluetoothConnection() { return !bluetoothAddress.isEmpty(); }
+    private String connectionHelp() {
+        return bluetoothConnection() ? "Keep Bluetooth on and PairIt open on your computer."
+                : "Keep both devices on the same Wi-Fi and PairIt open on your computer.";
+    }
     private volatile int outputRevision;
     private volatile OutputRoute selectedOutput = OutputRoute.BLUETOOTH;
     private volatile boolean interactiveMode, profileReady;
@@ -74,6 +82,7 @@ public class RelayService extends Service {
             if (network.equals(localNetwork)) return;
             boolean networkChanged = localNetwork != null || !networkAvailable;
             localNetwork = network; networkAvailable = true; networkRevision++;
+            if(bluetoothConnection())return;
             if(settings.paired())discovery.start(settings.pin());
             if(networkChanged && running && (requestedMac || parkedIntent==RelayHandoff.Intent.PHONE)) {
                 recoverNetwork();
@@ -86,7 +95,7 @@ public class RelayService extends Service {
             if(liveInstance!=RelayService.this)return;
             if(!network.equals(localNetwork))return;
             localNetwork=null;networkAvailable=false;networkRevision++;
-            if(running && (requestedMac || parkedIntent==RelayHandoff.Intent.PHONE))recoverNetwork();
+            if(!bluetoothConnection() && running && (requestedMac || parkedIntent==RelayHandoff.Intent.PHONE))recoverNetwork();
         }
     };
     private boolean reconnectable() {
@@ -95,14 +104,14 @@ public class RelayService extends Service {
     private void recoverNetwork() {
         if(!running || userStopped || (!requestedMac && parkedIntent!=RelayHandoff.Intent.PHONE))return;
         if(!reconnectable()) {
-            pausePlayback(RelayState.Phase.ERROR,"Computer unavailable","Keep both devices on the same Wi-Fi, then tap Connect.");
+            pausePlayback(RelayState.Phase.ERROR,"Computer unavailable",connectionHelp());
             return;
         }
         // Retain the user's listening intent and foreground service, not stale audio.
         // PHONE restores only the control connection; a fresh offer is still required for audio.
         mute(); generation.incrementAndGet();closeConnection();locks.release();
         lastTrafficAt=SystemClock.elapsedRealtime();
-        publish(requestedMac?RelayState.Phase.RECONNECTING:RelayState.Phase.PHONE,"Waiting for your computer","Reconnecting automatically. Keep both devices on the same Wi-Fi and PairIt open on your computer.");
+        publish(requestedMac?RelayState.Phase.RECONNECTING:RelayState.Phase.PHONE,"Waiting for your computer","Reconnecting automatically. " + connectionHelp());
         foreground(false);
         main.removeCallbacks(connectionWatchdog);main.postDelayed(connectionWatchdog,500);
     }
@@ -141,7 +150,7 @@ public class RelayService extends Service {
                 destination=candidate.find(audio);if(destination!=null){kind=candidate;break;}
             }
         }
-        boolean allowed=networkAvailable&&audio.getMode()==AudioManager.MODE_NORMAL&&PhoneAudioSession.availableTo(this);
+        boolean allowed=(bluetoothConnection() || networkAvailable)&&audio.getMode()==AudioManager.MODE_NORMAL&&PhoneAudioSession.availableTo(this);
         if(!outputRecovery.ready(destination!=null&&kind!=OutputRoute.SPEAKER,allowed)){
             // Device callbacks wake an absent route; only retry a present route held by a call/network.
             if(destination!=null)scheduleExternalOutput();return;
@@ -181,7 +190,7 @@ public class RelayService extends Service {
     }
     private final Runnable renewLocks = new Runnable() {
         public void run() {
-            if (canPlay() && socket != null) locks.acquire(useWifi); else locks.release();
+            if (canPlay() && socket != null) locks.acquire(!bluetoothConnection()); else locks.release();
             if (running) main.postDelayed(this, 60000);
         }
     };
@@ -201,12 +210,13 @@ public class RelayService extends Service {
         super.onCreate(); liveInstance = this;
         audio = getSystemService(AudioManager.class);
         settings = new RelaySettings(this);
+        bluetoothAddress = settings.bluetoothAddress();
         if (state.phase == RelayState.Phase.IDLE && settings.paired()) {
             if ("paused".equals(settings.controlsSource())) state = new RelayState(RelayState.Phase.PAUSED, "Listening paused", "Resume with your headphones or choose Computer.");
             else if ("phone".equals(settings.controlsSource())) state = new RelayState(RelayState.Phase.PHONE, "Phone audio", "Choose Computer in the notification to return.");
         }
         locks = new PlaybackLocks(this);
-        discovery = new MacDiscovery(this); if (settings.paired()) discovery.start(settings.pin());
+        discovery = new MacDiscovery(this); if (settings.paired() && !bluetoothConnection()) discovery.start(settings.pin());
         connectivity=getSystemService(android.net.ConnectivityManager.class);
         try {
             connectivity.registerNetworkCallback(new android.net.NetworkRequest.Builder()
@@ -340,7 +350,8 @@ public class RelayService extends Service {
         RelayHandoff current = handoff;
         selectedOutput = settings.output();
         interactiveMode = settings.interactive(); profileReady = false; timingProfileKey = "";
-        sessionPin = settings.pin(); sessionOverride = settings.overrideHost();
+        bluetoothAddress = settings.bluetoothAddress();
+        sessionPin = settings.pin(); sessionOverride = settings.timingTransportKey();
         AudioDeviceInfo chosenOutput = settings.connectionOutput(audio, allowOutputFallback);
         if (chosenOutput != null) {
             selectedOutput = OutputRoute.kind(chosenOutput);
@@ -391,7 +402,7 @@ public class RelayService extends Service {
         }
         lastTrafficAt=SystemClock.elapsedRealtime();
         main.removeCallbacks(connectionWatchdog);main.post(connectionWatchdog);
-        locks.acquire(useWifi);
+        locks.acquire(!bluetoothConnection());
         if (current != null) current.request(RelayHandoff.Intent.LISTEN);
         mediaSession.setActive(true);
         settings.controlsSource("computer");
@@ -603,22 +614,40 @@ public class RelayService extends Service {
         try { while (running) {
             if(outputRecovery.waiting()){LockSupport.parkNanos(1_000_000_000L);continue;}
             if (!requestedMac && !reconnectable()) { LockSupport.parkNanos(100_000_000L); continue; }
-            if (!networkAvailable) { LockSupport.parkNanos(1_000_000_000L); continue; }
+            if (!bluetoothConnection() && !networkAvailable) { LockSupport.parkNanos(1_000_000_000L); continue; }
             final int attemptNetwork=networkRevision;
             String host = settings.connectionHost(discovery.host);
-            try (Socket connection = RelayConnection.open(host, settings, false)) {
-                if (!running || userStopped || attemptNetwork!=networkRevision || !networkAvailable) continue;
+            final int attemptRevision = connectionRevision;
+            String address = bluetoothAddress;
+            try (Socket connection = RelayConnection.openPlayback(host, settings, address, raw -> {
+                synchronized (connectionLock) {
+                    if (running && attemptRevision == connectionRevision) { openingSocket = raw; return; }
+                }
+                try { raw.close(); } catch (IOException ignored) { }
+            })) {
+                synchronized (connectionLock) {
+                    openingSocket = null;
+                    if (!running || userStopped || attemptRevision != connectionRevision
+                            || (!bluetoothConnection() && (attemptNetwork != networkRevision || !networkAvailable))) continue;
+                    socket = connection;
+                }
                 resumeWhenQuietAfterReconnect=connections>0 && !requestedMac && parkedIntent==RelayHandoff.Intent.PHONE;
-                socket = connection; connections++; profileReady = false;
+                connections++; profileReady = false;
                 lastTrafficAt=SystemClock.elapsedRealtime();
-                main.post(()->{if(socket==connection&&requestedMac&&focusGranted){locks.acquire(useWifi);foreground(true);}});
+                main.post(()->{if(socket==connection&&requestedMac&&focusGranted){locks.acquire(!bluetoothConnection());foreground(true);}});
                 handoff = new RelayHandoff(requestedMac ? RelayHandoff.Intent.LISTEN : parkedIntent);
                 int pendingOutput = pendingOutputOnConnect;
                 if (pendingOutput >= 0) handoff.requestOutput(pendingOutput == 1);
                 interactiveMode = settings.interactive();
                 alignmentReport = "STATS ALIGN1 320 -1\n"; groupTimingStatus = "";
+                boolean allowIma = !address.isEmpty();
+                if (allowIma) {
+                    OutputStream output = connection.getOutputStream();
+                    output.write("STATS IMA1\n".getBytes(StandardCharsets.US_ASCII));
+                    output.flush();
+                }
                 startControl(connection);
-                playSession(connection);
+                playSession(connection, allowIma);
                 failures = 0;
             } catch (Exception error) {
                 if (!running) break;
@@ -636,19 +665,20 @@ public class RelayService extends Service {
                 } else if (requestedMac || reconnectable()) {
                     failures++;
                     if(!reconnectable()) {
-                        main.post(()->pausePlayback(RelayState.Phase.ERROR,"Computer unavailable","Keep both devices on the same Wi-Fi, then tap Connect."));break;
+                        main.post(()->pausePlayback(RelayState.Phase.ERROR,"Computer unavailable",connectionHelp()));break;
                     }
                     main.post(()->{if(liveInstance==this&&running&&socket==null){locks.release();foreground(false);}});
-                    publish(requestedMac?RelayState.Phase.RECONNECTING:RelayState.Phase.PHONE, "Reconnecting to your computer", "Check the local network and desktop companion. Audio returns after a secure connection.");
+                    publish(requestedMac?RelayState.Phase.RECONNECTING:RelayState.Phase.PHONE, "Reconnecting to your computer", connectionHelp());
                 }
             } finally {
                 main.post(this::endListeningFeedback);
-                socket = null; handoff = null;
+                synchronized (connectionLock) { openingSocket = null; socket = null; }
+                handoff = null;
                 outputControlSupported = false; computerOutputSelected = false;
                 if (!requestedMac && !reconnectable()) {
                     main.post(() -> {
                         if (!requestedMac && socket == null && !reconnectable()) {
-                            if (!userStopped && state.phase != RelayState.Phase.ERROR) publish(RelayState.Phase.ERROR, "Computer disconnected", "Keep both devices on the same Wi-Fi and open PairIt on your computer, then reconnect.");
+                            if (!userStopped && state.phase != RelayState.Phase.ERROR) publish(RelayState.Phase.ERROR, "Computer disconnected", connectionHelp());
                             stopSelf();
                         }
                     });
@@ -656,14 +686,14 @@ public class RelayService extends Service {
                 }
             }
             long until = SystemClock.elapsedRealtime() + Math.min(5000, 500L << Math.min(failures, 3));
-            while (running && (requestedMac || reconnectable()) && SystemClock.elapsedRealtime() < until && attemptNetwork==networkRevision) LockSupport.parkNanos(50_000_000L);
+            while (running && (requestedMac || reconnectable()) && SystemClock.elapsedRealtime() < until && (bluetoothConnection() || attemptNetwork==networkRevision)) LockSupport.parkNanos(50_000_000L);
         } } finally { PhoneAudioSession.release(this); }
     }
 
-    private void playSession(Socket connection) throws Exception {
+    private void playSession(Socket connection, boolean allowIma) throws Exception {
         computerVolume = ""; computerPlayerPaused = false;
         groupTimingStatus = ""; mediaControlHint = ""; computerVolumeLinked = false; mediaCommands.clear();
-        PcmInbox inbox = new PcmInbox();
+        PcmInbox inbox = new PcmInbox(allowIma);
         RelayHandoff control = handoff;
         inbox.onHeartbeat = () -> lastTrafficAt=SystemClock.elapsedRealtime();
         inbox.onControlStatus = value -> controlStatus(connection, control, value);
@@ -690,8 +720,10 @@ public class RelayService extends Service {
         alignmentReport = "STATS ALIGN1 " + minimumCushionMs + " -1\n";
         InteractivePlayback interactive = interactiveMode ? new InteractivePlayback() : null;
         boolean learning = interactive != null;
-        long previousSequence = -1, writtenFrames = 0, lastReport = 0, started = 0;
-        boolean playing = false, routeConfigured = false;
+        PcmInbox.Packet previousPacket = null;
+        long writtenFrames = 0, lastReport = 0, started = 0;
+        boolean playing = false, routeConfigured = false, recovering = false;
+        boolean missedStartDeadline = false;
         PlaybackBuffer policy = new PlaybackBuffer();
         PlayoutTiming timing = new PlayoutTiming();
         VideoTiming videoTiming = new VideoTiming();
@@ -754,12 +786,36 @@ public class RelayService extends Service {
                         interactive.useReliable(); continue;
                     }
                 }
-                if (seenGeneration != generation.get()) {
+                int observedGeneration = generation.get();
+                boolean explicitReset = seenGeneration != observedGeneration;
+                byte[] pcm = packet.pcm;
+                if (!explicitReset && previousPacket != null && packet.sequence != ((previousPacket.sequence + 1) & 0xffffffffL)) {
+                    pcm = PcmGap.bridge(previousPacket, packet);
+                }
+                boolean interrupted = missedStartDeadline || pcm == null || (playing && track.getUnderrunCount() > underruns);
+                if (explicitReset || interrupted) {
+                    missedStartDeadline = false;
                     track.pause(); track.flush(); track.setPlaybackRate(rate);
                     writtenFrames = 0; playing = false; primedFrames = 0; firstPacket = null;
-                    timing.reset(); videoTiming.reset(); ramp.restart(rate); previousSequence = -1;
-                    seenGeneration = generation.get(); inbox.clear(); continue;
+                    timing.reset();
+                    // An underrun restarts the track clock on the same output. Relearning a
+                    // locked estimate here can make the Mac reopen its output after every cut.
+                    videoTiming.restartSampling(!explicitReset);
+                    ramp.restart(rate); previousPacket = null;
+                    seenGeneration = observedGeneration;
+                    recovering = !explicitReset;
+                    if (explicitReset) { inbox.clear(); continue; }
+                    timing.recoveries++;
+                    if (interactiveMode && interactive != null) {
+                        interactive.recovery();
+                        if (interactive.fallback()) continue;
+                    }
+                    pcm = packet.pcm;
+                    publish(RelayState.Phase.BUFFERING, "Restoring smooth playback", "Refreshing audio after a connection interruption.");
                 }
+                // A TCP stall often ends with a burst. Refill from its still-timely audio.
+                if (recovering && !timing.canAnchor(inbox, packet)) continue;
+                recovering = false;
                 if (!canPlay()) continue; // Keep draining, never replay phone-mode audio.
                 if (inbox.clockSamples < 3) { inbox.clear(); continue; }
                 if (learning) {
@@ -769,7 +825,7 @@ public class RelayService extends Service {
                     cushionMs = minimumCushionMs = interactive.cushionMs(); timing = new PlayoutTiming(cushionMs);
                     alignmentReport = "STATS ALIGN1 " + minimumCushionMs + " " + outputDelayMs + "\n";
                     // Learning packets are never played. The next packet is a fresh epoch anchor.
-                    inbox.clear(); previousSequence = -1; continue;
+                    inbox.clear(); previousPacket = null; continue;
                 }
                 groupTimingStatus = inbox.presentationListeners < 2 ? "" : inbox.presentationCapable < inbox.presentationListeners
                         ? "Update other phones for shared timing" : inbox.presentationTargetMs == 0 || outputDelayMs < 0
@@ -787,25 +843,15 @@ public class RelayService extends Service {
                     continue;
                 }
                 int currentGeneration = seenGeneration;
-                boolean discontinuity = previousSequence >= 0 && packet.sequence != ((previousSequence + 1) & 0xffffffffL);
-                previousSequence = packet.sequence;
-                if (playing && (discontinuity || track.getUnderrunCount() > underruns)) {
-                    timing.recoveries++;
-                    if (interactiveMode && interactive != null) {
-                        interactive.recovery();
-                    }
-                    generation.incrementAndGet();
-                    publish(RelayState.Phase.BUFFERING, "Restoring smooth playback", "Refreshing audio after a connection interruption.");
-                    continue;
-                }
+                previousPacket = packet;
                 if (!playing && firstPacket == null) {
                     firstPacket = packet;
                     publish(RelayState.Phase.BUFFERING, "Getting audio ready", "Preparing " + headphoneName + ".");
                 }
-                ramp.apply(packet.pcm);
+                ramp.apply(pcm);
                 int offset = 0;
-                while (offset < packet.pcm.length && canPlay() && socket == connection && generation.get() == currentGeneration) {
-                    int count = track.write(packet.pcm, offset, packet.pcm.length - offset, AudioTrack.WRITE_NON_BLOCKING);
+                while (offset < pcm.length && canPlay() && socket == connection && generation.get() == currentGeneration) {
+                    int count = track.write(pcm, offset, pcm.length - offset, AudioTrack.WRITE_NON_BLOCKING);
                     if (count < 0) throw new OutputUnavailable("Audio output stopped (" + count + ")");
                     offset += count; writtenFrames += count / 4; primedFrames += count / 4;
                     if (!playing && (count == 0 || primedFrames >= Math.min(track.getBufferSizeInFrames(), (interactiveMode ? leadFrames : rate * PlaybackBuffer.TARGET_MS / 1000)))) {
@@ -813,8 +859,9 @@ public class RelayService extends Service {
                                 () -> canPlay() && generation.get() == currentGeneration);
                         if (ready != PlayoutTiming.READY) {
                             Log.i(TAG, "PREFILL restart reason=" + ready + " primedFrames=" + primedFrames + " ageMs=" + (System.nanoTime() - firstPacket.receivedAt) / 1e6);
-                            if (ready == PlayoutTiming.TOO_LATE && interactiveMode) { timing.recoveries++; interactive.recovery(); }
-                            generation.incrementAndGet(); break;
+                            if (ready == PlayoutTiming.TOO_LATE) missedStartDeadline = true;
+                            else generation.incrementAndGet();
+                            break;
                         }
                         track.setVolume(0); track.play(); playing = true; started = SystemClock.elapsedRealtime();
                         underruns = track.getUnderrunCount();
@@ -878,8 +925,8 @@ public class RelayService extends Service {
                         double presented = stamp.framePosition + (System.nanoTime() - stamp.nanoTime) * rate / 1e9;
                         backlog = String.format(Locale.US, "%.1f ms", (writtenFrames - presented) * 1000.0 / rate);
                     }
-                    diagnostics = String.format(Locale.US, "Transport: %s\nRoute: %s\nSample rate: %d Hz\nReceived: %.1f s\nSender gaps: %d\nUnderruns: %d\nAutomatic recoveries: %d\nManual refreshes: %d\nConnections: %d\nQueued packets: %d\nDiscarded packets: %d\nArrival variation: %.1f ms\nClock RTT: %.1f ms\nCapture age: %.1f ms\nOutput backlog estimate: %s\nTrack buffer: %d frames\nPlayback rate: %d Hz\nNetwork prefill: %d ms\n\nSoftware counters; not an acoustic latency measurement.",
-                            "Local network · TLS", headphoneName, rate, inbox.framesReceived / (double)rate,
+                    diagnostics = String.format(Locale.US, "Transport: %s\nCodec: %s\nRoute: %s\nSample rate: %d Hz\nReceived: %.1f s\nSender gaps: %d\nUnderruns: %d\nAutomatic recoveries: %d\nManual refreshes: %d\nConnections: %d\nQueued packets: %d\nDiscarded packets: %d\nArrival variation: %.1f ms\nClock RTT: %.1f ms\nCapture age: %.1f ms\nOutput backlog estimate: %s\nTrack buffer: %d frames\nPlayback rate: %d Hz\nNetwork prefill: %d ms\n\nSoftware counters; not an acoustic latency measurement.",
+                            allowIma ? "Bluetooth Classic · TLS" : "Local network · TLS", inbox.receivingIma ? "Stereo IMA ADPCM" : "Stereo PCM", headphoneName, rate, inbox.framesReceived / (double)rate,
                             inbox.sequenceGaps, track.getUnderrunCount(), timing.recoveries, manualResyncs, connections,
                             inbox.queuedPackets(), inbox.discarded, inbox.arrivalVariationMillis(packet), inbox.clockRoundTripMillis(), (System.nanoTime() - packet.capturedAt - inbox.clockOffset()) / 1e6, backlog,
                             track.getBufferSizeInFrames(), track.getPlaybackRate(), cushionMs);
@@ -1043,7 +1090,13 @@ public class RelayService extends Service {
         throw new OutputUnavailable("Could not confirm the selected output");
     }
     private void closeConnection() {
-        Socket current = socket; socket = null; generation.incrementAndGet();
+        Socket current;
+        synchronized (connectionLock) {
+            connectionRevision++;
+            current = socket != null ? socket : openingSocket;
+            openingSocket = null; socket = null;
+        }
+        generation.incrementAndGet();
         // SSLSocket.close can emit TLS close_notify; never run it on the UI thread.
         if (current != null) new Thread(() -> {
             // Closing also releases legacy desktops. Do not wait on a control write to send ACTIVE 0.

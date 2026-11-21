@@ -22,6 +22,10 @@ final class PlayoutTiming {
 
     void reset() { clockOffset = Long.MIN_VALUE; lastCorrection = 0; filteredError = 0; submissionTarget = Double.NaN; }
 
+    boolean canAnchor(PcmInbox inbox, PcmInbox.Packet packet) {
+        return clock.getAsLong() - (packet.capturedAt + inbox.clockOffset()) <= cushionMs * 1_000_000L;
+    }
+
     int start(PcmInbox inbox, PcmInbox.Packet packet, boolean shared, BooleanSupplier active) {
         clockOffset = inbox.clockOffset();
         long deadline = packet.capturedAt + clockOffset + cushionMs * 1_000_000L;

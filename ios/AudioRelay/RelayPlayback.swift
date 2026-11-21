@@ -13,6 +13,9 @@ final class RelayPlayback {
     private var startDeadline: Double = 0
     private var started: Double = 0
     private var previous: UInt32?
+    private var previousCapture: Int64 = 0
+    private var previousFrames: UInt32 = 0
+    private var lastSamples: (Float, Float) = (0, 0)
     private var fadeFrames = 0
     private var feedbackFrame: Int?
     func requestConnectionFeedback() { feedbackFrame = 0 }
@@ -91,16 +94,42 @@ final class RelayPlayback {
             learn(packet)
             return // Learning samples are discarded; the next packet supplies a fresh anchor.
         }
-        let discontinuity = previous.map { packet.sequence != ($0 &+ 1) } ?? false
-        if discontinuity { recover() }
-        previous = packet.sequence; receivedFrames += Int64(packet.frames)
         if playing, let stamp = player.lastRenderTime, let position = player.playerTime(forNodeTime: stamp), position.isSampleTimeValid {
             let remaining = scheduled - position.sampleTime
-            if remaining < 0 || remaining > Int64(format.sampleRate * max(1.2, cushion + prime + 0.250)) { recover() }
+            if remaining < 0 || remaining > Int64(format.sampleRate * max(1.2, cushion + prime + 0.250)) {
+                recover()
+            }
         }
-        if scheduled == 0 { sourceAnchor = source; startDeadline = source + cushion; fadeFrames = Int(format.sampleRate * 0.005) }
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(packet.frames)), let channels = buffer.floatChannelData else { return }
-        buffer.frameLength = AVAudioFrameCount(packet.frames)
+        var padding = 0
+        if let previous, packet.sequence != (previous &+ 1) {
+            if let gap = PresentationTiming.gapPadding(previous: previous, sequence: packet.sequence,
+                    elapsedNs: packet.capturedAt - previousCapture, previousFrames: previousFrames, rate: packet.rate) {
+                padding = gap
+            } else {
+                recover()
+            }
+        }
+        let lateTolerance = presentationTargetMs > 0 && outputDelayMs != nil ? 0.005 : 0.100
+        if scheduled == 0 {
+            // A TCP burst can contain both expired and playable packets. Skip an
+            // expired anchor before collecting the next prefill behind it.
+            guard PresentationTiming.canAnchor(capture: source, now: now, cushion: cushion) else { return }
+            sourceAnchor = source
+            startDeadline = source + cushion
+            fadeFrames = Int(format.sampleRate * 0.005)
+        }
+        let frameCount = Int(packet.frames) + padding
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frameCount)), let channels = buffer.floatChannelData else { return }
+        buffer.frameLength = AVAudioFrameCount(frameCount)
+        if padding > 0 {
+            let ramp = min(padding, Int(format.sampleRate * 0.005))
+            for frame in 0..<padding {
+                let gain = Float(max(0, ramp - frame - 1)) / Float(ramp)
+                channels[0][frame] = lastSamples.0 * gain
+                channels[1][frame] = lastSamples.1 * gain
+            }
+            fadeFrames = Int(format.sampleRate * 0.005)
+        }
         packet.pcm.withUnsafeBytes { raw in
             for frame in 0..<Int(packet.frames) {
                 let totalFade = max(1, Int(format.sampleRate * 0.005))
@@ -109,14 +138,17 @@ final class RelayPlayback {
                 if let frame = feedbackFrame { feedbackFrame = frame + 1 < Int(format.sampleRate * ConnectionTone.duration) ? frame + 1 : nil }
                 for channel in 0..<2 {
                     let value = Int16(littleEndian: raw.loadUnaligned(fromByteOffset: (frame * 2 + channel) * 2, as: Int16.self))
-                    channels[channel][frame] = max(-1, min(1, Float(value) / 32768 * gain + feedback))
+                    channels[channel][padding + frame] = max(-1, min(1, Float(value) / 32768 * gain + feedback))
                 }
                 fadeFrames = max(0, fadeFrames - 1)
             }
         }
-        player.scheduleBuffer(buffer, completionHandler: nil); scheduled += Int64(packet.frames)
+        lastSamples = (channels[0][frameCount - 1], channels[1][frameCount - 1])
+        previous = packet.sequence; previousCapture = packet.capturedAt; previousFrames = packet.frames
+        receivedFrames += Int64(packet.frames)
+        player.scheduleBuffer(buffer, completionHandler: nil); scheduled += Int64(frameCount)
         if !playing && Double(scheduled) / format.sampleRate >= prime {
-            if now - startDeadline > (presentationTargetMs > 0 && outputDelayMs != nil ? 0.005 : 0.100) { recover(); return }
+            if now - startDeadline > lateTolerance { recover(); return }
             let start = max(startDeadline, now + 0.005)
             player.play(at: AVAudioTime(hostTime: AVAudioTime.hostTime(forSeconds: start)))
             playing = true; started = start; onPlaying?()

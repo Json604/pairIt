@@ -20,6 +20,7 @@ internal sealed class ReceiverSession(TcpClient socket, SslStream stream) : IDis
     public bool DesktopControls { get; set; }
     public bool? DesktopRequest { get; set; }
     // STATS extensions this receiver advertised; each gates a frame it alone understands.
+    public volatile bool AcceptsImaAudio;
     public bool PlayerUpdates { get; set; }      // STATS PLAYER1
     public bool OwnsVolume { get; set; }         // STATS VOLUME2
     public bool DesktopDisconnect { get; set; }  // STATS CONTROLS2

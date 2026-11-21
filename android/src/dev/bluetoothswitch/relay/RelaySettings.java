@@ -31,6 +31,27 @@ final class RelaySettings {
     String token() { return prefs.getString("token", ""); }
     // Both Wi-Fi and USB networking use the same pinned connection. Old ADB mode is retired.
     boolean wifi() { return true; }
+    String bluetoothAddress() {
+        return bluetoothAddress(pin());
+    }
+    String bluetoothAddress(String computerPin) {
+        if (computerPin.isEmpty()) return "";
+        String key = "bluetooth_address:" + computerPin;
+        String address = prefs.getString(key, "");
+        if (!address.isEmpty()) return address;
+        // Preserve selections made by development builds before Bluetooth became a regular route.
+        address = prefs.getString("bluetooth_trial:" + computerPin, "");
+        if (!address.isEmpty()) prefs.edit().putString(key, address).remove("bluetooth_trial:" + computerPin).apply();
+        return address;
+    }
+    void bluetoothAddressForCurrentComputer(String address) {
+        if (!paired()) return;
+        prefs.edit().putString("bluetooth_address:" + pin(), address).remove("bluetooth_trial:" + pin()).apply();
+    }
+    String timingTransportKey() {
+        String address = bluetoothAddress();
+        return address.isEmpty() ? overrideHost() : "rfcomm/" + address;
+    }
     String overrideHost() { return prefs.getString("host_override", ""); }
     void host(String host) { prefs.edit().putString("host_override", host.trim()).putString("host_override:"+pin(),host.trim()).apply(); }
     private static final class Candidate {final String pin,host;Candidate(String pin,String host){this.pin=pin;this.host=host;}}
@@ -123,6 +144,6 @@ final class RelaySettings {
     void forget() {
         String old=pin();SharedPreferences.Editor edit=prefs.edit();archive.remove(old,edit);
         for(String key:new String[]{"host","pin","token","computer_name","computer_platform","host_override","group_guest_pin","output_recovery_pin"})edit.remove(key);
-        edit.remove("host_override:"+old);edit.apply();candidate=null;
+        edit.remove("bluetooth_address:"+old);edit.remove("bluetooth_trial:"+old);edit.remove("host_override:"+old);edit.apply();candidate=null;
     }
 }

@@ -7,6 +7,21 @@ enum PresentationTiming {
     static func adaptiveCushion(jitter: Double, packet: Double, lead: Double) -> Int {
         Int(min(320, max(40, (jitter + 2 * packet + lead).rounded(.up))))
     }
+    static func canAnchor(capture: Double, now: Double, cushion: Double) -> Bool {
+        now <= capture + cushion
+    }
+
+    /// Preserve queued audio across a short forward skip. Use the capture clock
+    /// because packet sizes vary, and arrival time includes network jitter.
+    static func gapPadding(previous: UInt32, sequence: UInt32, elapsedNs: Int64,
+                           previousFrames: UInt32, rate: UInt32) -> Int? {
+        let missingPackets = sequence &- previous &- 1
+        guard (1...4).contains(missingPackets), elapsedNs >= 0, elapsedNs <= 1_000_000_000 else { return nil }
+        let elapsedFrames = (elapsedNs * Int64(rate) + 500_000_000) / 1_000_000_000
+        let missingFrames = elapsedFrames - Int64(previousFrames)
+        guard (0...Int64(rate / 50)).contains(missingFrames) else { return nil }
+        return Int(missingFrames)
+    }
     static func correctedDelay(_ delay: Int, correction: Int) -> Int {
         max(min(delay, 40), min(2500, delay - max(-500, min(500, correction))))
     }
