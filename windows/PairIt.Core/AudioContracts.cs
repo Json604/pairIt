@@ -35,4 +35,4 @@ public enum DesktopPhoneState { Listening, Paused, Connected }
 
 // One connected phone. Level is the phone's own media volume (0..1000) when it sent STATS VOLUME2.
 // StopsOnDisconnect: an updated phone (STATS CONTROLS2) stops instead of reconnecting.
-public sealed record DesktopPhone(Guid Id, string Name, DesktopPhoneState State, int? Level, bool StopsOnDisconnect);
+public sealed record DesktopPhone(Guid Id, string Name, DesktopPhoneState State, int? Level, bool StopsOnDisconnect, string? InstallationId = null);

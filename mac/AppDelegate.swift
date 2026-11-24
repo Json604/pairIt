@@ -61,7 +61,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             self.model.mediaKeysAllowed = self.mediaKeys.available
         }
         nearbyPhones.onChange = { [weak self] phones in if self?.model.rememberedPhones != phones { self?.model.rememberedPhones = phones } }
-        model.forgetPhone = { [weak self] id in self?.nearbyPhones.forget(id) }
+        model.forgetPhone = { [weak self] ids in
+            guard let self else { return }
+            if let current = self.model.connectingPhone, ids.contains(current) {
+                self.model.connectingPhone = nil; self.connectDeadline?.cancel()
+            }
+            self.nearbyPhones.forget(ids)
+        }
         model.connectPhone = { [weak self] id in
             guard let self, self.model.connectingPhone == nil, self.model.sharing else { return }
             self.model.connectingPhone = id

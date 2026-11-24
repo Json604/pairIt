@@ -14,11 +14,11 @@ internal sealed class TrayApplication : ApplicationContext
     private readonly Icon icon;
     private bool exiting;
 
-    public TrayApplication(LocalIdentity identity, DesktopSessions sessions)
+    public TrayApplication(LocalIdentity identity, DesktopSessions sessions, RelayServer server, NearbyPhones nearbyPhones)
     {
         this.sessions = sessions;
         icon = CreateIcon();
-        form = new CompanionForm(sessions, identity) { Icon = icon };
+        form = new CompanionForm(sessions, identity, server, nearbyPhones) { Icon = icon };
         form.UpdateRestartRequested = ExitAsync;
         var menu = new ContextMenuStrip();
         menu.Items.Add("Open PairIt - AudioRelay", null, (_, _) => form.Reveal());

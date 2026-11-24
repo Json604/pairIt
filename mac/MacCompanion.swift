@@ -42,11 +42,10 @@ final class MacCompanionModel: ObservableObject {
     @Published var rememberedPhones: [NearbyPhones.Phone] = []
     @Published var connectingPhone: String?
     var connectPhone: (String) -> Void = { _ in }
-    var forgetPhone: (String) -> Void = { _ in }
+    var forgetPhone: ([String]) -> Void = { _ in }
     /// Phones that connected before and are not connected now.
     var reconnectablePhones: [NearbyPhones.Phone] {
-        let connected = Set(phones.compactMap(\.installation))
-        return rememberedPhones.filter { !connected.contains($0.id) }
+        NearbyPhones.reconnectable(remembered: rememberedPhones, connected: phones)
     }
     @Published var mediaKeysAllowed = false
     var setPhoneVolume: (UUID, Int) -> Void = { _, _ in }
@@ -312,7 +311,7 @@ struct MacCompanionView: View {
         if !saved.isEmpty {
             Text("PAIRED PHONES").font(.system(size: 10, weight: .medium)).tracking(0.8).foregroundStyle(RelayPalette.secondary).padding(.top, 2)
             ForEach(saved) { phone in
-                HStack(spacing: 10) {
+                HStack(spacing: 8) {
                     Image(systemName: "iphone").font(.system(size: 15)).frame(width: 30, height: 30)
                         .background(Color(white: 0.93), in: RoundedRectangle(cornerRadius: 9))
                     VStack(alignment: .leading, spacing: 2) {
@@ -325,12 +324,18 @@ struct MacCompanionView: View {
                         HStack(spacing: 5) {
                             if model.connectingPhone == phone.id { ProgressView().controlSize(.mini).tint(.white) }
                             Text(model.connectingPhone == phone.id ? "Connecting" : "Connect")
-                        }.font(.system(size: 11, weight: .semibold)).padding(.horizontal, 12).frame(minHeight: 28)
+                        }.font(.system(size: 11, weight: .semibold)).padding(.horizontal, 10).frame(minHeight: 28)
                             .foregroundStyle(.white).background(RelayPalette.ink, in: Capsule())
                     }.buttonStyle(RelayControlButtonStyle()).disabled(!phone.available || model.connectingPhone != nil)
                         .help(phone.available ? "Connect \(phone.name) and start listening" : "Open PairIt on \(phone.name) first")
-                        .contextMenu { Button("Forget \(phone.name) on this Mac") { model.forgetPhone(phone.id) } }
+                    Button { model.forgetPhone(phone.allIDs) } label: {
+                        Image(systemName: "xmark").font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(RelayPalette.secondary).frame(width: 24, height: 24)
+                    }.buttonStyle(RelayControlButtonStyle())
+                        .help("Forget \(phone.name) on this Mac")
+                        .accessibilityLabel("Forget \(phone.name)")
                 }
+                .contextMenu { Button("Forget \(phone.name) on this Mac") { model.forgetPhone(phone.allIDs) } }
             }
         }
     }

@@ -99,7 +99,7 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
             lock (state) return receivers.Values.Where(peer => peer.LastIntent != ReceiverIntent.Release && !peer.Cancellation.IsCancellationRequested)
                 .Select(peer => new DesktopPhone(peer.Id, peer.DisplayName,
                     peer.Active ? DesktopPhoneState.Listening : peer.Parked ? DesktopPhoneState.Paused : DesktopPhoneState.Connected,
-                    peer.OwnsVolume ? peer.PhoneLevel : null, CanStop(peer))).ToArray();
+                    peer.OwnsVolume ? peer.PhoneLevel : null, CanStop(peer), peer.InstallationId)).ToArray();
         }
     }
 
@@ -429,6 +429,7 @@ public sealed class DesktopSessions(IAudioEndpoints endpoints, IMediaHandoffCont
             }
             peer.InstallationId = installation;
         }
+        Publish();
     }
 
     internal async Task<(MicrophoneLease? Lease, string Response)> AcquireMicrophoneAsync(CancellationToken cancellation)

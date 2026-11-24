@@ -10,32 +10,40 @@ internal sealed class CompanionForm : Form
 {
     private readonly DesktopSessions sessions;
     private readonly LocalIdentity identity;
+    private readonly RelayServer server;
+    private readonly NearbyPhones nearbyPhones;
     private DesktopSettings preferences;
     private readonly ReleaseUpdates updates = new();
     private readonly UpdatePromptPolicy updatePrompts = new();
     private readonly InstallerProgress installer = new();
+    private readonly ToolTip toolTip = new();
     internal Func<Task>? UpdateRestartRequested;
     private Task InstallUpdateAsync() => updates.Available is { } entry && UpdateRestartRequested != null ? installer.StartOrCancelAsync(entry.Build, UpdateRestartRequested) : Task.CompletedTask;
     private readonly Label status = TextLabel("No phones connected"), device = TextLabel(Environment.MachineName);
     private readonly Button phone = ActionButton("Phone"), computer = ActionButton("Computer");
     private readonly Button pair = ActionButton("Pair a phone"), disconnect = ActionButton("Disconnect");
     private readonly Panel outputs = new() { Dock = DockStyle.Top, Height = 65, BackColor = Color.Transparent };
+    private readonly FlowLayoutPanel pairedPhonesPanel = new() { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, BackColor = Color.Transparent, Margin = Padding.Empty, Padding = Padding.Empty, Visible = false };
+    private readonly TableLayoutPanel content;
     private readonly System.Windows.Forms.Timer updateTimer = new() { Interval = 900000, Enabled = true };
     private bool updating,playbackBusy;
+    private string? connectingPhone, renderedConnecting;
+    private CancellationTokenSource? connectCts;
+    private IReadOnlyList<NearbyPhone> renderedPaired = [];
     private readonly PlaybackButton playback=new(){Text="Resume audio",Dock=DockStyle.Fill,BackColor=Color.FromArgb(17,17,17),ForeColor=Color.White,FlatStyle=FlatStyle.Flat};
     private Form? pairingWindow;
     internal bool ExitRequested;
 
-    public CompanionForm(DesktopSessions sessions, LocalIdentity identity)
+    public CompanionForm(DesktopSessions sessions, LocalIdentity identity, RelayServer server, NearbyPhones nearbyPhones)
     {
-        this.sessions = sessions; this.identity = identity; preferences = SettingsStore.Load();
+        this.sessions = sessions; this.identity = identity; this.server = server; this.nearbyPhones = nearbyPhones; preferences = SettingsStore.Load();
         Text = "PairIt - AudioRelay"; Font = new Font("Segoe UI", 9); BackColor = Color.FromArgb(250, 250, 250);
         ForeColor = Color.FromArgb(23, 23, 23); FormBorderStyle = FormBorderStyle.FixedToolWindow;
         ShowInTaskbar = false; MaximizeBox = false; MinimizeBox = false; AutoScaleMode = AutoScaleMode.Dpi;
         ClientSize = new Size(300, 326); StartPosition = FormStartPosition.Manual;
-        var content = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(14, 10, 14, 12), ColumnCount = 1, RowCount = 7, BackColor = BackColor };
+        content = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(14, 10, 14, 12), ColumnCount = 1, RowCount = 8, BackColor = BackColor };
         content.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        foreach (var height in new[] { 38, 30, 48, 65, 48, 45 }) content.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
+        foreach (var height in new[] { 38, 30, 48, 65, 48, 0, 45 }) content.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
         var header = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, Margin = Padding.Empty };
         header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 28)); header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 34));
         var logo = new PictureBox { Image = Icon.ExtractAssociatedIcon(Application.ExecutablePath)?.ToBitmap(), SizeMode = PictureBoxSizeMode.Zoom, Width = 22, Height = 22, Anchor = AnchorStyles.Left, AccessibleName = "PairIt logo" };
@@ -57,13 +65,14 @@ internal sealed class CompanionForm : Form
             try{await sessions.RequestPlaybackAsync(playing);}catch(Exception error){failure=error.Message;}
             finally{playbackBusy=false;playback.Busy=false;Render(sessions.Status);if(failure!=null)status.Text=failure;}
         };
+        content.Controls.Add(pairedPhonesPanel, 0, 5);
         var actions = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Padding = new Padding(0, 8, 0, 0) };
         actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 55)); actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 45));
         pair.Dock = disconnect.Dock = DockStyle.Fill; pair.Click += async (_, _) => { try { await PairAsync(); } catch { status.Text = "Could not show pairing code."; } }; disconnect.Click += async (_, _) => await StopAllAsync();
-        actions.Controls.Add(pair, 0, 0); actions.Controls.Add(disconnect, 1, 0); content.Controls.Add(actions, 0, 5); Controls.Add(content);
+        actions.Controls.Add(pair, 0, 0); actions.Controls.Add(disconnect, 1, 0); content.Controls.Add(actions, 0, 6); Controls.Add(content);
         var updateNotice = new LinkLabel { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft,
             LinkColor = Color.FromArgb(0, 85, 170), AccessibleName = "Download PairIt update", Visible = false };
-        content.RowStyles.Add(new RowStyle(SizeType.Absolute, 0)); content.Controls.Add(updateNotice, 0, 6);
+        content.RowStyles.Add(new RowStyle(SizeType.Absolute, 0)); content.Controls.Add(updateNotice, 0, 7);
         updateNotice.LinkClicked += async (_, _) => await InstallUpdateAsync();
         void RefreshUpdateNotice() {
             if (IsDisposed || Disposing) return;
@@ -71,28 +80,134 @@ internal sealed class CompanionForm : Form
             updateNotice.Text = installer.Status ?? (available == null ? "" : $"Download & install · {available.Version}");
             updateNotice.Enabled = available != null && (!installer.Busy || installer.CanCancel);
             updateNotice.Visible = available != null || installer.Status != null;
-            var noticeHeight = !updateNotice.Visible ? 0 : (int)Math.Ceiling(38 * DeviceDpi / 96.0);
-            var change = noticeHeight - (int)content.RowStyles[6].Height;
-            content.RowStyles[6].Height = noticeHeight;
-            if (change != 0) {
-                ClientSize = new Size(ClientSize.Width, ClientSize.Height + change);
-                if (Visible) {
-                    var area = Screen.FromControl(this).WorkingArea;
-                    Location = new Point(Math.Max(area.Left, Math.Min(Left, area.Right - Width)),
-                        Math.Max(area.Top, Math.Min(Top, area.Bottom - Height)));
-                }
-            }
+            SetDynamicRowHeight(7, !updateNotice.Visible ? 0 : (int)Math.Ceiling(38 * DeviceDpi / 96.0));
         }
+        void OnNearbyPhonesChanged(IReadOnlyList<NearbyPhone> _) {
+            if (IsDisposed || Disposing || !IsHandleCreated) return;
+            try { BeginInvoke(RenderPairedPhones); } catch (InvalidOperationException) { }
+        }
+        nearbyPhones.Changed += OnNearbyPhonesChanged;
         updates.Changed += RefreshUpdateNotice;
         updates.Changed += async () => await PromptForUpdateAsync();
         installer.Changed += RefreshUpdateNotice;
         RefreshUpdateNotice();
-        updateTimer.Tick += async (_, _) => await updates.CheckAsync(); Shown += async (_, _) => await updates.CheckAsync();
+        updateTimer.Tick += async (_, _) => await updates.CheckAsync(); Shown += async (_, _) => { RenderPairedPhones(); await updates.CheckAsync(); };
         Activated += async (_, _) => await updates.CheckAsync();
         FormClosing += (_, e) => { if (!ExitRequested) { e.Cancel = true; Hide(); } };
         VisibleChanged += (_, _) => { if (!Visible) pairingWindow?.Close(); };
-        Disposed += (_, _) => { updateTimer.Dispose(); updates.Dispose(); installer.Dispose(); logo.Image?.Dispose(); pairingWindow?.Dispose(); };
+        Disposed += (_, _) => { nearbyPhones.Changed -= OnNearbyPhonesChanged; connectCts?.Cancel(); connectCts?.Dispose(); toolTip.Dispose(); updateTimer.Dispose(); updates.Dispose(); installer.Dispose(); logo.Image?.Dispose(); pairingWindow?.Dispose(); };
         Render(sessions.Status);
+    }
+    private void SetDynamicRowHeight(int rowIndex, int targetHeight)
+    {
+        var change = targetHeight - (int)content.RowStyles[rowIndex].Height;
+        if (change == 0) return;
+        content.RowStyles[rowIndex].Height = targetHeight;
+        ClientSize = new Size(ClientSize.Width, ClientSize.Height + change);
+        if (Visible)
+        {
+            var area = Screen.FromControl(this).WorkingArea;
+            Location = new Point(Math.Max(area.Left, Math.Min(Left, area.Right - Width)),
+                Math.Max(area.Top, Math.Min(Top, area.Bottom - Height)));
+        }
+    }
+    private void RenderPairedPhones()
+    {
+        if (IsDisposed || Disposing) return;
+        var saved = NearbyPhones.FilterReconnectable(nearbyPhones.Current, sessions.Phones).Take(4).ToArray();
+        if (renderedConnecting == connectingPhone && saved.Length == renderedPaired.Count &&
+            saved.Zip(renderedPaired).All(pair => pair.First.Id == pair.Second.Id && pair.First.Name == pair.Second.Name &&
+                pair.First.Available == pair.Second.Available && pair.First.AllIds.SequenceEqual(pair.Second.AllIds))) return;
+        renderedPaired = saved;
+        renderedConnecting = connectingPhone;
+        pairedPhonesPanel.SuspendLayout();
+        foreach (Control old in pairedPhonesPanel.Controls) old.Dispose();
+        pairedPhonesPanel.Controls.Clear();
+        pairedPhonesPanel.Visible = saved.Length > 0;
+        if (saved.Length > 0)
+        {
+            var heading = new Label
+            {
+                Text = "PAIRED PHONES", Width = 266, Height = 20, AutoSize = false,
+                Font = new Font(Font.FontFamily, 7.5f, FontStyle.Bold), ForeColor = Color.FromArgb(110, 110, 110),
+                TextAlign = ContentAlignment.BottomLeft, BackColor = Color.Transparent, Margin = new Padding(0, 2, 0, 2)
+            };
+            pairedPhonesPanel.Controls.Add(heading);
+            foreach (var item in saved)
+            {
+                var row = new TableLayoutPanel { Width = 266, Height = 42, ColumnCount = 3, Margin = new Padding(0, 2, 0, 2), BackColor = Color.Transparent };
+                row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+                row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 76));
+                row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 30));
+                var labels = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Margin = Padding.Empty, BackColor = Color.Transparent };
+                labels.RowStyles.Add(new RowStyle(SizeType.Percent, 52));
+                labels.RowStyles.Add(new RowStyle(SizeType.Percent, 48));
+                var nameLabel = new Label { Text = item.Name, Dock = DockStyle.Fill, AutoEllipsis = true, Font = new Font(Font.FontFamily, 9f, FontStyle.Bold), TextAlign = ContentAlignment.BottomLeft, BackColor = Color.Transparent, Margin = Padding.Empty };
+                var stateLabel = new Label { Text = item.Available ? "PairIt is open on this phone" : "Open PairIt on this phone to connect", Dock = DockStyle.Fill, AutoEllipsis = true, Font = new Font(Font.FontFamily, 7.5f), ForeColor = Color.FromArgb(110, 110, 110), TextAlign = ContentAlignment.TopLeft, BackColor = Color.Transparent, Margin = Padding.Empty };
+                labels.Controls.Add(nameLabel, 0, 0); labels.Controls.Add(stateLabel, 0, 1);
+                var connect = ActionButton(connectingPhone == item.Id ? "…" : "Connect");
+                connect.Dock = DockStyle.Fill; connect.Margin = new Padding(4, 4, 2, 4);
+                connect.Enabled = item.Available && connectingPhone == null && !updating;
+                PairItAppearance.Select(connect, item.Available);
+                toolTip.SetToolTip(connect, item.Available ? $"Connect {item.Name} and start listening" : $"Open PairIt on {item.Name} first");
+                connect.Click += async (_, _) => await ConnectPhoneAsync(item);
+                var forget = ActionButton("×");
+                forget.Dock = DockStyle.Fill; forget.Margin = new Padding(2, 4, 0, 4);
+                forget.AccessibleName = $"Forget {item.Name}";
+                toolTip.SetToolTip(forget, $"Forget {item.Name} on this PC");
+                forget.Click += (_, _) => ForgetPhone(item);
+                row.Controls.Add(labels, 0, 0); row.Controls.Add(connect, 1, 0); row.Controls.Add(forget, 2, 0);
+                pairedPhonesPanel.Controls.Add(row);
+            }
+        }
+        pairedPhonesPanel.ResumeLayout();
+        var height = saved.Length == 0 ? 0 : (int)Math.Ceiling((26 + saved.Length * 46) * DeviceDpi / 96.0);
+        SetDynamicRowHeight(5, height);
+    }
+    private void ForgetPhone(NearbyPhone item)
+    {
+        if (connectingPhone != null && item.AllIds.Contains(connectingPhone))
+        {
+            connectingPhone = null;
+            connectCts?.Cancel();
+        }
+        nearbyPhones.Forget(item.AllIds);
+        RenderPairedPhones();
+    }
+    private async Task ConnectPhoneAsync(NearbyPhone item)
+    {
+        if (connectingPhone != null || updating) return;
+        if (!sessions.CurrentSettings.SharingEnabled && !sessions.CurrentSettings.MicrophoneEnabled)
+        {
+            var available = WindowsAudioEndpoints.List();
+            var source = available.FirstOrDefault(x => x.Id == preferences.SourceEndpointId) ?? available.FirstOrDefault();
+            if (source == null) { status.Text = "Choose an audio source in Settings."; return; }
+            await ApplyAsync(preferences with { SourceEndpointId = source.Id, SharingEnabled = true });
+            if (!sessions.CurrentSettings.SharingEnabled) return;
+        }
+        connectingPhone = item.Id;
+        RenderPairedPhones();
+        server.ExpectConnection(item.Id);
+        connectCts?.Cancel(); connectCts?.Dispose();
+        var cts = new CancellationTokenSource();
+        connectCts = cts;
+        var sent = await nearbyPhones.RequestConnectionAsync(item.Id, cts.Token);
+        if (IsDisposed || Disposing) return;
+        if (!sent)
+        {
+            if (connectingPhone == item.Id) connectingPhone = null;
+            status.Text = "Couldn’t reach that phone. Open PairIt on it, on the same Wi-Fi.";
+            RenderPairedPhones();
+            return;
+        }
+        try { await Task.Delay(TimeSpan.FromSeconds(20), cts.Token); }
+        catch (OperationCanceledException) { return; }
+        if (!IsDisposed && !Disposing && connectingPhone == item.Id)
+        {
+            connectingPhone = null;
+            status.Text = "The phone didn’t connect. Keep PairIt open on it and try again.";
+            RenderPairedPhones();
+        }
     }
     private async Task PromptForUpdateAsync()
     {
@@ -119,6 +234,13 @@ internal sealed class CompanionForm : Form
     }
     private void Render(DesktopStatus value)
     {
+        var phones = sessions.Phones;
+        nearbyPhones.Remember(phones);
+        if (connectingPhone != null && phones.Any(p => p.InstallationId == connectingPhone))
+        {
+            connectingPhone = null;
+            connectCts?.Cancel();
+        }
         var ready = value.Receivers > 0;
         status.Text = value.Receivers > 0 ? $"{value.PhoneNames}\n{(value.ActiveReceivers > 0 && !value.ComputerOutput ? "Listening" : value.ComputerOutput ? "Computer output" : "Paused")}" : sessions.CurrentSettings.MicrophoneEnabled ? value.MicrophoneActive ? "Phone microphone active" : "Phone microphone ready. Start it on your phone." : "No phones connected";
         playback.Visible=ready;playback.Enabled=ready&&!playbackBusy;
@@ -127,6 +249,7 @@ internal sealed class CompanionForm : Form
         phone.Enabled = computer.Enabled = sessions.CurrentSettings.SharingEnabled && !updating;
         PairItAppearance.Select(phone, !value.ComputerOutput); PairItAppearance.Select(computer, value.ComputerOutput);
         PairItAppearance.Select(pair, !ready);
+        RenderPairedPhones();
     }
     public void UpdateStatus(DesktopStatus value)
     {

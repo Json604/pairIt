@@ -27,12 +27,18 @@ internal sealed class CompanionWindow : Window
     private DesktopSessions? sessions;
     private RelayServer? server;
     private ComputerDiscovery? discovery;
+    private NearbyPhones? nearbyPhones;
     private FileStream? instance;
     private bool busy, closing, closed;
+    private string? connectingPhone, renderedConnecting;
+    private CancellationTokenSource? connectCts;
+    private IReadOnlyList<NearbyPhone> renderedPaired = [];
+    private int lastPairedCount;
     private Window? pairingWindow, settingsWindow;
     private DesktopTray? tray;
     private bool expandedForPlayback;
     private readonly StackPanel outputArea = new() { Spacing = 7 };
+    private readonly StackPanel pairedPhonesPanel = new() { Spacing = 6, IsVisible = false };
     private readonly Button disconnect = new() { Content = "Disconnect" };
     private readonly Button updateNotice = new() { IsVisible = false, HorizontalAlignment = HorizontalAlignment.Stretch,
         Background = Brush.Parse("#E8F0FA"), Foreground = Brush.Parse("#173C68"), CornerRadius = new CornerRadius(9), MinHeight = 36 };
@@ -71,6 +77,7 @@ internal sealed class CompanionWindow : Window
             finally{playbackBusy=false;UpdateButtons();}
         };
         playback.CornerRadius=new CornerRadius(12);playback.HorizontalContentAlignment=HorizontalAlignment.Center;playback.Background=Brush.Parse("#111111");playback.Foreground=Brushes.White;playback.HorizontalAlignment=HorizontalAlignment.Stretch;
+        panel.Children.Add(pairedPhonesPanel);
         show.Content = "Pair a phone";
         var actions = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), Height = 36 };
         Grid.SetColumn(disconnect, 1); actions.Children.Add(show); actions.Children.Add(disconnect); panel.Children.Add(actions);
@@ -110,8 +117,8 @@ internal sealed class CompanionWindow : Window
             if (closed) return;
             e.Cancel = true;
             if (closing) return;
-            closing = true; installer.Dispose(); updateTimer?.Stop(); releaseUpdates?.Dispose(); UpdateButtons();
-            try { discovery?.Dispose(); if (server != null) await server.DisposeAsync(); }
+            closing = true; connectCts?.Cancel(); connectCts?.Dispose(); installer.Dispose(); updateTimer?.Stop(); releaseUpdates?.Dispose(); UpdateButtons();
+            try { nearbyPhones?.Dispose(); discovery?.Dispose(); if (server != null) await server.DisposeAsync(); }
             finally { tray?.Dispose(); identity?.Dispose(); instance?.Dispose(); closed = true; Close(); }
         };
         UpdateButtons();
@@ -192,16 +199,27 @@ internal sealed class CompanionWindow : Window
             if (new FileInfo(lockPath).LinkTarget != null) throw new IOException();
             instance = new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
             sessions = new DesktopSessions(new LinuxAudioEndpoints());
+            nearbyPhones = new NearbyPhones(Path.Combine(LocalIdentity.DirectoryPath, "paired-phones.json"), identity.Token, identity.Pin);
+            nearbyPhones.Changed += _ => Dispatcher.UIThread.Post(RenderPairedPhones);
             sessions.StatusChanged += value => Dispatcher.UIThread.Post(() => {
                 if (closing) return;
+                var phones = sessions.Phones;
+                nearbyPhones?.Remember(phones);
+                if (connectingPhone != null && phones.Any(p => p.InstallationId == connectingPhone))
+                {
+                    connectingPhone = null;
+                    connectCts?.Cancel();
+                }
                 status.Text = ConnectionStatus(value);
                 UpdateButtons();
+                RenderPairedPhones();
             });
-            sessions.PairingAcknowledged += () => Dispatcher.UIThread.Post(() => { status.Text = ConnectionStatus(sessions.Status); pairingWindow?.Close(); UpdateButtons(); });
+            sessions.PairingAcknowledged += () => Dispatcher.UIThread.Post(() => { status.Text = ConnectionStatus(sessions.Status); pairingWindow?.Close(); UpdateButtons(); RenderPairedPhones(); });
             server = new RelayServer(identity.Certificate, identity.Token, sessions); server.Start();
             discovery = new ComputerDiscovery(identity.Pin, "linux", Environment.MachineName);
             RefreshAddresses();
             await RefreshAsync();
+            RenderPairedPhones();
             if (Program.SmokeTest) {
                 Console.WriteLine("PASS: Linux graphical companion opened.");
                 var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) }; timer.Tick += (_, _) => { timer.Stop(); Close(); }; timer.Start();
@@ -264,8 +282,115 @@ internal sealed class CompanionWindow : Window
     {
         if (connected == expandedForPlayback) return;
         expandedForPlayback = connected;
-        Height = Math.Min(MaxHeight, connected ? 350 : 230);
+        UpdateWindowHeight();
+    }
+    private void UpdateWindowHeight()
+    {
+        var baseHeight = expandedForPlayback ? 350 : 230;
+        var savedHeight = lastPairedCount == 0 ? 0 : 28 + lastPairedCount * 48;
+        Height = Math.Min(MaxHeight, baseHeight + savedHeight);
         FitToScreen(this);
+    }
+    private void RenderPairedPhones()
+    {
+        if (closing) return;
+        var saved = nearbyPhones == null || sessions == null
+            ? Array.Empty<NearbyPhone>()
+            : NearbyPhones.FilterReconnectable(nearbyPhones.Current, sessions.Phones).Take(4).ToArray();
+        if (renderedConnecting == connectingPhone && saved.Length == renderedPaired.Count &&
+            saved.Zip(renderedPaired).All(pair => pair.First.Id == pair.Second.Id && pair.First.Name == pair.Second.Name &&
+                pair.First.Available == pair.Second.Available && pair.First.AllIds.SequenceEqual(pair.Second.AllIds))) return;
+        renderedPaired = saved;
+        renderedConnecting = connectingPhone;
+        pairedPhonesPanel.Children.Clear();
+        pairedPhonesPanel.IsVisible = saved.Length > 0;
+        if (saved.Length > 0)
+        {
+            pairedPhonesPanel.Children.Add(new TextBlock
+            {
+                Text = "PAIRED PHONES", FontSize = 10, FontWeight = FontWeight.Medium,
+                Foreground = Brush.Parse("#666666"), Margin = new Thickness(0, 2, 0, 0)
+            });
+            foreach (var item in saved)
+            {
+                var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto"), ColumnSpacing = 6 };
+                var info = new StackPanel { Spacing = 1, VerticalAlignment = VerticalAlignment.Center };
+                info.Children.Add(new TextBlock { Text = item.Name, FontSize = 12, FontWeight = FontWeight.SemiBold, Foreground = Brush.Parse("#171717"), TextTrimming = TextTrimming.CharacterEllipsis });
+                info.Children.Add(new TextBlock { Text = item.Available ? "PairIt is open on this phone" : "Open PairIt on this phone to connect", FontSize = 10, Foreground = Brush.Parse("#666666"), TextTrimming = TextTrimming.CharacterEllipsis });
+                var connect = new Button
+                {
+                    Content = connectingPhone == item.Id ? "Connecting" : "Connect",
+                    IsEnabled = item.Available && connectingPhone == null && !busy && !closing,
+                    Background = item.Available ? Brush.Parse("#111111") : Brush.Parse("#B0B0B0"),
+                    Foreground = Brushes.White, CornerRadius = new CornerRadius(14),
+                    Padding = new Thickness(11, 5), FontSize = 11, FontWeight = FontWeight.SemiBold,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                ToolTip.SetTip(connect, item.Available ? $"Connect {item.Name} and start listening" : $"Open PairIt on {item.Name} first");
+                connect.Click += async (_, _) => await ConnectPhoneAsync(item);
+                var forget = new Button
+                {
+                    Content = "×", Width = 28, Height = 28, Padding = new Thickness(0),
+                    HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center,
+                    Background = Brushes.Transparent, Foreground = Brush.Parse("#666666"),
+                    CornerRadius = new CornerRadius(9), FontSize = 14, VerticalAlignment = VerticalAlignment.Center
+                };
+                ToolTip.SetTip(forget, $"Forget {item.Name} on this computer");
+                Avalonia.Automation.AutomationProperties.SetName(forget, $"Forget {item.Name}");
+                forget.Click += (_, _) => ForgetPhone(item);
+                Grid.SetColumn(info, 0); Grid.SetColumn(connect, 1); Grid.SetColumn(forget, 2);
+                row.Children.Add(info); row.Children.Add(connect); row.Children.Add(forget);
+                pairedPhonesPanel.Children.Add(row);
+            }
+        }
+        if (lastPairedCount != saved.Length)
+        {
+            lastPairedCount = saved.Length;
+            UpdateWindowHeight();
+        }
+    }
+    private void ForgetPhone(NearbyPhone item)
+    {
+        if (connectingPhone != null && item.AllIds.Contains(connectingPhone))
+        {
+            connectingPhone = null;
+            connectCts?.Cancel();
+        }
+        nearbyPhones?.Forget(item.AllIds);
+        RenderPairedPhones();
+    }
+    private async Task ConnectPhoneAsync(NearbyPhone item)
+    {
+        if (sessions == null || server == null || nearbyPhones == null || connectingPhone != null || busy || closing) return;
+        if (!sessions.CurrentSettings.SharingEnabled)
+        {
+            if (outputs.SelectedItem is not AudioOutput selected) { status.Text = "Choose an audio source in Settings."; return; }
+            await ChangeAsync(() => sessions.ConfigureAsync(new DesktopSettings(SourceEndpointId: selected.Monitor, SharingEnabled: true)));
+            if (!sessions.CurrentSettings.SharingEnabled) return;
+        }
+        connectingPhone = item.Id;
+        RenderPairedPhones();
+        server.ExpectConnection(item.Id);
+        connectCts?.Cancel(); connectCts?.Dispose();
+        var cts = new CancellationTokenSource();
+        connectCts = cts;
+        var sent = await nearbyPhones.RequestConnectionAsync(item.Id, cts.Token);
+        if (closing) return;
+        if (!sent)
+        {
+            if (connectingPhone == item.Id) connectingPhone = null;
+            status.Text = "Couldn’t reach that phone. Open PairIt on it, on the same Wi-Fi.";
+            RenderPairedPhones();
+            return;
+        }
+        try { await Task.Delay(TimeSpan.FromSeconds(20), cts.Token); }
+        catch (OperationCanceledException) { return; }
+        if (!closing && connectingPhone == item.Id)
+        {
+            connectingPhone = null;
+            status.Text = "The phone didn’t connect. Keep PairIt open on it and try again.";
+            RenderPairedPhones();
+        }
     }
     private async Task PairAsync()
     {

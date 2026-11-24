@@ -26,7 +26,8 @@ internal static class Program
             {
                 server.Start();
                 using var discovery = new ComputerDiscovery(identity.Pin, "windows", Environment.MachineName);
-                using var application = new TrayApplication(identity, sessions);
+                using var nearbyPhones = new NearbyPhones(Path.Combine(LocalIdentity.DirectoryPath, "paired-phones.json"), identity.Token, identity.Pin);
+                using var application = new TrayApplication(identity, sessions, server, nearbyPhones);
                 Application.Run(application);
             }
             finally { server.DisposeAsync().AsTask().GetAwaiter().GetResult(); }

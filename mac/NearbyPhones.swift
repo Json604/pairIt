@@ -11,6 +11,9 @@ final class NearbyPhones {
         let id: String          // installation ID
         let name: String
         var available: Bool
+        /// Older offline installation IDs collapsed into this row (e.g. after reinstalls).
+        var hiddenIDs: [String] = []
+        var allIDs: [String] { [id] + hiddenIDs }
     }
     private struct Seen { let tags: Set<String>; let name: String; let endpoint: NWEndpoint; var seenAt: TimeInterval }
     private let queue = DispatchQueue(label: "pairit.nearby-phones")
@@ -22,23 +25,79 @@ final class NearbyPhones {
 
     init(defaults: UserDefaults = .standard) { self.defaults = defaults }
 
+    static func normalizedName(_ name: String) -> String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    /// Collapse duplicate offline entries with the same display name (for example,
+    /// after reinstalling PairIt or switching between Play and Preview builds on the
+    /// same phone). Online phones are never hidden, so two people with the same phone
+    /// model can still both connect while PairIt is open on both phones.
+    static func deduplicated(_ raw: [Phone]) -> [Phone] {
+        var result: [Phone] = []
+        var representativeByName: [String: Int] = [:]
+        for phone in raw where phone.available {
+            let key = normalizedName(phone.name)
+            if representativeByName[key] == nil { representativeByName[key] = result.count }
+            result.append(phone)
+        }
+        for phone in raw where !phone.available {
+            let key = normalizedName(phone.name)
+            if let index = representativeByName[key] {
+                result[index].hiddenIDs.append(contentsOf: phone.allIDs)
+            } else {
+                representativeByName[key] = result.count
+                result.append(phone)
+            }
+        }
+        return result
+    }
+
+    /// Phones that connected before and are not connected now. Offline stale duplicates
+    /// sharing a currently connected phone's name are hidden unless they are actively open nearby.
+    static func reconnectable(remembered: [Phone], connected: [RelayPhone]) -> [Phone] {
+        let connectedIDs = Set(connected.compactMap(\.installation))
+        let connectedNames = Set(connected.map { normalizedName($0.name) })
+        return remembered.filter { phone in
+            if connectedIDs.contains(phone.id) { return false }
+            if !phone.available && connectedNames.contains(normalizedName(phone.name)) { return false }
+            return true
+        }
+    }
+
     private var remembered: [[String: String]] {
         get { defaults.array(forKey: "rememberedPhones") as? [[String: String]] ?? [] }
         set { defaults.set(Array(newValue.prefix(12)), forKey: "rememberedPhones") }
     }
     /// Called with the currently connected phones: remember (or rename) each one.
     func remember(_ phones: [RelayPhone]) {
-        var list = remembered, changed = false
-        for phone in phones {
-            guard let id = phone.installation else { continue }
-            let entry = ["id": id, "name": phone.name]
-            if let index = list.firstIndex(where: { $0["id"] == id }) {
-                if list[index] != entry { list.remove(at: index); list.insert(entry, at: 0); changed = true }
-            } else { list.insert(entry, at: 0); changed = true }
+        queue.async {
+            var list = self.remembered, changed = false
+            for phone in phones {
+                guard let id = phone.installation else { continue }
+                let entry = ["id": id, "name": phone.name]
+                if let index = list.firstIndex(where: { $0["id"] == id }) {
+                    if index != 0 || list[index] != entry {
+                        list.remove(at: index); list.insert(entry, at: 0); changed = true
+                    }
+                } else { list.insert(entry, at: 0); changed = true }
+            }
+            if changed { self.remembered = list; self.publish() }
         }
-        if changed { remembered = list; queue.async { self.publish() } }
     }
-    func forget(_ id: String) { remembered = remembered.filter { $0["id"] != id }; queue.async { self.publish() } }
+    func forget(_ id: String) { forget([id]) }
+    func forget(_ ids: [String]) {
+        let doomed = Set(ids)
+        guard !doomed.isEmpty else { return }
+        queue.async {
+            let updated = self.remembered.filter { entry in
+                guard let id = entry["id"] else { return false }
+                return !doomed.contains(id)
+            }
+            self.remembered = updated
+            self.publish()
+        }
+    }
 
     func start(token: String, pin: String) {
         queue.async {
@@ -86,10 +145,11 @@ final class NearbyPhones {
         return results.values.first { !$0.tags.isDisjoint(with: tags) }
     }
     private func publish() {
-        let phones = remembered.compactMap { entry -> Phone? in
+        let raw = remembered.compactMap { entry -> Phone? in
             guard let id = entry["id"] else { return nil }
             return Phone(id: id, name: entry["name"] ?? "Phone", available: endpoint(for: id) != nil)
         }
+        let phones = Self.deduplicated(raw)
         DispatchQueue.main.async { [weak self] in self?.onChange?(phones) }
     }
     /// Sends the connect hint. Returns false when the phone is not currently reachable.

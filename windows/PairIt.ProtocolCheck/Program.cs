@@ -37,6 +37,7 @@ internal static class Integration
         await RoutedPauseIntegration.RunAsync(certificate, token);
         await PresentationIntegration.RunAsync(certificate, token);
         await ExtensionIntegration.RunAsync(certificate, token);
+        await NearbyPhonesChecks.RunAsync(certificate, token);
         var audio = new SyntheticEndpoints();
         var sessions = new DesktopSessions(audio);
         await using var server = new RelayServer(certificate, token, sessions);

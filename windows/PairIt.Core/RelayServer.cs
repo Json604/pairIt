@@ -17,9 +17,26 @@ public sealed class RelayServer(X509Certificate2 certificate, string pairingToke
     private readonly SemaphoreSlim authenticatedSessions = new(5, 5);
     private readonly ConcurrentDictionary<Guid, TcpClient> sockets = new();
     private readonly ConcurrentDictionary<Guid, Task> connections = new();
+    private readonly ConcurrentDictionary<string, long> connectRequests = new();
     private TcpListener? listener;
     private Task? acceptLoop, heartbeatLoop;
     public int Port => ((IPEndPoint?)listener?.LocalEndpoint)?.Port ?? Protocol.Port;
+
+    /// <summary>Records that this computer asked a paired phone to connect ("Connect" button).
+    /// The phone verifies the hint over its pinned TLS channel with WANT1 before connecting.</summary>
+    public void ExpectConnection(string installation)
+    {
+        if (installation.Length != 32 || installation.AsSpan().ContainsAnyExcept("0123456789abcdef".AsSpan())) return;
+        connectRequests[installation] = MonotonicClock.Nanoseconds + 30_000_000_000L;
+    }
+
+    internal bool ClaimConnectRequest(string installation)
+    {
+        var now = MonotonicClock.Nanoseconds;
+        foreach (var entry in connectRequests)
+            if (entry.Value <= now) connectRequests.TryRemove(entry.Key, out _);
+        return connectRequests.TryRemove(installation, out var deadline) && deadline > now;
+    }
 
     public void Start(IPAddress? address = null, int port = Protocol.Port)
     {
@@ -101,8 +118,26 @@ public sealed class RelayServer(X509Certificate2 certificate, string pairingToke
             if (proIndex >= 0) line = line[..proIndex];
             var microphone = line.EndsWith(" MIC1", StringComparison.Ordinal);
             var pairing = line.EndsWith(" PAIR1", StringComparison.Ordinal);
+            string? wanted = null;
             var supplied = pairing ? line[..^6] : microphone ? line[..^5] : line;
+            if (!pairing && !microphone)
+            {
+                var wantIndex = line.IndexOf(" WANT1 ", StringComparison.Ordinal);
+                if (wantIndex >= 0)
+                {
+                    var candidate = line[(wantIndex + 7)..];
+                    if (candidate.Length != 32 || candidate.AsSpan().ContainsAnyExcept("0123456789abcdef".AsSpan())) return;
+                    supplied = line[..wantIndex];
+                    wanted = candidate;
+                }
+            }
             if (!ValidToken(supplied)) return;
+            if (wanted != null)
+            {
+                var reply = ClaimConnectRequest(wanted) ? "OK WANT1\n"u8.ToArray() : "NO WANT1\n"u8.ToArray();
+                await stream.WriteAsync(reply, deadline.Token).ConfigureAwait(false);
+                return;
+            }
             if (pairing)
             {
                 await stream.WriteAsync("OK PAIR1\n"u8.ToArray(), deadline.Token).ConfigureAwait(false);
