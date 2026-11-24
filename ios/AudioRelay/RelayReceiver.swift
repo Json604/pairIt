@@ -10,6 +10,7 @@ enum ReceiverPhase {
 }
 
 final class RelayReceiver: ObservableObject {
+    static let shared = RelayReceiver()
     @Published private(set) var computerVolumeText = "";
     /// The computer's volume keys move this phone's own volume (ComputerVolume.phoneOwned).
     @Published private(set) var computerVolumeLinked = false
@@ -65,11 +66,57 @@ final class RelayReceiver: ObservableObject {
     private var interruptedByPhoneAudio = false
     private var outputRecovery = ExternalOutputRecovery()
     private var outputRecoveryWork: DispatchWorkItem?
+    private var bluetoothWakeTask: Task<Void, Never>?
     private func cancelOutputRecovery() {
         UserDefaults.standard.removeObject(forKey: "outputRecoveryPin")
         outputRecovery.cancel(); outputRecoveryWork?.cancel(); outputRecoveryWork = nil
+        bluetoothWakeTask?.cancel(); bluetoothWakeTask = nil
     }
     func autoReconnectChanged(_ enabled: Bool) { if !enabled { cancelOutputRecovery() } }
+
+    /// Invoked by Apple Shortcuts Bluetooth automations via `ReconnectComputerIntent`.
+    /// Respects Auto-reconnect, never falls back to iPhone speaker, and stops cleanly
+    /// if the paired computer isn't reachable while in the background.
+    @MainActor
+    func connectFromBluetoothTrigger() async -> Bool {
+        let autoReconnect = UserDefaults.standard.object(forKey: "trustedAutoReconnect") as? Bool != false
+        let onCall = calls.calls.contains(where: { !$0.hasEnded })
+        guard ExternalOutputRecovery.canTriggerBluetoothReconnect(
+            autoReconnect: autoReconnect,
+            paired: pairing.mac != nil,
+            adPresenting: AudioPresentationGate.isPresenting,
+            onCall: onCall
+        ) else { return false }
+        if playIntent && !computerOutput && !waitingForComputerOutput && [.playing, .buffering, .connecting].contains(phase) {
+            return true
+        }
+        // Shortcuts Bluetooth automations can fire slightly before AVAudioSession publishes the A2DP route.
+        var selected: RelayOutput?
+        for attempt in 0..<7 {
+            selected = [RelayOutput.bluetooth, .wired].first { $0.currentRoute() != nil }
+            if selected != nil { break }
+            if attempt < 6 { try? await Task.sleep(nanoseconds: 250_000_000) }
+        }
+        guard let selected else { return false }
+        guard !AudioPresentationGate.isPresenting, !calls.calls.contains(where: { !$0.hasEnded }) else { return false }
+        output = selected
+        UserDefaults.standard.set(selected.rawValue, forKey: "receiverOutput")
+        connect(requestPhoneOutput: true, useCurrentOutput: false)
+        guard playIntent else { return false }
+        let ticket = connectionGeneration
+        bluetoothWakeTask?.cancel()
+        bluetoothWakeTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 12_000_000_000)
+            guard let self, !Task.isCancelled, self.connectionGeneration == ticket, self.playIntent else { return }
+            if UIApplication.shared.applicationState != .active && ![.playing, .buffering].contains(self.phase) {
+                // Computer unreachable while away from home: release background audio cleanly
+                // without clearing outputRecoveryPin.
+                self.stopPlayback()
+                self.publish(.idle, "Ready when you are", "Choose an output, then listen to your computer.")
+            }
+        }
+        return true
+    }
     private func scheduleExternalOutput() {
         guard outputRecovery.waiting else { return }
         outputRecoveryWork?.cancel()
@@ -306,6 +353,9 @@ final class RelayReceiver: ObservableObject {
             publish(.headphones, "Choose \(output.title)", "Use the output picker or Control Center. PairIt won’t silently switch to another output."); return
         }
         playIntent = true; headphones = route.portName; routeUID = route.uid
+        if output != .speaker && UserDefaults.standard.object(forKey: "trustedAutoReconnect") as? Bool != false {
+            UserDefaults.standard.set(computer.pin, forKey: "outputRecoveryPin")
+        }
         let requestedMode: RelayPlaybackMode = PresentationTiming.adaptive(platform: computer.platform ?? "", bluetooth: output == .bluetooth) ? .interactive : .reliable
         let volume = PhoneVolume.current
         activeMode = requestedMode; modeNote = requestedMode == .interactive ? "Learning arrival timing…" : ""
@@ -506,6 +556,7 @@ final class RelayReceiver: ObservableObject {
             transport.onGroupFull = { [weak self] in
                 DispatchQueue.main.async {
                     guard let self, self.connectionGeneration == connectionTicket else { return }
+                    self.cancelOutputRecovery()
                     self.stopPlayback()
                     self.publish(.error, "Listening group is full", "Four phones are already connected. Disconnect one phone, then tap Connect again.")
                 }
@@ -514,6 +565,7 @@ final class RelayReceiver: ObservableObject {
                 DispatchQueue.main.async {
                     guard let self, self.connectionGeneration == connectionTicket else { return }
                     ConnectionAcknowledgment.shared.disconnected(output: self.output)
+                    self.cancelOutputRecovery()
                     self.stopPlayback()
                     self.publish(.error, "Computer unavailable", "Connection lost or network changed. Keep both devices on the same Wi-Fi and open PairIt on your computer, then try again.")
                 }
@@ -634,6 +686,7 @@ final class RelayReceiver: ObservableObject {
     }
     private func stopPlayback(keepTransport: Bool = false, completion: (() -> Void)? = nil) {
         groupTimingStatus = "";
+        bluetoothWakeTask?.cancel(); bluetoothWakeTask = nil
         playIntent = false; intentGeneration += 1
         if !keepTransport { connectionGeneration += 1 }
         endHoldBackgroundTask()

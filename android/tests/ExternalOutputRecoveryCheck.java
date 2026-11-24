@@ -19,6 +19,41 @@ public final class ExternalOutputRecoveryCheck {
         r.lost(false,true);if(r.waiting())throw new AssertionError("Phone speaker is not an external loss");
         r.lost(true,false);if(r.waiting())throw new AssertionError("Disabled auto reconnect must be respected");
         r.lost(true,true);r.cancel();r.lost(false,true);if(r.waiting())throw new AssertionError("No stale recovery");
-        System.out.println("PASS: external output loss, first/replacement attachment, speaker exclusion and manual cancellation");
+
+        // Bluetooth wake filtering: audio profiles and audio-class ACL links only.
+        if(!ExternalOutputRecovery.isBluetoothAudioBroadcast(ExternalOutputRecovery.ACTION_A2DP_STATE, ExternalOutputRecovery.PROFILE_CONNECTED, false, false))
+            throw new AssertionError("A2DP connected must trigger wake");
+        if(ExternalOutputRecovery.isBluetoothAudioBroadcast(ExternalOutputRecovery.ACTION_A2DP_STATE, 0, false, false))
+            throw new AssertionError("A2DP disconnected must not trigger wake");
+        if(!ExternalOutputRecovery.isBluetoothAudioBroadcast(ExternalOutputRecovery.ACTION_HEADSET_STATE, ExternalOutputRecovery.PROFILE_CONNECTED, false, false))
+            throw new AssertionError("Headset profile connected must trigger wake");
+        if(!ExternalOutputRecovery.isBluetoothAudioBroadcast(ExternalOutputRecovery.ACTION_LE_AUDIO_STATE, ExternalOutputRecovery.PROFILE_CONNECTED, false, false))
+            throw new AssertionError("LE Audio connected must trigger wake");
+        if(ExternalOutputRecovery.isBluetoothAudioBroadcast(ExternalOutputRecovery.ACTION_LE_AUDIO_STATE, 1, false, false))
+            throw new AssertionError("LE Audio connecting state must wait for connected");
+        if(!ExternalOutputRecovery.isBluetoothAudioBroadcast(ExternalOutputRecovery.ACTION_ACL_CONNECTED, -1, true, true))
+            throw new AssertionError("Audio-class ACL connect must trigger wake");
+        if(ExternalOutputRecovery.isBluetoothAudioBroadcast(ExternalOutputRecovery.ACTION_ACL_CONNECTED, -1, true, false))
+            throw new AssertionError("Non-audio ACL device (keyboard/watch) must not trigger wake");
+        if(!ExternalOutputRecovery.isBluetoothAudioBroadcast(ExternalOutputRecovery.ACTION_ACL_CONNECTED, -1, false, false))
+            throw new AssertionError("Missing BluetoothClass falls back to service route verification");
+        if(ExternalOutputRecovery.isBluetoothAudioBroadcast("android.intent.action.BATTERY_OKAY", 2, false, false))
+            throw new AssertionError("Unrelated broadcasts must never trigger wake");
+
+        // Bluetooth wake eligibility: requires Auto-reconnect, matching saved pin, and non-speaker output.
+        if(!ExternalOutputRecovery.shouldWakeOnBluetooth(true, true, "pin-a", "pin-a", false))
+            throw new AssertionError("Eligible background wake must proceed");
+        if(ExternalOutputRecovery.shouldWakeOnBluetooth(false, true, "pin-a", "pin-a", false))
+            throw new AssertionError("Disabled auto-reconnect must block wake");
+        if(ExternalOutputRecovery.shouldWakeOnBluetooth(true, false, "pin-a", "pin-a", false))
+            throw new AssertionError("Unpaired state must block wake");
+        if(ExternalOutputRecovery.shouldWakeOnBluetooth(true, true, "", "pin-a", false))
+            throw new AssertionError("Explicitly stopped/paused session (empty pin) must block wake");
+        if(ExternalOutputRecovery.shouldWakeOnBluetooth(true, true, "pin-old", "pin-new", false))
+            throw new AssertionError("Different paired computer must block wake");
+        if(ExternalOutputRecovery.shouldWakeOnBluetooth(true, true, "pin-a", "pin-a", true))
+            throw new AssertionError("Phone speaker selection must block Bluetooth wake");
+
+        System.out.println("PASS: external output loss, Bluetooth wake filtering, speaker exclusion and manual cancellation");
     }
 }

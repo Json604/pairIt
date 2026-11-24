@@ -161,17 +161,20 @@ an external output, then reconnects to its saved computer and resumes after the
 route is ready. Replacement headphones work on their first attachment. Manual
 Pause, Disconnect, computer-output selection and explicit output choices cancel
 pending recovery; the phone speaker never triggers it. Other listeners remain
-connected. Both phones persist pending recovery against the saved computer identity,
-with no elapsed-time expiry. Android restores its connected-device service after
-system process eviction, and system Bluetooth connection broadcasts can wake it
-when headphones return. An actual external audio route must be ready before it
-starts audio; a Bluetooth keyboard connection alone cannot start playback.
-Reopening the Android app also restores pending monitoring if the OS denied a restart.
-Force-stop and manufacturer background restrictions can still prevent automatic wake-up.
-iOS restores pending recovery when launched and checks route changes while it has
-execution time. Ordinary audio-headset attachment cannot guarantee relaunch after
-system suspension/termination or force-quit. No silent audio or perpetual wake lock
-is used to keep either app alive. Desktop protocol and packages are unchanged.
+connected. Both phones persist active and pending external-output sessions against the saved
+computer identity, with no elapsed-time expiry, so an OS background kill does not erase
+auto-reconnect intent. Android wakes its connected-device service on Bluetooth audio
+connection broadcasts (A2DP, Headset, LE Audio and audio-class ACL links), probes the
+paired computer for a bounded window when woken cold, and stops cleanly without clearing
+reconnect intent if the computer is unreachable. An actual external audio route must be
+ready before it starts audio; a Bluetooth keyboard or watch connection cannot wake
+playback. Reopening the Android app also restores pending monitoring if the OS denied a
+restart. Force-stop and manufacturer background restrictions can still prevent automatic
+wake-up. iOS restores pending recovery when launched, checks route changes while it has
+execution time, and exposes an **Auto-reconnect to computer** `AudioPlaybackIntent` so a
+Shortcuts Bluetooth Personal Automation ("When connected → Run Immediately") can wake
+PairIt in the background even after iOS terminates it. No silent audio or perpetual wake
+lock is used to keep either app alive. Desktop protocol and packages are unchanged.
 
 ## Build and check
 

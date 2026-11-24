@@ -678,7 +678,11 @@ struct ReceiverView: View {
                     }.frame(minHeight: 44)
                 }
                 Divider()
-                Toggle("Auto-reconnect", isOn: $autoReconnect)
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Auto-reconnect", isOn: $autoReconnect)
+                    Text("To wake PairIt after iOS closes it, add a Bluetooth automation in Shortcuts using Auto-reconnect.")
+                        .font(.caption2).foregroundStyle(RelayPalette.secondary)
+                }
                 Divider()
                 Toggle("Sound feedback", isOn: $soundFeedback)
                 Divider()
