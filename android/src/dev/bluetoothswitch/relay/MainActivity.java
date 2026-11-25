@@ -965,8 +965,9 @@ public class MainActivity extends Activity {
     private LinearLayout row() { LinearLayout layout = new LinearLayout(this); layout.setOrientation(LinearLayout.HORIZONTAL); layout.setGravity(Gravity.CENTER_VERTICAL); return layout; }
     private void space(LinearLayout parent, int height) { parent.addView(new View(this), new LinearLayout.LayoutParams(1, dp(height))); }
     private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
+    static volatile boolean activityVisible;
     @Override public void onResume() {
-        super.onResume(); if (updates != null) updates.checkOnResume(); visible = true; RelayService.restoreControlsNotification(this);
+        super.onResume(); activityVisible = true; if (updates != null) updates.checkOnResume(); visible = true; RelayService.restoreControlsNotification(this);
         if(bannerAds!=null)bannerAds.resume();confirmedPin="";trustedNearby=false; if(nearby!=null){nearby.invitationPort=invitations.start();nearby.start(tab==1);} renderedKey="";
         handler.removeCallbacks(refresh);handler.post(refresh);
         if(appOpeningOpportunity&&!scanningCode&&!AppOpenAds.isPresenting()){
@@ -978,7 +979,7 @@ public class MainActivity extends Activity {
         showPairingCompletion();
         RelayService.restoreOutputMonitoring(this);
     }
-    @Override public void onPause() { visible = false;stopInvitations();if(appOpenAds!=null)appOpenAds.pause();if(!AppOpenAds.isPresenting())cancelExplicitConnection(); cancelNearbyPairing(); if(nearby!=null)nearby.stop(); if(automaticConfirmation!=null){automaticConfirmation.cancel();automaticConfirmation=null;} if(bannerAds!=null)bannerAds.pause();handler.removeCallbacks(refresh); super.onPause(); }
+    @Override public void onPause() { activityVisible = false; visible = false;stopInvitations();if(appOpenAds!=null)appOpenAds.pause();if(!AppOpenAds.isPresenting())cancelExplicitConnection(); cancelNearbyPairing(); if(nearby!=null)nearby.stop(); if(automaticConfirmation!=null){automaticConfirmation.cancel();automaticConfirmation=null;} if(bannerAds!=null)bannerAds.pause();handler.removeCallbacks(refresh); super.onPause(); }
     @Override public void onStop(){super.onStop();if(!AppOpenAds.isPresenting()&&!scanningCode){appOpeningOpportunity=true;backgroundedAt=System.currentTimeMillis();}}
     @Override public void onWindowFocusChanged(boolean focused) { super.onWindowFocusChanged(focused); updateAdVisibility(); if(focused)showPairingCompletion(); }
     private void updateAdVisibility() {

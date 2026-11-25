@@ -25,21 +25,39 @@ final class RelayConnection {
             return "OK WANT1".equals(readLine(connection, 64, 2500));
         }
     }
+    /** Read-only pinned-TLS check that the computer is awake, sharing, and has an open listener slot. */
+    static boolean probeAvailable(String host, String expectedPin, int timeoutMs) {
+        if (!RelaySettings.validHost(host) || !expectedPin.matches("[a-f0-9]{64}")) return false;
+        try (Socket connection = openPinned(host, 5002, expectedPin, "STATUS1", timeoutMs, socket -> { })) {
+            String line = readLine(connection, 256, timeoutMs);
+            if (!line.startsWith("OK STATUS1 ")) return false;
+            String rest = line.substring(11);
+            int space = rest.indexOf(' ');
+            int count = Integer.parseInt(space < 0 ? rest : rest.substring(0, space));
+            return count >= 0 && count < 4;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
     private static Socket open(String host, int port, String expectedPin, String token, String role,
                                java.util.function.Consumer<Socket> opened) throws Exception {
         if (!RelaySettings.validHost(host) || !expectedPin.matches("[a-f0-9]{64}") || !token.matches("[a-f0-9]{64}"))
             throw new IOException("Invalid pairing credentials");
-        return openPinned(host,port,expectedPin,token+role,opened);
+        return openPinned(host,port,expectedPin,token+role,4000,opened);
     }
     static Socket openPinned(String host,int port,String expectedPin,String message,
+                             java.util.function.Consumer<Socket> opened) throws Exception {
+        return openPinned(host, port, expectedPin, message, 4000, opened);
+    }
+    static Socket openPinned(String host,int port,String expectedPin,String message,int timeoutMs,
                              java.util.function.Consumer<Socket> opened) throws Exception {
         if(!RelaySettings.validHost(host)||!expectedPin.matches("[a-f0-9]{64}"))throw new IOException("Invalid computer identity");
         Socket raw = new Socket();
         opened.accept(raw);
         try {
             raw.setTcpNoDelay(true);
-            raw.connect(new InetSocketAddress(host, port), 4000);
-            raw.setSoTimeout(4000);
+            raw.connect(new InetSocketAddress(host, port), timeoutMs);
+            raw.setSoTimeout(timeoutMs);
             raw.setKeepAlive(true);
             X509TrustManager pinned = new X509TrustManager() {
                 public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }

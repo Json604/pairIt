@@ -75,29 +75,34 @@ final class RelayReceiver: ObservableObject {
     func autoReconnectChanged(_ enabled: Bool) { if !enabled { cancelOutputRecovery() } }
 
     /// Invoked by Apple Shortcuts Bluetooth automations via `ReconnectComputerIntent`.
-    /// Respects Auto-reconnect, never falls back to iPhone speaker, and stops cleanly
-    /// if the paired computer isn't reachable while in the background.
+    /// Respects Auto-reconnect, never falls back to iPhone speaker, verifies the paired
+    /// computer is awake over pinned TLS before activating AVAudioSession (so phone
+    /// music/videos are never paused when away from home or while the computer sleeps),
+    /// and stops cleanly if connection fails while in the background.
     @MainActor
     func connectFromBluetoothTrigger() async -> Bool {
         let autoReconnect = UserDefaults.standard.object(forKey: "trustedAutoReconnect") as? Bool != false
         let onCall = calls.calls.contains(where: { !$0.hasEnded })
-        guard ExternalOutputRecovery.canTriggerBluetoothReconnect(
-            autoReconnect: autoReconnect,
-            paired: pairing.mac != nil,
-            adPresenting: AudioPresentationGate.isPresenting,
-            onCall: onCall
-        ) else { return false }
+        guard let computer = pairing.mac,
+              ExternalOutputRecovery.canTriggerBluetoothReconnect(
+                autoReconnect: autoReconnect,
+                paired: true,
+                adPresenting: AudioPresentationGate.isPresenting,
+                onCall: onCall
+              ) else { return false }
         if playIntent && !computerOutput && !waitingForComputerOutput && [.playing, .buffering, .connecting].contains(phase) {
             return true
         }
-        // Shortcuts Bluetooth automations can fire slightly before AVAudioSession publishes the A2DP route.
+        // Probe computer reachability over pinned TLS before touching AVAudioSession,
+        // and allow AVAudioSession up to 1.5 s to publish the newly connected Bluetooth route.
+        async let computerReady = PairingConfirmation.probeAvailable(computer, hostOverride: pairing.hostOverride)
         var selected: RelayOutput?
         for attempt in 0..<7 {
             selected = [RelayOutput.bluetooth, .wired].first { $0.currentRoute() != nil }
             if selected != nil { break }
             if attempt < 6 { try? await Task.sleep(nanoseconds: 250_000_000) }
         }
-        guard let selected else { return false }
+        guard let selected, await computerReady else { return false }
         guard !AudioPresentationGate.isPresenting, !calls.calls.contains(where: { !$0.hasEnded }) else { return false }
         output = selected
         UserDefaults.standard.set(selected.rawValue, forKey: "receiverOutput")
@@ -106,10 +111,10 @@ final class RelayReceiver: ObservableObject {
         let ticket = connectionGeneration
         bluetoothWakeTask?.cancel()
         bluetoothWakeTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 12_000_000_000)
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
             guard let self, !Task.isCancelled, self.connectionGeneration == ticket, self.playIntent else { return }
             if UIApplication.shared.applicationState != .active && ![.playing, .buffering].contains(self.phase) {
-                // Computer unreachable while away from home: release background audio cleanly
+                // Computer became unreachable while away: release background audio cleanly
                 // without clearing outputRecoveryPin.
                 self.stopPlayback()
                 self.publish(.idle, "Ready when you are", "Choose an output, then listen to your computer.")
@@ -127,14 +132,29 @@ final class RelayReceiver: ObservableObject {
     private func resumeExternalOutput() {
         guard outputRecovery.waiting else { return }
         guard UserDefaults.standard.object(forKey: "trustedAutoReconnect") as? Bool != false,
-              pairing.mac != nil else { cancelOutputRecovery(); return }
+              let computer = pairing.mac else { cancelOutputRecovery(); return }
         let selected = [RelayOutput.bluetooth, .wired].first { $0.currentRoute() != nil }
         let permitted = !AudioPresentationGate.isPresenting && !calls.calls.contains(where: { !$0.hasEnded })
         guard outputRecovery.ready(externalReady: selected != nil, permitted: permitted), let selected else {
             if selected != nil { scheduleExternalOutput() }; return
         }
-        output = selected; UserDefaults.standard.set(selected.rawValue, forKey: "receiverOutput")
-        cancelOutputRecovery(); connect(requestPhoneOutput: true, useCurrentOutput: false)
+        bluetoothWakeTask?.cancel()
+        bluetoothWakeTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            // Verify computer is awake before activating AVAudioSession so opening PairIt
+            // while listening to phone music with a sleeping computer never interrupts audio.
+            let reachable = await PairingConfirmation.probeAvailable(computer, hostOverride: self.pairing.hostOverride)
+            guard !Task.isCancelled, self.outputRecovery.waiting else { return }
+            guard reachable else {
+                self.outputRecovery.cancel()
+                self.publish(.idle, "Ready when you are", "Choose an output, then listen to your computer.")
+                return
+            }
+            let stillPermitted = !AudioPresentationGate.isPresenting && !self.calls.calls.contains(where: { !$0.hasEnded })
+            guard stillPermitted, selected.currentRoute() != nil else { self.scheduleExternalOutput(); return }
+            self.output = selected; UserDefaults.standard.set(selected.rawValue, forKey: "receiverOutput")
+            self.cancelOutputRecovery(); self.connect(requestPhoneOutput: true, useCurrentOutput: false)
+        }
     }
     private func waitForExternalOutput() {
         outputRecovery.lost(external: output != .speaker,
@@ -565,7 +585,9 @@ final class RelayReceiver: ObservableObject {
                 DispatchQueue.main.async {
                     guard let self, self.connectionGeneration == connectionTicket else { return }
                     ConnectionAcknowledgment.shared.disconnected(output: self.output)
-                    self.cancelOutputRecovery()
+                    // Preserve persisted outputRecoveryPin on transient computer sleep / Wi-Fi loss
+                    // so reconnecting headphones later still auto-connects.
+                    self.outputRecovery.cancel(); self.outputRecoveryWork?.cancel(); self.outputRecoveryWork = nil
                     self.stopPlayback()
                     self.publish(.error, "Computer unavailable", "Connection lost or network changed. Keep both devices on the same Wi-Fi and open PairIt on your computer, then try again.")
                 }

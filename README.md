@@ -163,18 +163,22 @@ Pause, Disconnect, computer-output selection and explicit output choices cancel
 pending recovery; the phone speaker never triggers it. Other listeners remain
 connected. Both phones persist active and pending external-output sessions against the saved
 computer identity, with no elapsed-time expiry, so an OS background kill does not erase
-auto-reconnect intent. Android wakes its connected-device service on Bluetooth audio
-connection broadcasts (A2DP, Headset, LE Audio and audio-class ACL links), probes the
-paired computer for a bounded window when woken cold, and stops cleanly without clearing
-reconnect intent if the computer is unreachable. An actual external audio route must be
-ready before it starts audio; a Bluetooth keyboard or watch connection cannot wake
-playback. Reopening the Android app also restores pending monitoring if the OS denied a
-restart. Force-stop and manufacturer background restrictions can still prevent automatic
-wake-up. iOS restores pending recovery when launched, checks route changes while it has
-execution time, and exposes an **Auto-reconnect to computer** `AudioPlaybackIntent` so a
-Shortcuts Bluetooth Personal Automation ("When connected → Run Immediately") can wake
-PairIt in the background even after iOS terminates it. No silent audio or perpetual wake
-lock is used to keep either app alive. Desktop protocol and packages are unchanged.
+auto-reconnect intent. Android wakes its connected-device service on demand when a
+Bluetooth media-audio profile connects (A2DP, LE Audio, or LE Audio ACL links) while on a
+local network, verifies the paired computer with a read-only pinned-TLS check before
+requesting audio focus or playback locks, and stops cleanly without leaving a persistent
+background service when headphones stay disconnected (after a short grace window) or the
+computer is unreachable. It uses `START_NOT_STICKY` so the OS never loops restarting an
+idle service after eviction. An actual external audio route must be ready before it starts
+audio; a Bluetooth keyboard, tracker, or HFP-only watch cannot wake playback. Reopening
+the Android app reconnects only when external headphones and a local network are present.
+Force-stop and manufacturer background restrictions can still prevent automatic wake-up. iOS restores pending recovery when launched, verifies computer reachability over pinned TLS
+before activating `AVAudioSession` (so phone music/videos are not paused while away from
+home or when the computer sleeps), and exposes an **Auto-reconnect to computer**
+`AudioPlaybackIntent` so a Shortcuts Bluetooth Personal Automation ("When connected → Run
+Immediately") can wake PairIt in the background even after iOS terminates it. No silent
+audio or perpetual wake lock is used to keep either app alive. Desktop protocol and packages
+are unchanged.
 
 ## Build and check
 
@@ -220,10 +224,12 @@ Real calls, Bluetooth routing, background recovery and audio quality need device
 
 ## Current release and validation
 
-Current published builds are Mac/Windows/Linux **30**, Android **36** (GitHub APK) /
-**37** (Google Play) and iOS **36**. Phone store availability depends on the testing
-track and review status. Recent changes include paired-phone deduplication and a
-visible Forget button across Mac, Windows and Linux, per-phone Mac controls, earphone
+Current published builds are Mac/Windows/Linux **30**, Android **41** (GitHub APK) /
+**37+** (Google Play; build 41 AAB built for Play rollout) and iOS **40**. Phone store
+availability depends on the testing track and review status. Recent changes include
+clean on-demand Bluetooth auto-reconnect without background kill loops on Android (41)
+and non-intrusive pre-probe reconnect on iOS (40), paired-phone deduplication and a
+visible Forget button across Mac, Windows and Linux (30), per-phone Mac controls, earphone
 media keys, phone volume from the Mac’s volume keys, Connect from the desktop,
 and banner plus app-open ads only.
 PairIt is free with ads; there is no paid tier.

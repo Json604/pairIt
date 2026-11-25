@@ -55,7 +55,7 @@ public class RelayService extends Service {
     private android.database.ContentObserver volumeObserver;
     private final Runnable connectionWatchdog = new Runnable() {
         public void run() {
-            if (!running || userStopped) return;
+            if (!running || userStopped || socket == null) return;
             if (ConnectionHealth.expired(SystemClock.elapsedRealtime(), lastTrafficAt, requestedMac || parkedIntent == RelayHandoff.Intent.PHONE, computerOutputSelected)) {
                 recoverNetwork();
                 return;
@@ -68,13 +68,16 @@ public class RelayService extends Service {
     private volatile boolean networkAvailable = true;
     private volatile int networkRevision;
     private volatile boolean resumeWhenQuietAfterReconnect;
+    private static volatile long lastFailedWakeAt;
     private final android.net.ConnectivityManager.NetworkCallback networkCallback = new android.net.ConnectivityManager.NetworkCallback() {
         @Override public void onAvailable(android.net.Network network) {
             if(liveInstance!=RelayService.this)return;
             if (network.equals(localNetwork)) return;
             boolean networkChanged = localNetwork != null || !networkAvailable;
             localNetwork = network; networkAvailable = true; networkRevision++;
-            if(settings.paired())discovery.start(settings.pin());
+            lastFailedWakeAt = 0;
+            if(settings.paired() && (bluetoothWakeProbe || (running && socket == null && !outputRecovery.waiting())))
+                discovery.start(settings.pin());
             if(networkChanged && running && (requestedMac || parkedIntent==RelayHandoff.Intent.PHONE)) {
                 recoverNetwork();
                 if(running && reconnectable())locks.reconnectWindow();
@@ -98,19 +101,60 @@ public class RelayService extends Service {
             pausePlayback(RelayState.Phase.ERROR,"Computer unavailable","Keep both devices on the same Wi-Fi, then tap Connect.");
             return;
         }
-        // Retain the user's listening intent and foreground service, not stale audio.
+        // Retain the user's listening intent and foreground service briefly, not stale audio.
         // PHONE restores only the control connection; a fresh offer is still required for audio.
         mute(); generation.incrementAndGet();closeConnection();locks.release();
         lastTrafficAt=SystemClock.elapsedRealtime();
+        main.removeCallbacks(connectionWatchdog);
+        if (settings.paired()) discovery.start(settings.pin());
+        armBackgroundReconnectTimeout();
         publish(requestedMac?RelayState.Phase.RECONNECTING:RelayState.Phase.PHONE,"Waiting for your computer","Reconnecting automatically. Keep both devices on the same Wi-Fi and PairIt open on your computer.");
         foreground(false);
-        main.removeCallbacks(connectionWatchdog);main.postDelayed(connectionWatchdog,500);
+    }
+    static boolean hasLocalNetwork(Context context) {
+        try {
+            android.net.ConnectivityManager cm = context.getSystemService(android.net.ConnectivityManager.class);
+            if (cm != null) {
+                for (android.net.Network net : cm.getAllNetworks()) {
+                    android.net.NetworkCapabilities caps = cm.getNetworkCapabilities(net);
+                    if (caps != null && (caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI)
+                            || caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET))) {
+                        return true;
+                    }
+                }
+            }
+        } catch (SecurityException ignored) { }
+        // Hotspot / USB tethering interfaces may not report TRANSPORT_WIFI; check local non-cellular IPv4 interfaces.
+        try {
+            java.util.Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+            while (interfaces != null && interfaces.hasMoreElements()) {
+                NetworkInterface iface = interfaces.nextElement();
+                if (!iface.isUp() || iface.isLoopback()) continue;
+                String name = iface.getName().toLowerCase(Locale.ROOT);
+                if (!(name.startsWith("wlan") || name.startsWith("ap") || name.startsWith("swlan")
+                        || name.startsWith("eth") || name.startsWith("rndis") || name.startsWith("usb") || name.startsWith("ncm"))) continue;
+                java.util.Enumeration<InetAddress> addrs = iface.getInetAddresses();
+                while (addrs.hasMoreElements()) {
+                    InetAddress addr = addrs.nextElement();
+                    if (addr instanceof Inet4Address && !addr.isLoopbackAddress()) return true;
+                }
+            }
+        } catch (SocketException ignored) { }
+        return false;
+    }
+    private static boolean hasExternalAudioOutput(Context context) {
+        AudioManager manager = context.getSystemService(AudioManager.class);
+        if (manager == null) return false;
+        return OutputRoute.BLUETOOTH.find(manager) != null || OutputRoute.WIRED.find(manager) != null;
     }
     static void restoreOutputMonitoring(Context context) {
+        if (liveInstance != null) return;
         RelaySettings saved = new RelaySettings(context);
-        if(liveInstance != null || !ExternalOutputRecovery.shouldWakeOnBluetooth(
+        if (!ExternalOutputRecovery.shouldWakeOnBluetooth(
                 saved.autoReconnect(), saved.paired(), saved.outputRecoveryPin(), saved.pin(), saved.output() == OutputRoute.SPEAKER)) return;
-        try { context.startForegroundService(new Intent(context, RelayService.class).setAction("RESTORE_OUTPUT")); }
+        // Never spin up a background service unless external headphones and a local network are actually present.
+        if (!hasExternalAudioOutput(context) || !hasLocalNetwork(context)) return;
+        try { context.startForegroundService(new Intent(context, RelayService.class).setAction("BLUETOOTH_WAKE")); }
         catch(IllegalStateException | SecurityException error) { Log.w(TAG,"Output monitoring could not restart",error); }
     }
 
@@ -126,8 +170,10 @@ public class RelayService extends Service {
             return;
         }
         RelaySettings saved = new RelaySettings(context);
-        if (!ExternalOutputRecovery.shouldWakeOnBluetooth(
-                saved.autoReconnect(), saved.paired(), saved.outputRecoveryPin(), saved.pin(), saved.output() == OutputRoute.SPEAKER)) return;
+        if (!ExternalOutputRecovery.wakeAllowed(
+                saved.autoReconnect(), saved.paired(), saved.outputRecoveryPin(), saved.pin(),
+                saved.output() == OutputRoute.SPEAKER, hasLocalNetwork(context),
+                SystemClock.elapsedRealtime(), lastFailedWakeAt)) return;
         if (Build.VERSION.SDK_INT >= 31
                 && context.checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) != android.content.pm.PackageManager.PERMISSION_GRANTED) return;
         try { context.startForegroundService(new Intent(context, RelayService.class).setAction("BLUETOOTH_WAKE")); }
@@ -143,40 +189,109 @@ public class RelayService extends Service {
     private MacDiscovery discovery;
     private AudioFocusRequest focus;
     private MediaSession mediaSession;
-    private static final long BLUETOOTH_WAKE_TIMEOUT_MS = 12_000L;
     private boolean userStopped;
     private boolean bluetoothWakeProbe;
+    private boolean wakeComputerVerified;
     private boolean silentProbeStop;
+    private boolean backgroundReconnectArmed;
+    private volatile int wakeProbeTicket;
     private final ExternalOutputRecovery outputRecovery=new ExternalOutputRecovery();
     private int automaticOutputAttempts;
     private final Runnable retryExternalOutput=()->resumeExternalOutput();
     private final Runnable bluetoothWakeTimeout = this::finishBluetoothWakeProbe;
+    private final Runnable outputWaitTimeout = this::finishIdleServicePreservingRecovery;
+    private final Runnable backgroundReconnectTimeout = () -> {
+        backgroundReconnectArmed = false;
+        if (liveInstance != this || userStopped || socket != null) return;
+        if (MainActivity.activityVisible) {
+            backgroundReconnectArmed = true;
+            main.postDelayed(this.backgroundReconnectTimeout, 30_000L);
+            return;
+        }
+        finishIdleServicePreservingRecovery();
+    };
+    private void armBackgroundReconnectTimeout() {
+        if (backgroundReconnectArmed || userStopped || socket != null) return;
+        backgroundReconnectArmed = true;
+        main.removeCallbacks(backgroundReconnectTimeout);
+        main.postDelayed(backgroundReconnectTimeout, ExternalOutputRecovery.BACKGROUND_RECONNECT_TIMEOUT_MS);
+    }
+    private void clearBackgroundReconnectTimeout() {
+        backgroundReconnectArmed = false;
+        main.removeCallbacks(backgroundReconnectTimeout);
+    }
     private void finishBluetoothWakeProbe() {
         if (!bluetoothWakeProbe || liveInstance != this || userStopped) return;
         if (socket != null) { bluetoothWakeProbe = false; return; }
-        // Away from home / computer off / non-audio route: stop cleanly without erasing
-        // persisted reconnect intent, so the next headphone connection can try again.
+        lastFailedWakeAt = SystemClock.elapsedRealtime();
+        finishIdleServicePreservingRecovery();
+    }
+    /** Stops the service cleanly with zero lingering notification or locks while keeping
+     *  outputRecoveryPin persisted so the next Bluetooth headphone connection can auto-connect. */
+    private void finishIdleServicePreservingRecovery() {
+        if (liveInstance != this || userStopped) return;
         bluetoothWakeProbe = false;
+        wakeComputerVerified = false;
         silentProbeStop = true;
         ++startTicket;
+        ++wakeProbeTicket;
         outputRecovery.cancel();
+        clearBackgroundReconnectTimeout();
+        main.removeCallbacks(bluetoothWakeTimeout);
+        main.removeCallbacks(outputWaitTimeout);
         main.removeCallbacks(retryExternalOutput);
         main.removeCallbacks(connectionWatchdog);
         main.removeCallbacks(renewLocks);
         main.removeCallbacks(finishPausedService);
         requestedMac = false; focusGranted = false; running = false; profileReady = false;
         generation.incrementAndGet(); mute(); closeConnection(); locks.release();
+        discovery.stop();
+        if (worker != null) LockSupport.unpark(worker);
         audio.abandonAudioFocusRequest(focus);
+        settings.controlsSource("");
+        if (mediaSession != null) mediaSession.setActive(false);
+        state = new RelayState(RelayState.Phase.IDLE, "Ready when you are", "Choose Computer to listen through your selected output.");
         stopSelf();
     }
-    private void cancelOutputRecovery(){bluetoothWakeProbe=false;silentProbeStop=false;main.removeCallbacks(bluetoothWakeTimeout);settings.outputRecovery(false);outputRecovery.cancel();main.removeCallbacks(retryExternalOutput);}
+    private void startWakeProbe() {
+        final int ticket = ++wakeProbeTicket;
+        final String pin = settings.pin();
+        new Thread(() -> {
+            long start = SystemClock.elapsedRealtime();
+            String lastTried = "";
+            while (ticket == wakeProbeTicket && bluetoothWakeProbe && liveInstance == RelayService.this && !userStopped) {
+                String candidate = settings.connectionHost(discovery.host);
+                boolean newCandidate = !candidate.isEmpty() && !candidate.equals(lastTried);
+                long elapsed = SystemClock.elapsedRealtime() - start;
+                if (newCandidate || (!candidate.isEmpty() && elapsed >= 1800 && elapsed < 2500)) {
+                    lastTried = candidate;
+                    if (RelayConnection.probeAvailable(candidate, pin, 2200)) {
+                        main.post(() -> {
+                            if (ticket != wakeProbeTicket || !bluetoothWakeProbe || liveInstance != RelayService.this || userStopped) return;
+                            wakeComputerVerified = true;
+                            resumeExternalOutput();
+                        });
+                        return;
+                    }
+                }
+                if (SystemClock.elapsedRealtime() - start >= 5500) break;
+                LockSupport.parkNanos(250_000_000L);
+            }
+            main.post(() -> {
+                if (ticket == wakeProbeTicket && bluetoothWakeProbe && liveInstance == RelayService.this && socket == null)
+                    finishBluetoothWakeProbe();
+            });
+        }, "relay-wake-probe").start();
+    }
+    private void cancelOutputRecovery(){bluetoothWakeProbe=false;wakeComputerVerified=false;silentProbeStop=false;++wakeProbeTicket;main.removeCallbacks(bluetoothWakeTimeout);main.removeCallbacks(outputWaitTimeout);settings.outputRecovery(false);outputRecovery.cancel();main.removeCallbacks(retryExternalOutput);}
     private void scheduleExternalOutput(){
         if(!outputRecovery.waiting())return;
-        main.removeCallbacks(retryExternalOutput);main.postDelayed(retryExternalOutput,750);
+        main.removeCallbacks(retryExternalOutput);main.postDelayed(retryExternalOutput,bluetoothWakeProbe?250:750);
     }
     private void resumeExternalOutput(){
         if(!outputRecovery.waiting()||userStopped||liveInstance!=this)return;
         if(!settings.autoReconnect()||!settings.paired()||!settings.outputRecoveryPin().equals(settings.pin())){cancelOutputRecovery();requestStop();return;}
+        if(bluetoothWakeProbe && !wakeComputerVerified)return;
         AudioDeviceInfo destination=selectedOutput.find(audio);OutputRoute kind=selectedOutput;
         if(destination==null){
             for(OutputRoute candidate:new OutputRoute[]{OutputRoute.BLUETOOTH,OutputRoute.WIRED}){
@@ -186,12 +301,14 @@ public class RelayService extends Service {
         boolean allowed=networkAvailable&&audio.getMode()==AudioManager.MODE_NORMAL&&PhoneAudioSession.availableTo(this);
         if(!outputRecovery.ready(destination!=null&&kind!=OutputRoute.SPEAKER,allowed)){
             // Device callbacks wake an absent route; only retry a present route held by a call/network.
-            if(destination!=null)scheduleExternalOutput();return;
+            if(destination!=null||bluetoothWakeProbe)scheduleExternalOutput();return;
         }
         if(++automaticOutputAttempts>3){
             pausePlayback(RelayState.Phase.ERROR,"Couldn’t use these headphones","Reconnect your headphones, then tap Connect.");return;
         }
         settings.output(kind,destination.getId());selectedOutput=kind;outputRevision++;
+        bluetoothWakeProbe=false;wakeComputerVerified=false;
+        main.removeCallbacks(bluetoothWakeTimeout);main.removeCallbacks(outputWaitTimeout);
         outputRecovery.cancel();main.removeCallbacks(retryExternalOutput);
         startListening(true, false);
         if(!requestedMac && !userStopped && running && state.phase==RelayState.Phase.PHONE){
@@ -203,14 +320,17 @@ public class RelayService extends Service {
         outputRecovery.lost(selectedOutput!=OutputRoute.SPEAKER,settings.autoReconnect());
         settings.outputRecovery(outputRecovery.waiting());
         if(!outputRecovery.waiting()){park(RelayHandoff.Intent.OUTPUT,RelayState.Phase.HEADPHONES,"Output disconnected");return;}
-        ++startTicket;main.removeCallbacks(finishPausedService);main.removeCallbacks(connectionWatchdog);
-        requestedMac=false;focusGranted=false;profileReady=false;parkedIntent=RelayHandoff.Intent.OUTPUT;
+        ++startTicket;main.removeCallbacks(finishPausedService);main.removeCallbacks(connectionWatchdog);main.removeCallbacks(renewLocks);clearBackgroundReconnectTimeout();
+        requestedMac=false;focusGranted=false;running=false;profileReady=false;parkedIntent=RelayHandoff.Intent.OUTPUT;
         resumeWhenQuietAfterReconnect=false;pendingOutputOnConnect=-1;
-        generation.incrementAndGet();mute();closeConnection();handoff=null;locks.release();audio.abandonAudioFocusRequest(focus);
+        generation.incrementAndGet();mute();closeConnection();handoff=null;locks.release();discovery.stop();
+        if(worker!=null)LockSupport.unpark(worker);
+        audio.abandonAudioFocusRequest(focus);
         outputControlSupported=false;computerOutputSelected=false;mediaSession.setActive(false);
         publish(RelayState.Phase.HEADPHONES,"Waiting for headphones","Reconnect Bluetooth, wired or USB audio to resume automatically.");
         foreground(false);
-        if(!running){running=true;worker=new Thread(this::receive,"relay-playback");worker.start();}
+        main.removeCallbacks(outputWaitTimeout);
+        main.postDelayed(outputWaitTimeout, ExternalOutputRecovery.OUTPUT_WAIT_TIMEOUT_MS);
         scheduleExternalOutput();
     }
     private int startTicket;
@@ -249,7 +369,7 @@ public class RelayService extends Service {
             else if ("phone".equals(settings.controlsSource())) state = new RelayState(RelayState.Phase.PHONE, "Phone audio", "Choose Computer in the notification to return.");
         }
         locks = new PlaybackLocks(this);
-        discovery = new MacDiscovery(this); if (settings.paired()) discovery.start(settings.pin());
+        discovery = new MacDiscovery(this);
         connectivity=getSystemService(android.net.ConnectivityManager.class);
         try {
             connectivity.registerNetworkCallback(new android.net.NetworkRequest.Builder()
@@ -306,37 +426,53 @@ public class RelayService extends Service {
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int id) {
-        if (intent == null || "RESTORE_OUTPUT".equals(intent.getAction()) || "BLUETOOTH_WAKE".equals(intent.getAction())) {
-            // Android may recreate a sticky service or deliver a Bluetooth audio broadcast
-            // hours after process eviction. Restore only a saved external-output session.
-            boolean wakeProbe = intent != null && "BLUETOOTH_WAKE".equals(intent.getAction());
-            selectedOutput = settings.output();
-            outputRecovery.restore(settings.outputRecoveryPin(), settings.pin(),
-                    settings.autoReconnect() && settings.paired() && selectedOutput != OutputRoute.SPEAKER);
-            if (!outputRecovery.waiting()) { requestStop(); return START_NOT_STICKY; }
-            bluetoothWakeProbe = wakeProbe;
-            silentProbeStop = false;
-            main.removeCallbacks(bluetoothWakeTimeout);
-            if (wakeProbe) main.postDelayed(bluetoothWakeTimeout, BLUETOOTH_WAKE_TIMEOUT_MS);
+        if (intent == null) {
+            // Never resurrect an idle background service after OS eviction; ExternalOutputReceiver wakes on Bluetooth connect.
+            silentProbeStop = true;
+            stopSelf();
+            return START_NOT_STICKY;
+        }
+        String action = intent.getAction();
+        if ("RESTORE_OUTPUT".equals(action) || "BLUETOOTH_WAKE".equals(action)) {
+            // Always satisfy startForegroundService() immediately before any early exit.
             if (!foreground(false)) {
-                // System denied background FGS start: stop cleanly while preserving persisted
-                // reconnect intent so a later Bluetooth connect or app open can resume.
                 bluetoothWakeProbe = false;
                 silentProbeStop = true;
                 outputRecovery.cancel();
                 stopSelf();
                 return START_NOT_STICKY;
             }
-            waitForExternalOutput();
-            return wakeProbe ? START_NOT_STICKY : START_STICKY;
+            if (running && requestedMac) return START_NOT_STICKY;
+            selectedOutput = settings.output();
+            outputRecovery.restore(settings.outputRecoveryPin(), settings.pin(),
+                    settings.autoReconnect() && settings.paired() && selectedOutput != OutputRoute.SPEAKER);
+            if (!outputRecovery.waiting() || !hasLocalNetwork(this)) {
+                finishIdleServicePreservingRecovery();
+                return START_NOT_STICKY;
+            }
+            bluetoothWakeProbe = true;
+            wakeComputerVerified = false;
+            silentProbeStop = false;
+            automaticOutputAttempts = 0;
+            main.removeCallbacks(bluetoothWakeTimeout);
+            main.removeCallbacks(outputWaitTimeout);
+            main.postDelayed(bluetoothWakeTimeout, ExternalOutputRecovery.BLUETOOTH_WAKE_TIMEOUT_MS);
+            if (settings.paired()) discovery.start(settings.pin());
+            publish(RelayState.Phase.HEADPHONES, "Checking for " + settings.computerName(), "Connecting automatically if your computer is ready.");
+            startWakeProbe();
+            scheduleExternalOutput();
+            return START_NOT_STICKY;
         }
-        String action = intent.getAction();
+        lastFailedWakeAt = 0;
         bluetoothWakeProbe = false;
+        wakeComputerVerified = false;
         silentProbeStop = false;
+        ++wakeProbeTicket;
         main.removeCallbacks(bluetoothWakeTimeout);
+        main.removeCallbacks(outputWaitTimeout);
         foreground(canPlay());
         if ("STOP".equals(action)) { settings.groupGuest(false); requestStop(); return START_NOT_STICKY; }
-        if ("OUTPUT_COMPUTER".equals(action)) { selectComputerOutput(); return START_STICKY; }
+        if ("OUTPUT_COMPUTER".equals(action)) { selectComputerOutput(); return START_NOT_STICKY; }
         if ("LOCAL_OUTPUT".equals(action)) {
             cancelOutputRecovery();
             boolean resume = requestedMac && !computerOutputSelected;
@@ -348,31 +484,32 @@ public class RelayService extends Service {
             outputRevision++; generation.incrementAndGet();
             if (resume) startListening(false);
             else if (!running || socket==null) stopSelf();
-            return START_STICKY;
+            return START_NOT_STICKY;
         }
-        if ("SYNC".equals(action)) return START_STICKY; // Control thread sends saved calibration.
+        if ("SYNC".equals(action)) return START_NOT_STICKY; // Control thread sends saved calibration.
         if ("RESYNC".equals(action)) {
             if (canPlay()) { manualResyncs++; generation.incrementAndGet(); publish(RelayState.Phase.BUFFERING, "Refreshing audio", "Keeping your selected output connected."); }
-            return START_STICKY;
+            return START_NOT_STICKY;
         }
         if ("PAUSE".equals(action) || "USE_PHONE".equals(action)) {
             park(RelayHandoff.Intent.PAUSE, RelayState.Phase.PHONE, "Phone audio");
-            return START_STICKY;
+            return START_NOT_STICKY;
         }
         if ("MEDIA_RESUME".equals(action)) {
-            if (!"paused".equals(settings.controlsSource())) { stopSelf(); return START_STICKY; }
+            if (!"paused".equals(settings.controlsSource())) { stopSelf(); return START_NOT_STICKY; }
             action = "PLAY";
         }
         if ("MEDIA_PAUSE".equals(action)) {
             if (state.macSelected()) pauseComputer(); else stopSelf();
-            return START_STICKY;
+            return START_NOT_STICKY;
         }
         if (!"PLAY".equals(action)) { requestStop(); return START_NOT_STICKY; }
         cancelOutputRecovery();automaticOutputAttempts=0;
         main.removeCallbacks(finishPausedService);
+        clearBackgroundReconnectTimeout();
         final int ticket = ++startTicket;
         startWhenReleased(ticket, SystemClock.uptimeMillis() + 5000);
-        return START_STICKY;
+        return START_NOT_STICKY;
     }
 
     private void startWhenReleased(int ticket, long deadline) {
@@ -450,7 +587,9 @@ public class RelayService extends Service {
             return;
         }
         lastTrafficAt=SystemClock.elapsedRealtime();
-        main.removeCallbacks(connectionWatchdog);main.post(connectionWatchdog);
+        main.removeCallbacks(connectionWatchdog);
+        if (socket != null) main.postDelayed(connectionWatchdog, 500);
+        else { discovery.start(settings.pin()); armBackgroundReconnectTimeout(); }
         locks.acquire(useWifi);
         if (current != null) current.request(RelayHandoff.Intent.LISTEN);
         mediaSession.setActive(true);
@@ -458,9 +597,8 @@ public class RelayService extends Service {
         if (selectedOutput != OutputRoute.SPEAKER && settings.autoReconnect()) settings.outputRecovery(true);
         publish(RelayState.Phase.CONNECTING, "Connecting to " + settings.computerName(), "Output: " + headphoneName + ". Keep the desktop companion open.");
         if (!running || worker == null || !worker.isAlive()) {
-            running = true; main.removeCallbacks(renewLocks);main.removeCallbacks(connectionWatchdog); main.post(renewLocks);
+            running = true; main.removeCallbacks(renewLocks); main.post(renewLocks);
             worker = new Thread(this::receive, "relay-playback"); worker.start();
-            main.post(connectionWatchdog);
         }
     }
 
@@ -501,10 +639,11 @@ public class RelayService extends Service {
     private void pausePlayback(RelayState.Phase phase, String title, String detail) {
         groupTimingStatus = "";
         cancelOutputRecovery();
+        clearBackgroundReconnectTimeout();
         ++startTicket; main.removeCallbacks(finishPausedService);
         main.removeCallbacks(renewLocks);main.removeCallbacks(connectionWatchdog);
         requestedMac = false; focusGranted = false; running = false; profileReady = false;
-        generation.incrementAndGet(); mute(); closeConnection(); locks.release();
+        generation.incrementAndGet(); mute(); closeConnection(); locks.release(); discovery.stop();
         audio.abandonAudioFocusRequest(focus);
         settings.controlsSource("phone");
         mediaSession.setActive(false);
@@ -542,6 +681,7 @@ public class RelayService extends Service {
     private void park(RelayHandoff.Intent intent, RelayState.Phase phase, String title) {
         groupTimingStatus = "";
         cancelOutputRecovery();
+        if (intent != RelayHandoff.Intent.PHONE) clearBackgroundReconnectTimeout();
         if (userStopped) return;
         ++startTicket; main.removeCallbacks(finishPausedService);
         requestedMac = false; focusGranted = false; profileReady = false; parkedIntent = intent;
@@ -687,7 +827,7 @@ public class RelayService extends Service {
                 resumeWhenQuietAfterReconnect=connections>0 && !requestedMac && parkedIntent==RelayHandoff.Intent.PHONE;
                 socket = connection; connections++; profileReady = false;
                 lastTrafficAt=SystemClock.elapsedRealtime();
-                main.post(()->{if(socket==connection){bluetoothWakeProbe=false;main.removeCallbacks(bluetoothWakeTimeout);if(requestedMac&&focusGranted){locks.acquire(useWifi);foreground(true);}}});
+                main.post(()->{if(socket==connection){bluetoothWakeProbe=false;wakeComputerVerified=false;lastFailedWakeAt=0;main.removeCallbacks(bluetoothWakeTimeout);main.removeCallbacks(outputWaitTimeout);clearBackgroundReconnectTimeout();discovery.stop();main.removeCallbacks(connectionWatchdog);main.postDelayed(connectionWatchdog,500);if(requestedMac&&focusGranted){locks.acquire(useWifi);foreground(true);}}});
                 handoff = new RelayHandoff(requestedMac ? RelayHandoff.Intent.LISTEN : parkedIntent);
                 int pendingOutput = pendingOutputOnConnect;
                 if (pendingOutput >= 0) handoff.requestOutput(pendingOutput == 1);
@@ -714,7 +854,7 @@ public class RelayService extends Service {
                     if(!reconnectable()) {
                         main.post(()->pausePlayback(RelayState.Phase.ERROR,"Computer unavailable","Keep both devices on the same Wi-Fi, then tap Connect."));break;
                     }
-                    main.post(()->{if(liveInstance==this&&running&&socket==null){locks.release();foreground(false);}});
+                    main.post(()->{if(liveInstance==this&&running&&socket==null){locks.release();foreground(false);main.removeCallbacks(connectionWatchdog);if(settings.paired())discovery.start(settings.pin());armBackgroundReconnectTimeout();}});
                     publish(requestedMac?RelayState.Phase.RECONNECTING:RelayState.Phase.PHONE, "Reconnecting to your computer", "Check the local network and desktop companion. Audio returns after a secure connection.");
                 }
             } finally {
@@ -723,7 +863,7 @@ public class RelayService extends Service {
                 outputControlSupported = false; computerOutputSelected = false;
                 if (!requestedMac && !reconnectable()) {
                     main.post(() -> {
-                        if (!requestedMac && socket == null && !reconnectable()) {
+                        if (liveInstance == this && !silentProbeStop && !requestedMac && socket == null && !reconnectable()) {
                             if (!userStopped && state.phase != RelayState.Phase.ERROR) publish(RelayState.Phase.ERROR, "Computer disconnected", "Keep both devices on the same Wi-Fi and open PairIt on your computer, then reconnect.");
                             stopSelf();
                         }
@@ -1078,11 +1218,12 @@ public class RelayService extends Service {
     private void requestStop() {
         groupTimingStatus = "";
         cancelOutputRecovery();
+        clearBackgroundReconnectTimeout();
         endListeningFeedback();
         ++startTicket; settings.controlsSource(""); main.removeCallbacks(finishPausedService);
         pendingOutputOnConnect = -1;
         userStopped = true; requestedMac = false; focusGranted = false; profileReady = false;
-        generation.incrementAndGet(); mute(); locks.release(); audio.abandonAudioFocusRequest(focus);
+        generation.incrementAndGet(); mute(); locks.release(); discovery.stop(); audio.abandonAudioFocusRequest(focus);
         RelayHandoff control = handoff;
         if (control != null) {
             control.request(RelayHandoff.Intent.RELEASE);
